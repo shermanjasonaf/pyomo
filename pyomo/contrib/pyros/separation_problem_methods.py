@@ -79,7 +79,9 @@ def make_separation_objective_functions(model, config):
             model.util.separation_objectives.append(obj)
         elif c.lower is not None:
             # This is an >= constraint, not supported
-            raise ValueError("All inequality constraints in model must be in standard form (<= RHS)")
+            raise ValueError("Constraint " + c.name + " not in standard form. "
+                             "All inequality constraints in model must be in "
+                             "standard form (<= RHS)")
 
     model.util.map_obj_to_constr = map_obj_to_constr
     for obj in model.util.separation_objectives:
