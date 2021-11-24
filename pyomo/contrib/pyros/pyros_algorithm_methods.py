@@ -156,8 +156,24 @@ def ROSolver_iterative_solve(model_data, config):
 
         # === Solve Master Problem
         config.progress_logger.info("PyROS working on iteration %s..." % k)
+
+        # ------ Timer
+        import time
+        start = time.time()
+        # ------ (end) Timer
         master_soln = master_problem_methods.solve_master(model_data=master_data, config=config)
-        #config.progress_logger.info("Done solving Master Problem!")
+
+        # ----- Additional print statements for master problem results
+        master_solve_time = time.time() - start
+        print('*' * 60)
+        print('First stage objective:', master_soln.first_stage_objective)
+        print('Second stage objective:', master_soln.second_stage_objective)
+        print('Total:',
+              master_soln.first_stage_objective + master_soln.second_stage_objective)
+        print('Solve time (wall s)', master_solve_time)
+        print('*' * 60)
+
+        config.progress_logger.info("Done solving Master Problem!")
         master_soln.master_problem_subsolver_statuses = []
 
         # === Keep track of total time and subsolver termination conditions

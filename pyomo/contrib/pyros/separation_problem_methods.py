@@ -267,7 +267,12 @@ def solve_separation_problem(model_data, config):
             # The list of performance constraints with this priority
             perf_constraints = [constr_name for constr_name, priority in actual_sep_priority_dict.items() if priority == val]
             for perf_con in perf_constraints:
-                #config.progress_logger.info("Separating constraint " + str(perf_con))
+                if is_global:
+                    adverb = 'globally'
+                else:
+                    adverb = 'locally'
+                config.progress_logger.info("Separating constraint "
+                                            + adverb + ' ' + str(perf_con))
                 try:
                     separation_obj = objectives_map[perf_con]
                 except:
@@ -333,9 +338,9 @@ def solve_separation_problem(model_data, config):
         violations = solve_data_list[idx_i][idx_j].list_of_scaled_violations
 
         if any(s.found_violation for solve_list in solve_data_list for s in solve_list):
-            #config.progress_logger.info(
-            #	"Violation found in constraint %s with realization %s" % (
-            #	list(objectives_map.keys())[idx_i], violating_realizations))
+            config.progress_logger.info(
+            	"Violation found in constraint %s with realization %s" % (
+            	list(objectives_map.keys())[idx_i], violating_realizations))
             return solve_data_list, violating_realizations, violations, is_global, local_solve_time, global_solve_time
 
     return solve_data_list, [], [], is_global, local_solve_time, global_solve_time
@@ -434,6 +439,14 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
                                solver)
         try:
             results = solver.solve(nlp_model, tee=config.tee)
+
+            # write subproblem to file
+            objective = str(list(nlp_model.component_data_objects(Objective, active=True))[0].name)
+            if save_dir is not None:
+                name = os.path.join(save_dir,
+                                config.uncertainty_set.type + "_" + nlp_model.name + "_separation_" +
+                                str(model_data.iteration) + "_obj_" + objective + ".bar")
+                nlp_model.write(name, io_options={'symbolic_solver_labels':True})
         except ValueError as err:
             if 'Cannot load a SolverResults object with bad status: error' in str(err):
                 solve_data.termination_condition = tc.error
@@ -446,6 +459,14 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         # === Process result
         is_violation(model_data, config, solve_data)
 
+        # ----- additional termination condition progress messages
+        viol = value(nlp_model.__getattribute__(objective))
+        config.progress_logger.info('\tTermination condition: ' +
+                                    str(solve_data.termination_condition)
+                                    + ' | Violation ' + str(viol)
+                                    + ' | Is violation '
+                                    + str(viol > config.robust_feasibility_tolerance))
+        # ------ (end) additional termination progress messages
         if solve_data.termination_condition in globally_acceptable or \
                 (not is_global and solve_data.termination_condition in locally_acceptable):
             return False
