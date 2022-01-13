@@ -801,12 +801,26 @@ def add_decision_rule_constraints(model_data, config):
             decision_rule_eqns.append(getattr(model_data.working_model, "decision_rule_eqn_" + str(i)))
     elif degree == 1:
         for i in range(len(second_stage_variables)):
+            # import pdb
+            second_stage_variables[i].pprint()
+            print("Var name: ", second_stage_variables[i].name)
+            time_idx = int(second_stage_variables[i].name.split("[")[1].split("]")[0])
+            print("Time index: ", time_idx)
+            # pdb.set_trace()
             expr = 0
             for j in range(len(getattr(model_data.working_model, "decision_rule_var_" + str(i)))):
                 if j == 0:
                     expr += getattr(model_data.working_model, "decision_rule_var_" + str(i))[j]
                 else:
                     expr += getattr(model_data.working_model, "decision_rule_var_" + str(i))[j] * uncertain_params[j - 1]
+
+                    # fix future decision variable coefficients (non-anticipativity)
+                    if j > time_idx:
+                        getattr(model_data.working_model, "decision_rule_var_" + str(i))[j].setlb(0)
+                        getattr(model_data.working_model, "decision_rule_var_" + str(i))[j].setub(0)
+
+                    # getattr(model_data.working_model, "decision_rule_var_" + str(i)).pprint()
+
             model_data.working_model.add_component("decision_rule_eqn_" + str(i), Constraint(expr= expr == second_stage_variables[i]))
             decision_rule_eqns.append(getattr(model_data.working_model, "decision_rule_eqn_" + str(i)))
     elif degree >= 2:
