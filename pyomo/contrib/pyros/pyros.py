@@ -458,7 +458,14 @@ class PyROS(object):
                 return_soln.final_objective_value = None
                 return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
-        return return_soln
+
+        # set up for more verbose output
+        pyros_soln.config = return_soln.config
+        pyros_soln.iterations = return_soln.iterations
+        pyros_soln.time = return_soln.time
+        pyros_soln.final_objective_value = return_soln.final_objective_value
+
+        return pyros_soln
 
 
 def _generate_filtered_docstring():
