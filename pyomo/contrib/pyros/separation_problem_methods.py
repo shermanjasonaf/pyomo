@@ -447,22 +447,23 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         if not solver.available():
             raise RuntimeError("Solver %s is not available." %
                                solver)
-        try:
-            results = solver.solve(nlp_model, tee=config.tee)
+        from idaes.core.util.model_diagnostics import DegeneracyHunter
+        import pyomo.environ as pyo
+        print("Separating:", nlp_model.name)
+        results = solver.solve(nlp_model, tee=config.tee, load_solutions=False)
+        # print(results, results.solver.termination_condition)
 
-            # write subproblem to file
-            objective = str(list(nlp_model.component_data_objects(Objective, active=True))[0].name)
-            if save_dir is not None:
-                name = os.path.join(save_dir,
-                                config.uncertainty_set.type + "_" + nlp_model.name + "_separation_" +
-                                str(model_data.iteration) + "_obj_" + objective + ".bar")
-                nlp_model.write(name, io_options={'symbolic_solver_labels':True})
-        except ValueError as err:
-            if 'Cannot load a SolverResults object with bad status: error' in str(err):
-                solve_data.termination_condition = tc.error
-                return True
-            else:
-                raise
+        if pyo.check_optimal_termination(results):
+            nlp_model.solutions.load_from(results)
+        else:
+            solve_data.termination_condition = tc.error
+            print("Caught the error here!")
+            print(results, results.solver.termination_condition)
+            dh = DegeneracyHunter(nlp_model,
+                                  solver=pyo.SolverFactory("cplex"))
+            dh.check_rank_equality_constraints()
+            return True
+
         solver_status_dict[str(solver)] = results.solver.termination_condition
         solve_data.termination_condition = results.solver.termination_condition
         solve_data.results = results
@@ -470,6 +471,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         is_violation(model_data, config, solve_data)
 
         # ----- additional termination condition progress messages
+        objective = str(list(nlp_model.component_data_objects(Objective, active=True))[0].name)
         viol = value(nlp_model.__getattribute__(objective))
         config.progress_logger.info('\tTermination condition: ' +
                                     str(solve_data.termination_condition)
