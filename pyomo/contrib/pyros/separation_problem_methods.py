@@ -462,7 +462,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
             print(results, results.solver.termination_condition)
 
             # change max_iter and solve again
-            solver.options["max_iter"] = 22
+            solver.options["max_iter"] = 0
             results = solver.solve(nlp_model, tee=config.tee,
                                    load_solutions=True)
             solver.options.pop("max_iter")
