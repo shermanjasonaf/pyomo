@@ -447,21 +447,33 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         if not solver.available():
             raise RuntimeError("Solver %s is not available." %
                                solver)
-        from idaes.core.util.model_diagnostics import DegeneracyHunter
-        import pyomo.environ as pyo
         print("Separating:", nlp_model.name)
         results = solver.solve(nlp_model, tee=config.tee, load_solutions=False)
-        # print(results, results.solver.termination_condition)
 
-        if pyo.check_optimal_termination(results):
+        from pyomo.environ import check_optimal_termination, SolverFactory
+
+        if check_optimal_termination(results):
             nlp_model.solutions.load_from(results)
         else:
             solve_data.termination_condition = tc.error
+
+            # report error
             print("Caught the error here!")
             print(results, results.solver.termination_condition)
+
+            # change max_iter and solve again
+            solver.options["max_iter"] = 22
+            results = solver.solve(nlp_model, tee=config.tee,
+                                   load_solutions=True)
+            solver.options.pop("max_iter")
+
+            # invoke IDAES DegeneracyHunter diagnostics
+            from idaes.core.util.model_diagnostics import DegeneracyHunter
             dh = DegeneracyHunter(nlp_model,
-                                  solver=pyo.SolverFactory("cplex"))
+                                  solver=SolverFactory("cplex"))
+            dh.check_residuals(tol=1e-5)
             dh.check_rank_equality_constraints()
+
             return True
 
         solver_status_dict[str(solver)] = results.solver.termination_condition
