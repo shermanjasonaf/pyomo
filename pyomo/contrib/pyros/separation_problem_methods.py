@@ -273,8 +273,16 @@ def solve_separation_problem(model_data, config):
             # Descending ordered by value
             # The list of performance constraints with this priority
             perf_constraints = [constr_name for constr_name, priority in actual_sep_priority_dict.items() if priority == val]
-            for perf_con in perf_constraints:
+            for idx, perf_con in enumerate(perf_constraints):
                 #config.progress_logger.info("Separating constraint " + str(perf_con))
+                if is_global:
+                    adverb = 'globally'
+                else:
+                    adverb = 'locally'
+                config.progress_logger.info(
+                        f"Separating constraint {str(perf_con)}"
+                        f"({idx + 1} of {len(perf_constraints)}) {adverb}"
+                )
                 try:
                     separation_obj = objectives_map[perf_con]
                 except:
@@ -453,6 +461,15 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         solve_data.results = results
         # === Process result
         is_violation(model_data, config, solve_data)
+        # ----- additional termination condition progress messages
+        objective = str(list(nlp_model.component_data_objects(Objective, active=True))[0].name)
+        viol = value(nlp_model.__getattribute__(objective))
+        config.progress_logger.info('\tTermination condition: ' +
+                                    str(solve_data.termination_condition)
+                                    + ' | Violation ' + str(viol)
+                                    + ' | Is violation '
+                                    + str(viol > config.robust_feasibility_tolerance))
+        # ------ (end) additional termination progress messages
 
         if solve_data.termination_condition in globally_acceptable or \
                 (not is_global and solve_data.termination_condition in locally_acceptable):
