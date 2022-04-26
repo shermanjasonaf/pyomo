@@ -20,6 +20,7 @@ from pyomo.core.expr.sympy_tools import sympyify_expression, sympy2pyomo_express
 from pyomo.common.dependencies import scipy as sp
 from pyomo.core.expr.numvalue import native_types
 from pyomo.util.vars_from_expressions import get_vars_from_components
+from pyomo.opt import SolverStatus, SolutionStatus
 import itertools as it
 import timeit
 from contextlib import contextmanager
@@ -98,6 +99,66 @@ class pyrosTerminationCondition(Enum):
     max_iter = 3
     subsolver_error = 4
     time_out = 5
+
+    @classmethod
+    def solver_status(cls, pyros_term_cond, infeasible_aborted=False):
+        """
+        Map PyROS termination conditino to a Pyomo solver status.
+        """
+        cond_status_map = {
+            pyrosTerminationCondition.robust_feasible: SolverStatus.ok,
+            pyrosTerminationCondition.robust_optimal: SolverStatus.ok,
+            pyrosTerminationCondition.max_iter: SolverStatus.warning,
+            pyrosTerminationCondition.time_out: SolverStatus.warning,
+            pyrosTerminationCondition.subsolver_error: SolverStatus.error,
+        }
+        is_infeasible = (
+            pyros_term_cond == pyrosTerminationCondition.robust_infeasible
+        )
+        if is_infeasible and infeasible_aborted:
+            return SolverStatus.aborted
+        else:
+            return cond_status_map[pyros_term_cond]
+
+    @classmethod
+    def termination_condition(cls, pyros_term_cond):
+        """
+        Map PyROS termination condition to a Pyomo termination
+        condition.
+        """
+        term_cond_map = {
+            pyrosTerminationCondition.robust_feasible:
+                tc.feasible,
+            pyrosTerminationCondition.robust_optimal:
+                tc.optimal,
+            pyrosTerminationCondition.max_iter:
+                tc.maxIterations,
+            pyrosTerminationCondition.time_out:
+                tc.maxIterations,
+            pyrosTerminationCondition.subsolver_error:
+                tc.error
+        }
+        return term_cond_map[pyros_term_cond]
+
+    @classmethod
+    def solution_status(cls, pyros_term_cond):
+        """
+        Map PyROS termination condition to a Pyomo solution
+        status.
+        """
+        solution_status_map = {
+            pyrosTerminationCondition.robust_feasible:
+                SolutionStatus.feasible,
+            pyrosTerminationCondition.robust_optimal:
+                SolutionStatus.globallyOptimal,
+            pyrosTerminationCondition.max_iter:
+                SolutionStatus.stoppedByLimit,
+            pyrosTerminationCondition.time_out:
+                SolutionStatus.stoppedByLimit,
+            pyrosTerminationCondition.subsolver_error:
+                SolutionStatus.error,
+        }
+        return solution_status_map[pyros_term_cond]
 
 
 class SeparationStrategy(Enum):
@@ -910,6 +971,10 @@ def load_final_solution(model_data, master_soln, config):
     :param master_soln: results data container object returned to user
     :return:
     '''
+    from pyomo.opt.results import Solution
+
+    sol = Solution()
+
     if config.objective_focus == ObjectiveType.nominal:
         model = model_data.original_model
         soln = master_soln.nominal_block
@@ -925,9 +990,13 @@ def load_final_solution(model_data, master_soln, config):
     varMap = list(zip(src_vars, local_vars))
 
     for src, local in varMap:
-        src.set_value(local.value, skip_validation=True)
+        if config.load_solution:
+            src.set_value(local.value, skip_validation=True)
+        sol.variable[src.name] = {"Value": local.value}
 
-    return
+    del model.tmp_var_list
+
+    return sol
 
 
 def process_termination_condition_master_problem(config, results):

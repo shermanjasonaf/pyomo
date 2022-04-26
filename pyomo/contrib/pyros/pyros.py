@@ -10,6 +10,10 @@
 
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
 import logging
+import os
+from pyomo.opt.results import SolverResults
+from pyomo.core.expr.visitor import identify_variables
+
 from pyomo.common.collections import Bunch, ComponentSet
 from pyomo.common.config import (
     ConfigDict, ConfigValue, In, NonNegativeFloat, add_docstring_list
@@ -338,7 +342,7 @@ class PyROS(object):
                                  "as the uncertain_params list")
 
         # === Create data containers
-        model_data = ROSolveResults()
+        model_data = Bunch()
         model_data.timing = Bunch()
 
         # === Set up logger for logging results
@@ -381,6 +385,8 @@ class PyROS(object):
                     active=True,
                     descend_into=True)
             )[0]
+            # capture sense of active objective for recording results
+            active_obj_sense = active_obj.sense
             active_obj = recast_to_min_obj(model_data.working_model,
                                            active_obj)
 
@@ -439,33 +445,84 @@ class PyROS(object):
             # === Solve and load solution into model
             pyros_soln, final_iter_separation_solns = ROSolver_iterative_solve(model_data, config)
 
+            # construct list of state vars for counting
+            state_vars = list(
+                v
+                for con in model.component_data_objects(Constraint,
+                                                        active=True)
+                for v in identify_variables(con.expr)
+                if v not in ComponentSet(first_stage_variables)
+                and v not in ComponentSet(second_stage_variables)
+            )
 
-            return_soln = ROSolveResults()
+            # set up solver results
+            res = SolverResults()
+
+            # problem details for results
+            res.problem.number_of_first_stage_vars = len(first_stage_variables)
+            res.problem.number_of_second_stage_vars = (
+                len(second_stage_variables)
+            )
+            res.problem.number_of_state_vars = len(state_vars)
+            res.problem.objective_focus = config.objective_focus
+            res.problem.sense = active_obj_sense
+            res.problem.decision_rule_order = config.decision_rule_order
+            res.problem.variable_partitioning = {
+                "first stage variables": [var.name for var in first_stage_variables],
+                "second stage variables": [var.name for var in second_stage_variables],
+                "state variables": [var.name for var in state_vars],
+            }
+            res.problem.uncertain_params = [param.name for param in uncertain_params]
+
             if pyros_soln is not None and final_iter_separation_solns is not None:
-                if config.load_solution and \
-                        (pyros_soln.pyros_termination_condition is pyrosTerminationCondition.robust_optimal or
-                         pyros_soln.pyros_termination_condition is pyrosTerminationCondition.robust_feasible):
-                    load_final_solution(model_data, pyros_soln.master_soln, config)
+                appropriate_pyros_termination = (
+                    pyros_soln.pyros_termination_condition in
+                    {pyrosTerminationCondition.robust_optimal,
+                     pyrosTerminationCondition.robust_feasible}
+                )
+                if appropriate_pyros_termination:
+                    soln = load_final_solution(model_data,
+                                               pyros_soln.master_soln,
+                                               config)
 
                 # === Return time info
-                model_data.total_cpu_time = get_main_elapsed_time(model_data.timing)
-                iterations = pyros_soln.total_iters + 1
-
-                # === Return config to user
-                return_soln.config = config
-                # Report the negative of the objective value if it was originally maximize, since we use the minimize form in the algorithm
-                if next(model.component_data_objects(Objective)).sense == maximize:
-                    negation = -1
-                else:
-                    negation = 1
+                # Report the negative of the objective value if it was
+                # originally maximize, since we use the minimize form
+                # in the algorithm
+                negation = -1 if active_obj_sense is maximize else 1
                 if config.objective_focus == ObjectiveType.nominal:
-                    return_soln.final_objective_value = negation * value(pyros_soln.master_soln.master_model.obj)
+                    res.solver.final_objective_value = (
+                        negation
+                        * value(pyros_soln.master_soln.master_model.obj)
+                    )
                 elif config.objective_focus == ObjectiveType.worst_case:
-                    return_soln.final_objective_value = negation * value(pyros_soln.master_soln.master_model.zeta)
-                return_soln.pyros_termination_condition = pyros_soln.pyros_termination_condition
+                    res.solver.final_objective_value = (
+                        negation
+                        * value(pyros_soln.master_soln.master_model.zeta)
+                    )
+                res.solver.pyros_termination_condition = (
+                    pyros_soln.pyros_termination_condition
+                )
 
-                return_soln.time = model_data.total_cpu_time
-                return_soln.iterations = iterations
+                # construct results solver attribute
+                res.solver.pyros_termination_condition = (
+                    pyros_soln.pyros_termination_condition
+                )
+                res.solver.time = model_data.total_cpu_time
+                res.solver.iterations = pyros_soln.total_iters + 1
+
+                soln.objective[active_obj.name] = {
+                    "Value": res.solver.final_objective_value,
+                }
+                soln.status = pyrosTerminationCondition.solution_status(
+                    pyros_soln.pyros_termination_condition
+                )
+                soln._cuid = False
+                if not config.load_solution:
+                    res.solution.insert(soln)
+                else:
+                    res.solution.add()
+                    res.solution.clear()
 
                 # === Remove util block
                 model.del_component(model_data.util_block)
@@ -473,11 +530,40 @@ class PyROS(object):
                 del pyros_soln.util_block
                 del pyros_soln.working_model
             else:
-                return_soln.pyros_termination_condition = pyrosTerminationCondition.robust_infeasible
-                return_soln.final_objective_value = None
-                return_soln.time = get_main_elapsed_time(model_data.timing)
-                return_soln.iterations = 0
-        return return_soln
+                res.solver.pyros_termination_condition = (
+                    pyrosTerminationCondition.robust_infeasible
+                )
+                res.solver.final_objective_value = None
+                res.solver.iterations = 0
+
+        res.solver.status = (
+            pyrosTerminationCondition.solver_status(
+                res.solver.pyros_termination_condition,
+                infeasible_aborted=True,
+            )
+        )
+        res.solver.termination_condition = (
+            pyrosTerminationCondition.termination_condition(
+                res.solver.pyros_termination_condition,
+            )
+        )
+        res.solver.time = get_main_elapsed_time(model_data.timing)
+        res.solver.subproblem_file_directory = config.subproblem_file_directory
+        res.solver.robust_feasibility_tolerance = (
+            config.robust_feasibility_tolerance
+        )
+        res.solver.subproblem_file_directory = (
+            os.path.abspath(config.subproblem_file_directory)
+            if config.subproblem_file_directory is not None else None
+        )
+        res.solver.solve_master_globally = config.solve_master_globally
+        res.solver.bypass_local_separation = config.bypass_local_separation
+        res.solver.bypass_global_separation = config.bypass_global_separation
+
+        import pdb
+        pdb.set_trace()
+
+        return res
 
 
 def _generate_filtered_docstring():
