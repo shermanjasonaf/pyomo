@@ -108,9 +108,10 @@ class pyrosTerminationCondition(Enum):
         cond_status_map = {
             pyrosTerminationCondition.robust_feasible: SolverStatus.ok,
             pyrosTerminationCondition.robust_optimal: SolverStatus.ok,
+            pyrosTerminationCondition.robust_infeasible: SolverStatus.warning,
             pyrosTerminationCondition.max_iter: SolverStatus.warning,
             pyrosTerminationCondition.time_out: SolverStatus.warning,
-            pyrosTerminationCondition.subsolver_error: SolverStatus.error,
+            pyrosTerminationCondition.subsolver_error: SolverStatus.warning,
         }
         is_infeasible = (
             pyros_term_cond == pyrosTerminationCondition.robust_infeasible
@@ -131,10 +132,12 @@ class pyrosTerminationCondition(Enum):
                 tc.feasible,
             pyrosTerminationCondition.robust_optimal:
                 tc.optimal,
+            pyrosTerminationCondition.robust_infeasible:
+                tc.infeasible,
             pyrosTerminationCondition.max_iter:
                 tc.maxIterations,
             pyrosTerminationCondition.time_out:
-                tc.maxIterations,
+                tc.maxTimeLimit,
             pyrosTerminationCondition.subsolver_error:
                 tc.error
         }
@@ -149,6 +152,8 @@ class pyrosTerminationCondition(Enum):
         solution_status_map = {
             pyrosTerminationCondition.robust_feasible:
                 SolutionStatus.feasible,
+            pyrosTerminationCondition.robust_infeasible:
+                SolutionStatus.infeasible,
             pyrosTerminationCondition.robust_optimal:
                 SolutionStatus.globallyOptimal,
             pyrosTerminationCondition.max_iter:
@@ -965,38 +970,76 @@ def identify_objective_functions(model, config):
 
 
 def load_final_solution(model_data, master_soln, config):
-    '''
-    load the final solution into the original model object
-    :param model_data: model data container object
-    :param master_soln: results data container object returned to user
-    :return:
-    '''
+    """
+    Load final PyROS solution(s) (i.e. model variable, objective,
+    etc. values) into a sequence of Pyomo `Solution` objects,
+    depending on user options.
+
+    Parameters
+    ----------
+    model_data : Bunch
+        Model data container object, consisting of the original
+        user model.
+    master_soln : MasterResult
+        Container for the master model.
+    config : ConfigDict
+        User options for a PyROS `solve` call.
+
+    Returns
+    -------
+    solutions : list(pyomo.opt.results.Solution)
+        Sequence of model solutions (first-stage, second-stage,
+        state variable values), each taken from a block of the
+        master model provided in `master_soln`.
+    final_sol_iter : int
+        Index of the solution in `solutions` containing the nominal
+        or worst-case model solution.
+    """
     from pyomo.opt.results import Solution
 
     sol = Solution()
+    model = model_data.original_model
 
     if config.objective_focus == ObjectiveType.nominal:
-        model = model_data.original_model
-        soln = master_soln.nominal_block
+        final_sol_iter = 0
     elif config.objective_focus == ObjectiveType.worst_case:
-        model = model_data.original_model
         indices = range(len(master_soln.master_model.scenarios))
-        k = max(indices, key=lambda i: value(master_soln.master_model.scenarios[i, 0].first_stage_objective +
-                                             master_soln.master_model.scenarios[i, 0].second_stage_objective))
-        soln = master_soln.master_model.scenarios[k, 0]
+        final_sol_iter = max(
+            indices,
+            key=lambda i: value(
+                master_soln.master_model.scenarios[i, 0].first_stage_objective
+                + master_soln.master_model.scenarios[i, 0].second_stage_objective
+            )
+        )
 
     src_vars = getattr(model, 'tmp_var_list')
-    local_vars = getattr(soln, 'tmp_var_list')
-    varMap = list(zip(src_vars, local_vars))
 
-    for src, local in varMap:
-        if config.load_solution:
-            src.set_value(local.value, skip_validation=True)
-        sol.variable[src.name] = {"Value": local.value}
+    solutions = list()
 
+    # load variable and objective values to solution object(s)
+    for itn, blk in enumerate(master_soln.master_model.scenarios[:, 0]):
+        if itn == final_sol_iter or config.output_verbose_results:
+            blk_sol = Solution()
+            blk_vars = getattr(blk, "tmp_var_list")
+
+            for src, local in zip(src_vars, blk_vars):
+                if local.value is not None:
+                    blk_sol.variable[src.name] = {"Value": local.value}
+            blk_sol.objective["objective"] = {
+                "Value": value(
+                    blk.first_stage_objective + blk.second_stage_objective
+                )
+            }
+
+            solutions.append(blk_sol)
+
+    # index of final solution in the list depends on whether output is verbose
+    final_sol_iter = final_sol_iter if config.output_verbose_results else 0
+
+    # remove temporary variable references from user-input model
     del model.tmp_var_list
 
-    return sol
+    return solutions, final_sol_iter
 
 
 def process_termination_condition_master_problem(config, results):

@@ -9,7 +9,7 @@ from pyomo.contrib.pyros.solve_data import SeparationProblemData, MasterResult
 from pyomo.contrib.pyros.util import ObjectiveType, get_time_from_solver, pyrosTerminationCondition
 from pyomo.contrib.pyros.util import get_main_elapsed_time, output_logger, coefficient_matching
 from pyomo.core.base import value
-from pyomo.common.collections import ComponentSet
+from pyomo.common.collections import ComponentSet, Bunch
 
 def update_grcs_solve_data(pyros_soln, term_cond, nominal_data, timing_data, separation_data, master_soln, k):
     '''
@@ -141,7 +141,7 @@ def ROSolver_iterative_solve(model_data, config):
     nominal_data.nom_obj = 0
 
     # === Time information
-    timing_data = Block()
+    timing_data = Bunch()
     timing_data.total_master_solve_time = 0
     timing_data.total_separation_local_time = 0
     timing_data.total_separation_global_time = 0
