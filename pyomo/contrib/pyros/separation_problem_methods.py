@@ -45,11 +45,39 @@ def add_uncertainty_set_constraints(model, config):
     return
 
 
+def uncertainty_only_in_obj(model):
+    """
+    Determine whether the only inequality constraint in the model
+    in which uncertain parameters participate is the epigraph
+    constraint.
+    """
+    for con in model.component_data_objects(
+            Constraint,
+            active=True,
+            descend_into=True
+            ):
+        if not con.equality:
+            uncertain_params_in_expr = list(
+                var for var in
+                ComponentSet(identify_variables(expr=con.expr))
+                if var in
+                ComponentSet(model.util.uncertain_param_vars.values())
+            )
+            is_obj_con = (
+                "epigraph_constr" in con.name
+                or "new_constraints" in con.name
+            )
+            if uncertain_params_in_expr and not is_obj_con:
+                return False
+    return True
+
+
 def make_separation_objective_functions(model, config):
     """
     Inequality constraints referencing control variables, state variables, or uncertain parameters
     must be separated against in separation problem.
     """
+    only_obj_uncertain = uncertainty_only_in_obj(model)
     performance_constraints = []
     for c in model.component_data_objects(Constraint, active=True, descend_into=True):
         _vars = ComponentSet(identify_variables(expr=c.expr))
@@ -58,7 +86,12 @@ def make_separation_objective_functions(model, config):
         second_stage_variables_in_expr = list(v for v in model.util.second_stage_variables if v in _vars)
         if not c.equality and (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            performance_constraints.append(c)
+            if only_obj_uncertain and config.decision_rule_order == 0:
+                if "epigraph_constr" in c.name or "new_constraints" in c.name:
+                    print("Constraint", c.name)
+                    performance_constraints.append(c)
+            else:
+                performance_constraints.append(c)
         elif not c.equality and not (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             c.deactivate() # These are x \in X constraints, not active in separation because x is fixed to x* from previous master
     model.util.performance_constraints = performance_constraints
@@ -474,7 +507,8 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
             dh.check_residuals(tol=1e-5)
             dh.check_rank_equality_constraints()
 
-            return True
+            import pdb
+            pdb.set_trace()
 
         solver_status_dict[str(solver)] = results.solver.termination_condition
         solve_data.termination_condition = results.solver.termination_condition

@@ -132,9 +132,12 @@ def model_is_valid(model):
         obj = objectives[0]
 
         if obj.sense is not minimize:
-            sympy_obj = sympyify_expression(-obj.expr)
+            # sympy_obj = sympyify_expression(-obj.expr)
             # Use sympy to distribute the negation so the method for determining first/second stage costs is valid
-            min_obj = Objective(expr=sympy2pyomo_expression(sympy_obj[1].simplify(), sympy_obj[0]))
+            # min_obj = Objective(expr=sympy2pyomo_expression(sympy_obj[1].simplify(), sympy_obj[0]))
+            min_obj = Objective(
+                expr=sum(-term for term in obj.expr.args)
+            )
             model.del_component(obj)
             model.add_component(unique_component_name(model, obj.name+'_min'), min_obj)
         return True
