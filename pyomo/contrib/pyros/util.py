@@ -19,6 +19,7 @@ from pyomo.core.expr.visitor import identify_variables, identify_mutable_paramet
 from pyomo.core.expr.sympy_tools import sympyify_expression, sympy2pyomo_expression
 from pyomo.common.dependencies import scipy as sp
 from pyomo.core.expr.numvalue import native_types
+from pyomo.util.vars_from_expressions import get_vars_from_components
 import itertools as it
 import timeit
 from contextlib import contextmanager
@@ -335,15 +336,8 @@ def get_vars_from_component(block, ctype):
 
     """
 
-    seen = set()
-    for compdata in block.component_data_objects(
-            ctype,
-            descend_into=True,
-            active=True):
-        for var in EXPR.identify_variables(compdata.expr):
-            if id(var) not in seen:
-                seen.add(id(var))
-                yield var
+    return get_vars_from_components(block, ctype, active=True,
+                                    descend_into=True)
 
 
 def replace_uncertain_bounds_with_constraints(model, uncertain_params):
@@ -716,8 +710,11 @@ def add_decision_rule_variables(model_data, config):
     bounds = (None, None)
     if degree == 0:
         for i in range(len(second_stage_variables)):
-            model_data.working_model.add_component("decision_rule_var_" + str(i),
-                                                   Var(initialize=value(second_stage_variables[i]),bounds=bounds,domain=Reals))#bounds=(second_stage_variables[i].lb, second_stage_variables[i].ub)))
+            model_data.working_model.add_component(
+                    "decision_rule_var_" + str(i),
+                    Var(initialize=value(second_stage_variables[i], exception=False),
+                        bounds=bounds,domain=Reals)
+            )
             first_stage_variables.extend(getattr(model_data.working_model, "decision_rule_var_" + str(i)).values())
             decision_rule_vars.append(getattr(model_data.working_model, "decision_rule_var_" + str(i)))
     elif degree == 1:
@@ -727,9 +724,9 @@ def add_decision_rule_variables(model_data, config):
                     Var(index_set,
                         initialize=0,
                         bounds=bounds,
-                        domain=Reals))#bounds=(second_stage_variables[i].lb, second_stage_variables[i].ub)))
+                        domain=Reals))
             # === For affine drs, the [0]th constant term is initialized to the control variable values, all other terms are initialized to 0
-            getattr(model_data.working_model, "decision_rule_var_" + str(i))[0].set_value(value(second_stage_variables[i]), skip_validation=True)
+            getattr(model_data.working_model, "decision_rule_var_" + str(i))[0].set_value(value(second_stage_variables[i], exception=False), skip_validation=True)
             first_stage_variables.extend(list(getattr(model_data.working_model, "decision_rule_var_" + str(i)).values()))
             decision_rule_vars.append(getattr(model_data.working_model, "decision_rule_var_" + str(i)))
     elif degree == 2 or degree == 3 or degree == 4:
@@ -738,7 +735,7 @@ def add_decision_rule_variables(model_data, config):
             dict_init = {}
             for r in range(num_vars):
                 if r == 0:
-                    dict_init.update({r: value(second_stage_variables[i])})
+                    dict_init.update({r: value(second_stage_variables[i], exception=False)})
                 else:
                     dict_init.update({r: 0})
             model_data.working_model.add_component("decision_rule_var_" + str(i),
@@ -752,7 +749,6 @@ def add_decision_rule_variables(model_data, config):
             "Decision rule order " + str(config.decision_rule_order) +
             " is not yet supported. PyROS supports polynomials of degree 0 (static approximation), 1, 2.")
     model_data.working_model.util.decision_rule_vars = decision_rule_vars
-    return
 
 
 def partition_powers(n, v):
@@ -850,7 +846,6 @@ def add_decision_rule_constraints(model_data, config):
                 raise RuntimeError("Construction of the decision rule functions did not work correctly! "
                                    "Did not use all coefficient terms.")
     model_data.working_model.util.decision_rule_eqns = decision_rule_eqns
-    return
 
 
 def identify_objective_functions(model, config):

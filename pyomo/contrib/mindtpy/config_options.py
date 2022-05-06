@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
+import logging
 from pyomo.common.config import (
     ConfigBlock, ConfigValue, In, PositiveFloat, PositiveInt, NonNegativeInt)
 from pyomo.contrib.gdpopt.util import _DoNothing, a_logger
 
 
 def _get_MindtPy_config():
+    """Set up the configurations for MindtPy.
+
+    Returns
+    -------
+    CONFIG : ConfigBlock
+        The specific configurations for MindtPy
+    """
     CONFIG = ConfigBlock('MindtPy')
 
     CONFIG.declare('iteration_limit', ConfigValue(
@@ -17,7 +25,7 @@ def _get_MindtPy_config():
         default=15,
         domain=PositiveInt,
         description='Stalling limit',
-        doc='Stalling limit for progress in the decomposition methods.'
+        doc='Stalling limit for primal bound progress in the decomposition methods.'
     ))
     CONFIG.declare('time_limit', ConfigValue(
         default=600,
@@ -95,6 +103,12 @@ def _get_MindtPy_config():
         default='pyomo.contrib.mindtpy',
         description='The logger object or name to use for reporting.',
         domain=a_logger
+    ))
+    CONFIG.declare('logging_level', ConfigValue(
+        default=logging.INFO,
+        domain=NonNegativeInt,
+        description='The logging level for MindtPy.'
+                    'CRITICAL = 50, ERROR = 40, WARNING = 30, INFO = 20, DEBUG = 10, NOTSET = 0',
     ))
     CONFIG.declare('integer_to_binary', ConfigValue(
         default=False,
@@ -189,6 +203,25 @@ def _get_MindtPy_config():
                     'and minimize the sum of the slack variables (Augmented Penalty).',
         domain=bool
     ))
+    CONFIG.declare('partition_obj_nonlinear_terms', ConfigValue(
+        default=True,
+        description='Partition objective with the sum of nonlinear terms using epigraph reformulation.',
+        domain=bool
+    ))
+    CONFIG.declare('quadratic_strategy', ConfigValue(
+        default=0,
+        domain=In([0, 1, 2]),
+        description='How to treat the quadratic terms in MINLP.'
+                    '0 : treat as nonlinear terms'
+                    '1 : only use quadratic terms in objective function directly in main problem'
+                    '2 : use quadratic terms in objective function and constraints in main problem',
+    ))
+    CONFIG.declare('move_objective', ConfigValue(
+        default=False,
+        domain=bool,
+        description='Whether to replace the objective function to constraint using epigraph constraint.',
+    ))
+    
 
     _add_subsolver_configs(CONFIG)
     _add_tolerance_configs(CONFIG)
@@ -199,6 +232,13 @@ def _get_MindtPy_config():
 
 
 def _add_subsolver_configs(CONFIG):
+    """Adds the subsolver-related configurations.
+
+    Parameters
+    ----------
+    CONFIG : ConfigBlock
+        The specific configurations for MindtPy.
+    """
     CONFIG.declare('nlp_solver', ConfigValue(
         default='ipopt',
         domain=In(['ipopt', 'gams', 'baron']),
@@ -268,7 +308,14 @@ def _add_subsolver_configs(CONFIG):
 
 
 def _add_tolerance_configs(CONFIG):
-    CONFIG.declare('bound_tolerance', ConfigValue(
+    """Adds the tolerance-related configurations.
+
+    Parameters
+    ----------
+    CONFIG : ConfigBlock
+        The specific configurations for MindtPy.
+    """
+    CONFIG.declare('absolute_bound_tolerance', ConfigValue(
         default=1E-4,
         domain=PositiveFloat,
         description='Bound tolerance',
@@ -279,7 +326,7 @@ def _add_tolerance_configs(CONFIG):
         domain=PositiveFloat,
         description='Relative bound tolerance',
         doc='Relative tolerance for bound feasibility checks.'
-            '(UB - LB) / (1e-10+|bestinteger|) <= relative tolerance.'
+            '|Primal Bound - Dual Bound| / (1e-10 + |Primal Bound|) <= relative tolerance.'
     ))
     CONFIG.declare('small_dual_tolerance', ConfigValue(
         default=1E-8,
@@ -314,6 +361,13 @@ def _add_tolerance_configs(CONFIG):
 
 
 def _add_bound_configs(CONFIG):
+    """Adds the bound-related configurations.
+
+    Parameters
+    ----------
+    CONFIG : ConfigBlock
+        The specific configurations for MindtPy.
+    """
     CONFIG.declare('obj_bound', ConfigValue(
         default=1E15,
         domain=PositiveFloat,
@@ -329,9 +383,21 @@ def _add_bound_configs(CONFIG):
         description='Default bound added to unbounded integral variables in nonlinear constraint if single tree is activated.',
         domain=PositiveFloat
     ))
+    CONFIG.declare('initial_bound_coef', ConfigValue(
+        default=1E-1,
+        domain=PositiveFloat,
+        description='The coefficient used to approximate the initial primal/dual bound.'
+    ))
 
 
 def _add_fp_configs(CONFIG):
+    """Adds the feasibility pump-related configurations.
+
+    Parameters
+    ----------
+    CONFIG : ConfigBlock
+        The specific configurations for MindtPy.
+    """
     CONFIG.declare('fp_cutoffdecr', ConfigValue(
         default=1E-1,
         domain=PositiveFloat,
@@ -387,6 +453,13 @@ def _add_fp_configs(CONFIG):
 
 
 def _add_loa_configs(CONFIG):
+    """Adds the LOA-related configurations.
+
+    Parameters
+    ----------
+    CONFIG : ConfigBlock
+        The specific configurations for MindtPy.
+    """
     CONFIG.declare('level_coef', ConfigValue(
         default=0.5,
         domain=PositiveFloat,
@@ -421,10 +494,17 @@ def _add_loa_configs(CONFIG):
 
 
 def check_config(config):
+    """Checks if the configuration options make sense.
+
+    Parameters
+    ----------
+    config : ConfigBlock
+        The specific configurations for MindtPy.
+    """
     # configuration confirmation
-    if config.add_regularization in {'grad_lag', 'hess_lag', 'hess_only_lag', 'sqp_lag'}:
-        config.calculate_dual = True
     if config.add_regularization is not None:
+        if config.add_regularization in {'grad_lag', 'hess_lag', 'hess_only_lag', 'sqp_lag'}:
+            config.calculate_dual = True
         if config.regularization_mip_threads == 0 and config.threads > 0:
             config.regularization_mip_threads = config.threads
             config.logger.info(
@@ -437,7 +517,7 @@ def check_config(config):
         if config.mip_regularization_solver is None:
             config.mip_regularization_solver = config.mip_solver
     if config.single_tree:
-        config.logger.info('Single tree implementation is activated.')
+        config.logger.info('Single-tree implementation is activated.')
         config.iteration_limit = 1
         config.add_slack = False
         if config.mip_solver not in {'cplex_persistent', 'gurobi_persistent'}:
@@ -475,7 +555,7 @@ def check_config(config):
             config.equality_relaxation = False
     # if ecp tolerance is not provided use bound tolerance
     if config.ecp_tolerance is None:
-        config.ecp_tolerance = config.bound_tolerance
+        config.ecp_tolerance = config.absolute_bound_tolerance
 
     if config.solver_tee:
         config.mip_solver_tee = True

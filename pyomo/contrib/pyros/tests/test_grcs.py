@@ -2126,6 +2126,131 @@ class RegressionTest(unittest.TestCase):
                                          })
 
 
+@unittest.skipUnless(SolverFactory('baron').available(exception_flag=False)
+                     and SolverFactory('baron').license_is_valid(),
+                     "Global NLP solver is not available and licensed.")
+class testBypassingSeparation(unittest.TestCase):
+    def test_bypass_global_separation(self):
+        """Test bypassing of global separation solve calls."""
+        m = ConcreteModel()
+        m.x1 = Var(initialize=0, bounds=(0, None))
+        m.x2 = Var(initialize=0, bounds=(0, None))
+        m.x3 = Var(initialize=0, bounds=(None, None))
+        m.u = Param(initialize=1.125, mutable=True)
+
+        m.con1 = Constraint(expr=m.x1 * m.u ** (0.5) - m.x2 * m.u <= 2)
+        m.con2 = Constraint(expr=m.x1 ** 2 - m.x2 ** 2 * m.u == m.x3)
+
+        m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - 1) ** 2)
+
+        # Define the uncertainty set
+        interval = BoxSet(bounds=[(0.25, 2)])
+
+        # Instantiate the PyROS solver
+        pyros_solver = SolverFactory("pyros")
+
+        # Define subsolvers utilized in the algorithm
+        local_subsolver = SolverFactory('ipopt')
+        global_subsolver = SolverFactory("baron")
+
+        # Call the PyROS solver
+        results = pyros_solver.solve(
+                         model=m,
+                         first_stage_variables=[m.x1],
+                         second_stage_variables=[m.x2],
+                         uncertain_params=[m.u],
+                         uncertainty_set=interval,
+                         local_solver=local_subsolver,
+                         global_solver=global_subsolver,
+                         options={
+                             "objective_focus": ObjectiveType.worst_case,
+                             "solve_master_globally": True,
+                             "decision_rule_order":0,
+                             "bypass_global_separation": True
+                         }
+        )
+
+        self.assertEqual(results.pyros_termination_condition,
+                         pyrosTerminationCondition.robust_optimal,
+                         msg="Returned termination condition is not return robust_optimal.")
+
+
+@unittest.skipUnless(SolverFactory('baron').available(exception_flag=False)
+                     and SolverFactory('baron').license_is_valid(),
+                     "Global NLP solver is not available and licensed.")
+class testUninitializedVars(unittest.TestCase):
+    def test_uninitialized_vars(self):
+        """
+        Test a simple PyROS model instance with uninitialized
+        first-stage and second-stage variables.
+        """
+        m = ConcreteModel()
+
+        # parameters
+        m.ell0 = Param(initialize=1)
+        m.u0 = Param(initialize=3)
+        m.ell = Param(initialize=1)
+        m.u = Param(initialize=5)
+        m.p = Param(initialize=m.u0, mutable=True)
+        m.r = Param(initialize=0.1)
+
+        # variables
+        m.x = Var(bounds=(m.ell0, m.u0))
+        m.z = Var(bounds=(m.ell0, m.p))
+        m.t = Var(initialize=1, bounds=(0, m.r))
+        m.w = Var(bounds=(0, 1))
+
+        # objectives
+        m.obj = Objective(expr=-m.x ** 2 + m.z ** 2)
+
+        # auxiliary constraints
+        m.t_lb_con = Constraint(expr=m.x - m.z <= m.t)
+        m.t_ub_con = Constraint(expr=-m.t <= m.x - m.z)
+
+        # other constraints
+        m.con1 = Constraint(expr=m.x - m.z >= 0.1)
+        m.eq_con = Constraint(expr=m.w == 0.5 * m.t)
+
+        box_set = BoxSet(
+                bounds=((value(m.ell), value(m.u)),)
+        )
+
+        # solvers
+        local_solver = SolverFactory("ipopt")
+        global_solver = SolverFactory("baron")
+
+        # pyros setup
+        pyros_solver = SolverFactory("pyros")
+
+        # solve for different decision rule orders
+        for dr_order in [0, 1, 2]:
+            model = m.clone()
+
+            # degree of freedom partitioning
+            fsv = [model.x]
+            ssv = [model.z, model.t]
+            uncertain_params = [model.p]
+
+            res = pyros_solver.solve(
+                    model=model,
+                    first_stage_variables=fsv,
+                    second_stage_variables=ssv,
+                    uncertain_params=uncertain_params,
+                    uncertainty_set=box_set,
+                    local_solver=local_solver,
+                    global_solver=global_solver,
+                    objective_focus=ObjectiveType.worst_case,
+                    decision_rule_order=2,
+                    solve_master_globally=True
+            )
+
+            self.assertEqual(
+                    res.pyros_termination_condition,
+                    pyrosTerminationCondition.robust_optimal,
+                    msg=("Returned termination condition for solve with"
+                         f"decision rule order {dr_order} is not return "
+                         "robust_optimal.")
+            )
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
 from pyomo.core.base.reference import Reference
 from pyomo.core.expr.visitor import identify_variables
+from pyomo.core.expr.logical_expr import EqualityExpression
 from pyomo.util.subsystems import create_subsystem_block
 from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.common.dependencies import scipy_available
@@ -149,7 +150,13 @@ class IncidenceGraphInterface(object):
     model without constructing multiple PyomoNLPs.
     """
 
-    def __init__(self, model=None, active=True, include_fixed=False):
+    def __init__(
+            self,
+            model=None,
+            active=True,
+            include_fixed=False,
+            include_inequality=True,
+            ):
         """
         """
         # If the user gives us a model or an NLP, we assume they want us
@@ -180,12 +187,17 @@ class IncidenceGraphInterface(object):
                     (var, idx) for idx, var in enumerate(self.variables))
             self.con_index_map = ComponentMap(
                     (con, idx) for idx, con in enumerate(self.constraints))
-            self.incidence_matrix = nlp.evaluate_jacobian_eq()
+            if include_inequality:
+                self.incidence_matrix = nlp.evaluate_jacobian()
+            else:
+                self.incidence_matrix = nlp.evaluate_jacobian_eq()
         elif isinstance(model, Block):
             self.cached = IncidenceMatrixType.STRUCTURAL
-            self.constraints = list(
+            self.constraints = [
+                con for con in
                 model.component_data_objects(Constraint, active=active)
-            )
+                if include_inequality or isinstance(con.expr, EqualityExpression)
+            ]
             self.variables = list(
                 _generate_variables_in_constraints(
                     self.constraints, include_fixed=include_fixed
@@ -346,3 +358,51 @@ class IncidenceGraphInterface(object):
         # Switch the order of the maps here to match the method call.
         # Hopefully this does not get too confusing...
         return var_partition, con_partition
+
+    def remove_nodes(self, nodes, constraints=None):
+        """
+        Removes the specified variables and constraints (columns and
+        rows) from the cached incidence matrix. This is a "projection"
+        of the variable and constraint vectors, rather than something
+        like a vertex elimination.
+        For the puropse of this method, there is no need to distinguish
+        between variables and constraints. However, we provide the
+        "constraints" argument so a call signature similar to other methods
+        in this class is still valid.
+
+        Arguments:
+        ----------
+        nodes: List
+            VarData or ConData objects whose columns or rows will be
+            removed from the incidence matrix.
+        constraints: List
+            VarData or ConData objects whose columns or rows will be
+            removed from the incidence matrix.
+
+        """
+        if constraints is None:
+            constraints = []
+        if self.cached is IncidenceMatrixType.NONE:
+            raise RuntimeError(
+                "Attempting to remove variables and constraints from cached "
+                "incidence matrix,\nbut no incidence matrix has been cached."
+            )
+        to_exclude = ComponentSet(nodes)
+        to_exclude.update(constraints)
+        vars_to_include = [v for v in self.variables if v not in to_exclude]
+        cons_to_include = [c for c in self.constraints if c not in to_exclude]
+        incidence_matrix = self._extract_submatrix(
+            vars_to_include, cons_to_include
+        )
+        # update attributes
+        self.variables = vars_to_include
+        self.constraints = cons_to_include
+        self.incidence_matrix = incidence_matrix
+        self.var_index_map = ComponentMap(
+            (var, i) for i, var in enumerate(self.variables)
+        )
+        self.con_index_map = ComponentMap(
+            (con, i) for i, con in enumerate(self.constraints)
+        )
+        self.row_block_map = None
+        self.col_block_map = None

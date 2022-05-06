@@ -279,6 +279,28 @@ class TestGDPopt(unittest.TestCase):
         self.assertFalse(value(m.disj.disjuncts[0].indicator_var))
         self.assertTrue(value(m.disj.disjuncts[1].indicator_var))
 
+    def test_subproblem_preprocessing_encounters_trivial_constraints(self):
+        m = ConcreteModel()
+        m.x = Var(bounds=(0, 10))
+        m.z = Var(bounds=(-10, 10))
+        m.disjunction = Disjunction(expr=[[m.x == 0, m.z >= 4], 
+                                          [m.x + m.z <= 0]])
+        m.cons = Constraint(expr=m.x*m.z <= 0)
+        m.obj = Objective(expr=-m.z)
+        m.disjunction.disjuncts[0].indicator_var.fix(True)
+        m.disjunction.disjuncts[1].indicator_var.fix(False)
+        SolverFactory('gdpopt').solve(m, strategy='RIC', mip_solver=mip_solver,
+                                      nlp_solver=nlp_solver,
+                                      init_strategy='fix_disjuncts')
+        # The real test is that this doesn't throw an error when we preprocess
+        # to solve the first subproblem (in the initialization). The nonlinear
+        # constraint becomes trivial, which we need to make sure is handled
+        # correctly.
+        self.assertEqual(value(m.x), 0)
+        self.assertEqual(value(m.z), 10)
+        self.assertTrue(value(m.disjunction.disjuncts[0].indicator_var))
+        self.assertFalse(value(m.disjunction.disjuncts[1].indicator_var))
+
     @unittest.skipUnless(sympy_available, "Sympy not available")
     def test_logical_constraints_on_disjuncts(self):
         m = models.makeLogicalConstraintsOnDisjuncts()
@@ -401,7 +423,7 @@ class TestGDPopt(unittest.TestCase):
         self.assertTrue(
             fabs(value(strip_pack.total_length.expr) - 13) <= 1E-2)
 
-    @unittest.category('expensive')
+    @unittest.pytest.mark.expensive
     def test_LOA_constrained_layout_default_init(self):
         """Test LOA with constrained layout."""
         exfile = import_file(
@@ -695,7 +717,7 @@ class TestGDPoptRIC(unittest.TestCase):
         self.assertTrue(
             fabs(value(strip_pack.total_length.expr) - 13) <= 1E-2)
 
-    @unittest.category('expensive')
+    @unittest.pytest.mark.expensive
     def test_RIC_constrained_layout_default_init(self):
         """Test RIC with constrained layout."""
         exfile = import_file(
@@ -976,7 +998,7 @@ class TestGLOA(unittest.TestCase):
 
     @unittest.skipUnless(license_available, 
                          "Global NLP solver license not available.")
-    @unittest.category('expensive')
+    @unittest.pytest.mark.expensive
     def test_GLOA_constrained_layout_default_init(self):
         """Test LOA with constrained layout."""
         exfile = import_file(
@@ -1007,6 +1029,8 @@ class TestGLOA(unittest.TestCase):
         objective_value = value(model.obj.expr)
         self.assertAlmostEqual(objective_value, 4.46, 2)
 
+    @unittest.skipUnless(license_available,
+                         "Global NLP solver license not available.")
     def test_GLOA_nonconvex_HENS(self):
         exfile = import_file(join(exdir, 'small_lit', 'nonconvex_HEN.py'))
         model = exfile.build_gdp_model()
@@ -1019,6 +1043,8 @@ class TestGLOA(unittest.TestCase):
         objective_value = value(model.objective.expr)
         self.assertAlmostEqual(objective_value * 1E-5, 1.14385, 2)
 
+    @unittest.skipUnless(license_available,
+                         "Global NLP solver license not available.")
     def test_GLOA_disjunctive_bounds(self):
         exfile = import_file(join(exdir, 'small_lit', 'nonconvex_HEN.py'))
         model = exfile.build_gdp_model()
