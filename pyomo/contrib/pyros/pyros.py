@@ -537,6 +537,20 @@ class PyROS(object):
                                 pyros_soln.pyros_termination_condition
                             )
                         )
+                        # note worst case param realization
+                        if config.objective_focus == ObjectiveType.worst_case:
+                            res.solver.worst_case_param_realization = (
+                                model_data.separation_data
+                                .points_added_to_master[idx]
+                            )
+                        else:
+                            res.solver.worst_case_param_realization = None
+                    if idx == 0:
+                        # note nominal parameter realization
+                        res.solver.nominal_param_realization = (
+                            model_data.separation_data
+                            .points_added_to_master[idx]
+                        )
                     else:
                         from pyomo.opt import SolutionStatus
                         sol.status = SolutionStatus.other
@@ -633,7 +647,6 @@ class PyROS(object):
             # load solution(s) to model
             # and select the certified feasible/robust optimal
             # solution
-            model.solutions.clear()
             select_idx = (
                 final_soln_index + 1
                 if len(solutions) > 1 else 0
