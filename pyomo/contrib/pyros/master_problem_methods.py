@@ -74,6 +74,7 @@ def get_state_vars(model, iterations):
                         sort=SortComponents.deterministic,  # guarantee order
                     )
                     if v not in fsv_set and v not in ssv_set
+                    and not v.fixed
             )
         iter_state_var_map[itn] = state_vars
 
@@ -119,13 +120,13 @@ def construct_master_feasibility_problem(model_data, config):
                 # update var value for initialization
                 # fine since DR eqns are f(d) - z == 0 (not z - f(d) == 0)
                 ssv_in_dr_eq.set_value(0)
-                ssv_in_dr_eq.set_value(eq.body)
+                ssv_in_dr_eq.set_value(value(eq.body))
 
     # initialize state vars to previous master solution values
     if iteration != 0:
         stvar_map = get_state_vars(model, [iteration, iteration-1])
         for current, prev in zip(stvar_map[iteration], stvar_map[iteration-1]):
-            current.set_value(prev)
+            current.set_value(value(prev, exception=False))
 
     # constraints to which slacks should be added
     # (all the constraints for the current iteration, except the DR eqns)
@@ -199,27 +200,35 @@ def solve_master_feasibility_problem(model_data, config):
 
     if config.solve_master_globally:
         solver = config.global_solver
+        backup_solvers = [solver] + deepcopy(config.backup_global_solvers)
     else:
         solver = config.local_solver
+        backup_solvers = [solver] + deepcopy(config.backup_local_solvers)
 
-    if not solver.available():
-        raise RuntimeError("NLP solver %s is not available." %
-                           config.solver)
+    for idx, opt in enumerate(backup_solvers):
+        if not opt.available():
+            raise RuntimeError("NLP solver %s is not available." % opt)
 
-    results = solver.solve(model, tee=config.tee, load_solutions=False)
+        if idx > 0:
+            config.progress_logger.info(
+                f"Using backup solver . . . {str(opt)}"
+            )
+        results = opt.solve(model, tee=True, load_solutions=False)
 
-    if check_optimal_termination(results):
-        model.solutions.load_from(results)
+        if check_optimal_termination(results):
+            model.solutions.load_from(results)
 
-        # load solution to master model
-        for v in model.component_data_objects(Var):
-            master_v = model_data.master_model.find_component(v)
-            if master_v is not None:
-                master_v.set_value(v.value, skip_validation=True)
-    else:
-        results.solver.termination_condition = tc.error
-        results.solver.message = ("Cannot load a SolverResults object with "
-                                  "bad status: error")
+            # load solution to master model
+            for v in model.component_data_objects(Var):
+                master_v = model_data.master_model.find_component(v)
+                if master_v is not None:
+                    master_v.set_value(v.value, skip_validation=True)
+
+            return results
+
+    results.solver.termination_condition = tc.error
+    results.solver.message = ("Cannot load a SolverResults object with "
+                              "bad status: error")
     return results
 
 

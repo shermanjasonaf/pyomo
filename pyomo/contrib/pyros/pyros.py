@@ -399,7 +399,7 @@ class PyROS(object):
             sv = ComponentSet()
             model_data.working_model.util.state_vars = []
             for v in model_data.working_model.component_data_objects(Var):
-                if v not in fsv and v not in ssv and v not in sv:
+                if v not in fsv and v not in ssv and v not in sv and not v.fixed:
                     model_data.working_model.util.state_vars.append(v)
                     sv.add(v)
 

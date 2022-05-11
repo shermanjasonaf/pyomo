@@ -58,7 +58,8 @@ def make_separation_objective_functions(model, config):
         second_stage_variables_in_expr = list(v for v in model.util.second_stage_variables if v in _vars)
         if not c.equality and (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            performance_constraints.append(c)
+            if "bound_con" not in c.name:
+                performance_constraints.append(c)
         elif not c.equality and not (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             c.deactivate() # These are x \in X constraints, not active in separation because x is fixed to x* from previous master
     model.util.performance_constraints = performance_constraints
@@ -348,9 +349,11 @@ def solve_separation_problem(model_data, config):
         violations = solve_data_list[idx_i][idx_j].list_of_scaled_violations
 
         if any(s.found_violation for solve_list in solve_data_list for s in solve_list):
-            #config.progress_logger.info(
-            #	"Violation found in constraint %s with realization %s" % (
-            #	list(objectives_map.keys())[idx_i], violating_realizations))
+            config.progress_logger.info(
+                "Violation found in constraint %s with realization %s" % (
+                    list(objectives_map.keys())[idx_i], violating_realizations
+                )
+            )
             return solve_data_list, violating_realizations, violations, is_global, local_solve_time, global_solve_time
 
     return solve_data_list, [], [], is_global, local_solve_time, global_solve_time
