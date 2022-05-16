@@ -273,8 +273,11 @@ def solve_separation_problem(model_data, config):
             # Descending ordered by value
             # The list of performance constraints with this priority
             perf_constraints = [constr_name for constr_name, priority in actual_sep_priority_dict.items() if priority == val]
-            for perf_con in perf_constraints:
-                #config.progress_logger.info("Separating constraint " + str(perf_con))
+            for idx, perf_con in enumerate(perf_constraints):
+                config.progress_logger.info(
+                    f"Separating constraint {str(perf_con)}"
+                    f" ({idx + 1} of {len(perf_constraints)})"
+                )
                 try:
                     separation_obj = objectives_map[perf_con]
                 except:
@@ -340,9 +343,9 @@ def solve_separation_problem(model_data, config):
         violations = solve_data_list[idx_i][idx_j].list_of_scaled_violations
 
         if any(s.found_violation for solve_list in solve_data_list for s in solve_list):
-            #config.progress_logger.info(
-            #	"Violation found in constraint %s with realization %s" % (
-            #	list(objectives_map.keys())[idx_i], violating_realizations))
+            config.progress_logger.info(
+            	"Violation found in constraint %s with realization %s" % (
+            	list(objectives_map.keys())[idx_i], violating_realizations))
             return solve_data_list, violating_realizations, violations, is_global, local_solve_time, global_solve_time
 
     return solve_data_list, [], [], is_global, local_solve_time, global_solve_time
@@ -430,24 +433,50 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         backup_solvers = deepcopy(config.backup_local_solvers)
     backup_solvers.insert(0, solver)
     solver_status_dict = {}
+    count = 0
     while len(backup_solvers) > 0:
         solver = backup_solvers.pop(0)
         nlp_model = model_data.separation_model
 
         # === Fix to Master solution
         initialize_separation(model_data, config)
+        from pyomo.common.errors import ApplicationError
 
         if not solver.available():
             raise RuntimeError("Solver %s is not available." %
                                solver)
         try:
-            results = solver.solve(nlp_model, tee=config.tee)
+            count += 1
+            tee = config.tee if count <= 1 else True
+            if count > 1:
+                from pyomo.util.infeasible import log_infeasible_constraints
+                from pyomo.util.infeasible import log_infeasible_bounds
+
+                # log infeasible bounds
+                print("=" * 100)
+                log_infeasible_bounds(nlp_model)
+                print("=" * 100)
+                log_infeasible_constraints(nlp_model)
+                print("=" * 100)
+            results = solver.solve(nlp_model, tee=tee, load_solutions=False)
+            from pyomo.environ import check_optimal_termination
+            if check_optimal_termination(results):
+                nlp_model.solutions.load_from(results)
+            else:
+                print(results.solver)
+                import pdb
+                pdb.set_trace()
+            
+        except ApplicationError:
+            print("ERROR in solver, now using next solver")
+            continue
         except ValueError as err:
             if 'Cannot load a SolverResults object with bad status: error' in str(err):
                 solve_data.termination_condition = tc.error
                 return True
             else:
                 raise
+
         solver_status_dict[str(solver)] = results.solver.termination_condition
         solve_data.termination_condition = results.solver.termination_condition
         solve_data.results = results

@@ -648,9 +648,10 @@ class PyROS(object):
             # and select the certified feasible/robust optimal
             # solution
             select_idx = (
-                final_soln_index + 1
+                final_soln_index
                 if len(solutions) > 1 else 0
             )
+
             model.solutions.load_from(res, select=select_idx)
 
             if not config.output_verbose_results:
