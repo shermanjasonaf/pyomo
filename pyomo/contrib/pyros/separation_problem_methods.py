@@ -58,7 +58,13 @@ def make_separation_objective_functions(model, config):
         second_stage_variables_in_expr = list(v for v in model.util.second_stage_variables if v in _vars)
         if not c.equality and (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            if "bound_con" not in c.name:
+            is_flowrate_con = (
+                "flow_mol" in c.name
+                and "liquid_phase" in c.name
+                and "properties[0.0,1.0]" in c.name
+                and "upper_bound_con" in c.name
+            )
+            if "bound_con" not in c.name or is_flowrate_con:
                 performance_constraints.append(c)
         elif not c.equality and not (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             c.deactivate() # These are x \in X constraints, not active in separation because x is fixed to x* from previous master

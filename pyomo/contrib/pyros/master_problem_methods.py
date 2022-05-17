@@ -474,7 +474,8 @@ def solver_call_master(model_data, config, solver, solve_data):
     while len(backup_solvers) > 0:
         solver = backup_solvers.pop(0)
         try:
-            results = solver.solve(nlp_model, tee=config.tee)
+            tee = config.tee if solver is config.local_solver else True
+            results = solver.solve(nlp_model, tee=tee)
         except ValueError as err:
             if 'Cannot load a SolverResults object with bad status: error' in str(err):
                 results.solver.termination_condition = tc.error
@@ -525,7 +526,11 @@ def solve_master(model_data, config):
 
     # no master feas problem for iteration 0
     if model_data.iteration > 0:
-        results = solve_master_feasibility_problem(model_data, config)
+        from pyomo.opt.results import SolverResults
+        results = SolverResults()
+        results.solver.time = 0
+        results.solver.user_time = 0
+        # results = solve_master_feasibility_problem(model_data, config)
         master_soln.feasibility_problem_results = results
 
     solver = config.global_solver if config.solve_master_globally else config.local_solver

@@ -419,7 +419,8 @@ class PyROS(object):
             # Bounds on second stage variables and state variables are separation objectives,
             #  they are brought in this was as explicit constraints
             for c in model_data.working_model.util.second_stage_variables:
-                turn_bounds_to_constraints(c, wm_util, config)
+                if not c.fixed:
+                    turn_bounds_to_constraints(c, wm_util, config)
 
             for c in model_data.working_model.util.state_vars:
                 turn_bounds_to_constraints(c, wm_util, config)
