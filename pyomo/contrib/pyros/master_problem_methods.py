@@ -475,7 +475,7 @@ def solver_call_master(model_data, config, solver, solve_data):
         solver = backup_solvers.pop(0)
         try:
             tee = config.tee if solver is config.local_solver else True
-            results = solver.solve(nlp_model, tee=tee)
+            results = solver.solve(nlp_model, tee=tee, load_solutions=False)
         except ValueError as err:
             if 'Cannot load a SolverResults object with bad status: error' in str(err):
                 results.solver.termination_condition = tc.error
@@ -485,6 +485,12 @@ def solver_call_master(model_data, config, solver, solve_data):
                 return master_soln, ()
             else:
                 raise
+
+        if len(backup_solvers) > 1 and not check_optimal_termination(results):
+            continue
+        else:
+            nlp_model.solutions.load_from(results)
+
         solver_term_cond_dict[str(solver)] = str(results.solver.termination_condition)
         master_soln.termination_condition = results.solver.termination_condition
         master_soln.pyros_termination_condition = None  # determined later in the algorithm

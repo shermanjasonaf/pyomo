@@ -457,14 +457,25 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         if not solver.available():
             raise RuntimeError("Solver %s is not available." %
                                solver)
-        try:
-            results = solver.solve(nlp_model, tee=config.tee)
-        except ValueError as err:
-            if 'Cannot load a SolverResults object with bad status: error' in str(err):
-                solve_data.termination_condition = tc.error
-                return True
-            else:
-                raise
+
+        results = solver.solve(nlp_model, tee=True, load_solutions=False)
+
+        from pyomo.environ import check_optimal_termination
+
+        if check_optimal_termination(results):
+            nlp_model.solutions.load_from(results)
+        elif len(backup_solvers) > 0:
+            continue
+        else:
+            try:
+                nlp_model.solutions.load_from(results)
+            except ValueError as err:
+                if 'Cannot load a SolverResults object with bad status: error' in str(err):
+                    solve_data.termination_condition = tc.error
+                    return True
+                else:
+                    raise
+
         solver_status_dict[str(solver)] = results.solver.termination_condition
         solve_data.termination_condition = results.solver.termination_condition
         solve_data.results = results
@@ -479,6 +490,12 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
                                     + ' | Is violation '
                                     + str(viol > config.robust_feasibility_tolerance))
         # ------ (end) additional termination progress messages
+
+        print(results.problem)
+        print(results.solver)
+
+        if is_global and solve_data.termination_condition == tc.locallyOptimal:
+            solve_data.termination_condition = tc.globallyOptimal
 
         if solve_data.termination_condition in globally_acceptable or \
                 (not is_global and solve_data.termination_condition in locally_acceptable):
@@ -495,8 +512,8 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         objective = str(list(nlp_model.component_data_objects(Objective, active=True))[0].name)
         name = os.path.join(save_dir,
                             config.uncertainty_set.type + "_" + nlp_model.name + "_separation_" +
-                            str(model_data.iteration) + "_obj_" + objective + ".bar")
-        nlp_model.write(name, io_options={'symbolic_solver_labels':True})
+                            str(model_data.iteration) + "_obj_" + objective + ".gms")
+        # nlp_model.write(name, io_options={'symbolic_solver_labels':True})
         output_logger(config=config, separation_error=True, filename=name, iteration=model_data.iteration, objective=objective,
                       status_dict=solver_status_dict)
     return True
