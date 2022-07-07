@@ -199,23 +199,17 @@ def recast_to_min_obj(model, obj):
         minimization sense (i.e. no update performed), then this is
         identical to `obj`.
     """
+    from pyomo.core.expr.numeric_expr import SumExpression
     if obj.sense is not minimize:
-        sympy_obj = sympyify_expression(-obj.expr)
-        # Use sympy to distribute the negation so the method
-        # for determining first/second stage costs is valid
-        min_obj = Objective(
-            expr=sympy2pyomo_expression(sympy_obj[1].simplify(),
-                                        sympy_obj[0])
-        )
-        model.del_component(obj)
-        model.add_component(
-            unique_component_name(model, obj.name+'_min'), min_obj
-        )
-        model_obj = min_obj
-    else:
-        model_obj = obj
+        if isinstance(obj.expr, SumExpression):
+            # ensure additive terms in objective
+            # are split in accordance with user declaration
+            obj.expr = sum(-term for term in obj.expr.args)
+        else:
+            obj.expr = -obj.expr
+        obj.sense = minimize
 
-    return model_obj
+    return obj
 
 
 def model_is_valid(model):
@@ -237,15 +231,46 @@ def turn_bounds_to_constraints(variable, model, config=None):
     :param config: solver config
     :return: the list of inequality constraints that are the bounds
     '''
-    if variable.lb is not None:
-        name = variable.name + "_lower_bound_con"
-        model.add_component(name, Constraint(expr=-variable <= -variable.lb))
-        variable.setlb(None)
-    if variable.ub is not None:
-        name = variable.name + "_upper_bound_con"
-        model.add_component(name, Constraint(expr=variable <= variable.ub))
-        variable.setub(None)
-    return
+    from pyomo.core.expr.numeric_expr import (
+        NPV_MaxExpression,
+        NPV_MinExpression,
+    )
+
+    lb, ub = variable.lower, variable.upper
+    if variable.domain is not Reals:
+        variable.domain = Reals
+
+    if isinstance(lb, NPV_MaxExpression):
+        lb_args = lb.args
+    else:
+        lb_args = (lb,)
+
+    if isinstance(ub, NPV_MinExpression):
+        ub_args = ub.args
+    else:
+        ub_args = (ub,)
+
+    count = 0
+    for arg in lb_args:
+        if arg is not None:
+            name = unique_component_name(
+                model,
+                variable.name + f"_lower_bound_con_{count}",
+            )
+            model.add_component(name, Constraint(expr=-variable <= -arg))
+            count += 1
+            variable.setlb(None)
+
+    count = 0
+    for arg in ub_args:
+        if arg is not None:
+            name = unique_component_name(
+                model,
+                variable.name + f"_upper_bound_con_{count}",
+            )
+            model.add_component(name, Constraint(expr=variable <= arg))
+            count += 1
+            variable.setub(None)
 
 
 def get_time_from_solver(results):
@@ -1018,28 +1043,96 @@ def load_final_solution(model_data, master_soln, config):
 
     # load variable and objective values to solution object(s)
     for itn, blk in enumerate(master_soln.master_model.scenarios[:, 0]):
-        if itn == final_sol_iter or config.output_verbose_results:
-            blk_sol = Solution()
-            blk_vars = getattr(blk, "tmp_var_list")
+        blk_sol = Solution()
+        blk_vars = getattr(blk, "tmp_var_list")
 
-            for src, local in zip(src_vars, blk_vars):
-                if local.value is not None:
-                    blk_sol.variable[src.name] = {"Value": local.value}
-            blk_sol.objective["objective"] = {
-                "Value": value(
-                    blk.first_stage_objective + blk.second_stage_objective
-                )
-            }
+        for src, local in zip(src_vars, blk_vars):
+            if local.value is not None:
+                blk_sol.variable[src.name] = {"Value": local.value}
+        blk_sol.objective["objective"] = {
+            "Value": value(
+                blk.first_stage_objective + blk.second_stage_objective
+            )
+        }
 
-            solutions.append(blk_sol)
-
-    # index of final solution in the list depends on whether output is verbose
-    final_sol_iter = final_sol_iter if config.output_verbose_results else 0
+        solutions.append(blk_sol)
 
     # remove temporary variable references from user-input model
     del model.tmp_var_list
 
-    return solutions, final_sol_iter
+    # now evaluate the second-stage variale values using the
+    # decision rule equations
+    from pyomo.core.expr.visitor import identify_variables, replace_expressions
+    master_model = master_soln.master_model
+    k = len(list(blk for blk in master_soln.master_model.scenarios[:, 0])) - 1
+    nom_ssv_vals = dict()
+    best_case_ssv_vals = dict()
+    bds = config.uncertainty_set.bounds
+    nom_vals = list()
+    curr_vals = list()
+    sub_map = dict()
+    # k = len(list(master_model.scenarios[:, 0])) - 1
+    for idx, param in enumerate(master_model.scenarios[0, 0].util.uncertain_params):
+        nom_vals.append(value(param))
+    for idx, param in enumerate(master_model.scenarios[k, 0].util.uncertain_params):
+        curr_vals.append(value(param))
+        sub_map[id(param)] = nom_vals[idx]
+    for var in master_model.scenarios[k, 0].util.second_stage_variables:
+        sub_map[id(var)] = 0
+    print(sub_map)
+
+    for eq in master_model.scenarios[k, 0].util.decision_rule_eqns:
+        vars_in_dr_eq = ComponentSet(identify_variables(eq.body))
+        ssv_set = ComponentSet(master_model.scenarios[k, 0].util.second_stage_variables)
+
+        decision_rule_expr = replace_expressions(eq.body, sub_map)
+        # get second-stage var in DR eqn. should only be one var
+        ssv_in_dr_eq = [var for var in vars_in_dr_eq
+                        if var in ssv_set][0]
+        v_name = "".join(ssv_in_dr_eq.name.split(f"scenarios[{k},0].")[1:])
+        nom_ssv_vals[v_name] = (
+            value(decision_rule_expr)
+        )
+        print(
+            v_name,
+            value(eq.body),
+            value(decision_rule_expr),
+        )
+
+    sub_map = dict()
+    print("=" * 80)
+    for idx, param in enumerate(master_model.scenarios[k, 0].util.uncertain_params):
+        sub_map[id(param)] = bds[idx][1]
+    for var in master_model.scenarios[k, 0].util.second_stage_variables:
+        sub_map[id(var)] = 0
+
+    for eq in master_model.scenarios[k, 0].util.decision_rule_eqns:
+        vars_in_dr_eq = ComponentSet(identify_variables(eq.body))
+        ssv_set = ComponentSet(master_model.scenarios[k, 0].util.second_stage_variables)
+
+        decision_rule_expr = replace_expressions(eq.body, sub_map)
+
+        # get second-stage var in DR eqn. should only be one var
+        ssv_in_dr_eq = [var for var in vars_in_dr_eq
+                        if var in ssv_set][0]
+        v_name = "".join(ssv_in_dr_eq.name.split(f"scenarios[{k},0].")[1:])
+        best_case_ssv_vals[v_name] = (
+            value(decision_rule_expr)
+        )
+        print(
+            v_name,
+            value(eq.body),
+            value(decision_rule_expr),
+        )
+
+    print("SSV vals:")
+    print(nom_ssv_vals)
+    print(best_case_ssv_vals)
+
+    # import pdb
+    # pdb.set_trace()
+
+    return solutions, final_sol_iter, nom_ssv_vals, best_case_ssv_vals
 
 
 def process_termination_condition_master_problem(config, results):

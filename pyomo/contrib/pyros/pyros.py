@@ -395,7 +395,7 @@ class PyROS(object):
             # capture sense of active objective for recording results
             active_obj_sense = active_obj.sense
             active_obj = recast_to_min_obj(model_data.working_model,
-                                                  active_obj)
+                                           active_obj)
 
             # remove inactive objectives, then deactivate the
             # only remaining objective, of the working model
@@ -487,7 +487,7 @@ class PyROS(object):
                     {pyrosTerminationCondition.robust_optimal,
                      pyrosTerminationCondition.robust_feasible}
                 )
-                solutions, final_soln_index = load_final_solution(
+                solutions, final_soln_index, nom_ssv, best_ssv = load_final_solution(
                     model_data,
                     pyros_soln.master_soln,
                     config,
@@ -530,21 +530,24 @@ class PyROS(object):
                     sol.objective[obj_name]["Value"] *= negation
 
                     sol._cuid = False
-                    res.solution.insert(sol)
-                    if idx == final_soln_index:
+
+                    if idx == final_soln_index or config.output_verbose_results:
+                        res.solution.insert(sol)
                         sol.status = (
                             pyrosTerminationCondition.solution_status(
                                 pyros_soln.pyros_termination_condition
                             )
                         )
-                        # note worst case param realization
-                        if config.objective_focus == ObjectiveType.worst_case:
-                            res.solver.worst_case_param_realization = (
-                                model_data.separation_data
-                                .points_added_to_master[idx]
-                            )
-                        else:
-                            res.solver.worst_case_param_realization = None
+
+                        if idx == final_soln_index:
+                            # note worst case param realization
+                            if config.objective_focus == ObjectiveType.worst_case:
+                                res.solver.worst_case_param_realization = (
+                                    model_data.separation_data
+                                    .points_added_to_master[idx]
+                                )
+                            else:
+                                res.solver.worst_case_param_realization = None
                     if idx == 0:
                         # note nominal parameter realization
                         res.solver.nominal_param_realization = (
@@ -649,13 +652,16 @@ class PyROS(object):
             # solution
             select_idx = (
                 final_soln_index
-                if len(solutions) > 1 else 0
+                if config.output_verbose_results else 0
             )
 
             model.solutions.load_from(res, select=select_idx)
 
             if not config.output_verbose_results:
                 res.solution.clear()
+
+        res.solver.nom_ssv_vals = nom_ssv
+        res.solver.best_case_ssv_vals = best_ssv
 
         return res
 

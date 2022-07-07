@@ -50,17 +50,51 @@ def make_separation_objective_functions(model, config):
     Inequality constraints referencing control variables, state variables, or uncertain parameters
     must be separated against in separation problem.
     """
+    # find epigraph constraint(s)
+    mdl_epigraph_cstr_list = (
+        [model.epigraph_constr]
+        if hasattr(model, "epigraph_constr")
+        else []
+    )
+    epigraph_cstrs = mdl_epigraph_cstr_list + list(
+        con for con in model.util.new_constraints.values()
+        if model.util.zeta
+        in ComponentSet(identify_mutable_parameters(con.body))
+    )
+
     performance_constraints = []
-    for c in model.component_data_objects(Constraint, active=True, descend_into=True):
-        _vars = ComponentSet(identify_variables(expr=c.expr))
-        uncertain_params_in_expr = list(v for v in model.util.uncertain_param_vars.values() if v in _vars)
-        state_vars_in_expr = list(v for v in model.util.state_vars if v in _vars)
-        second_stage_variables_in_expr = list(v for v in model.util.second_stage_variables if v in _vars)
-        if not c.equality and (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
-            # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            performance_constraints.append(c)
-        elif not c.equality and not (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
-            c.deactivate() # These are x \in X constraints, not active in separation because x is fixed to x* from previous master
+    uncertain_params_only_in_obj = all(
+        param not in ComponentSet(identify_variables(con.body))
+        for con in model.component_data_objects(Constraint, active=True)
+        for param in model.util.uncertain_param_vars.values()
+        if con not in epigraph_cstrs
+    )
+
+    if config.decision_rule_order == 0 and uncertain_params_only_in_obj:
+        if config.objective_focus is ObjectiveType.worst_case:
+            performance_constraints = epigraph_cstrs
+    else:
+        for c in model.component_data_objects(Constraint, active=True, descend_into=True):
+            _vars = ComponentSet(identify_variables(expr=c.expr))
+            uncertain_params_in_expr = list(
+                v for v in model.util.uncertain_param_vars.values()
+                if v in _vars
+            )
+            state_vars_in_expr = list(
+                v for v in model.util.state_vars if v in _vars
+            )
+            second_stage_variables_in_expr = list(
+                v for v in model.util.second_stage_variables if v in _vars
+            )
+            if not c.equality and (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
+                # This inequality constraint depends on uncertain
+                # parameters therefore it must be separated against
+                performance_constraints.append(c)
+            elif not c.equality and not (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
+                # These are x \in X constraints, not active in
+                # separation because x is fixed to x* from previous master
+                c.deactivate()
+
     model.util.performance_constraints = performance_constraints
     model.util.separation_objectives = []
     map_obj_to_constr = ComponentMap()
