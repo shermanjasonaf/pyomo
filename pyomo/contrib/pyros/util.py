@@ -513,6 +513,17 @@ def validate_kwarg_inputs(model, config):
     if ComponentSet(second_stage_variables) != ComponentSet(config.second_stage_variables):
         raise ValueError("All elements in second_stage_variables must be Var members of the model object.")
 
+    num_ssv_stages = len(config.nested_second_stage_variables)
+    num_param_stages = len(config.nested_uncertain_params)
+    if num_ssv_stages != num_param_stages:
+        raise ValueError(
+            "Number of stages inferred from the second-stage variables "
+            "and uncertain params should be equal, "
+            "but inferred {num_ssv_stages} stages from the "
+            "second-stage variables and {num_param_stages} from the "
+            "uncertain params"
+        )
+
     if any(v in ComponentSet(second_stage_variables) for v in ComponentSet(first_stage_variables)):
         raise ValueError("No common elements allowed between first_stage_variables and second_stage_variables.")
 
@@ -886,8 +897,14 @@ def add_decision_rule_constraints(model_data, config):
     :return:
     '''
 
+    util_blk = model_data.working_model.util
+
     second_stage_variables = model_data.working_model.util.second_stage_variables
     uncertain_params = model_data.working_model.util.uncertain_params
+
+    nested_second_stage_variables = util_blk.nested_second_stage_variables
+    nested_uncertain_params = util_blk.nested_uncertain_params
+
     decision_rule_eqns = []
     degree = config.decision_rule_order
     if degree == 0:
@@ -896,15 +913,66 @@ def add_decision_rule_constraints(model_data, config):
                     Constraint(expr=getattr(model_data.working_model, "decision_rule_var_" + str(i)) == second_stage_variables[i]))
             decision_rule_eqns.append(getattr(model_data.working_model, "decision_rule_eqn_" + str(i)))
     elif degree == 1:
-        for i in range(len(second_stage_variables)):
-            expr = 0
-            for j in range(len(getattr(model_data.working_model, "decision_rule_var_" + str(i)))):
-                if j == 0:
-                    expr += getattr(model_data.working_model, "decision_rule_var_" + str(i))[j]
-                else:
-                    expr += getattr(model_data.working_model, "decision_rule_var_" + str(i))[j] * uncertain_params[j - 1]
-            model_data.working_model.add_component("decision_rule_eqn_" + str(i), Constraint(expr= expr == second_stage_variables[i]))
-            decision_rule_eqns.append(getattr(model_data.working_model, "decision_rule_eqn_" + str(i)))
+        var_count = 0
+
+        # loop through each stage
+        seen_params = ComponentSet()
+        for stg, varlist in enumerate(nested_second_stage_variables):
+            # accumulate uncertain params realized up to the current
+            # stage
+            seen_params |= ComponentSet(nested_uncertain_params[stg])
+
+            # write decision rule equation for each variable adjusted
+            # in the current stage
+            for idx, ss_var in enumerate(varlist):
+                # determine corresponding IndexedVar
+                # object for DR coefficents
+                dr_var_idx = var_count + idx
+                dr_var = getattr(
+                    model_data.working_model,
+                    f"decision_rule_var_{dr_var_idx}"
+                )
+
+                # construct the DR expression
+                expr = 0
+                for j, coeff in dr_var.items():
+                    if j == 0:
+                        expr += coeff
+                    else:
+                        expr += coeff * uncertain_params[j - 1]
+
+                        # nonanticipativity:
+                        # if param is not realized until after
+                        # this stage, fix DR coefficient to 0
+                        # using bounds
+                        if uncertain_params[j - 1] not in seen_params:
+                            coeff.setlb(0)
+                            coeff.setub(0)
+
+                # declare the constraint, add to model data
+                eq_name = f"decision_rule_eqn_{dr_var_idx}"
+                model_data.working_model.add_component(
+                    eq_name,
+                    Constraint(expr=expr == ss_var)
+                )
+                dr_eq = getattr(model_data.working_model, eq_name)
+                decision_rule_eqns.append(dr_eq)
+
+            # update variable counter
+            var_count += len(varlist)
+
+        # import pdb
+        # pdb.set_trace()
+
+        # for i in range(len(second_stage_variables)):
+        #     expr = 0
+        #     for j in range(len(getattr(model_data.working_model, "decision_rule_var_" + str(i)))):
+        #         if j == 0:
+        #             expr += getattr(model_data.working_model, "decision_rule_var_" + str(i))[j]
+        #         else:
+        #             expr += getattr(model_data.working_model, "decision_rule_var_" + str(i))[j] * uncertain_params[j - 1]
+        #     model_data.working_model.add_component("decision_rule_eqn_" + str(i), Constraint(expr= expr == second_stage_variables[i]))
+        #     decision_rule_eqns.append(getattr(model_data.working_model, "decision_rule_eqn_" + str(i)))
     elif degree >= 2:
         # Using bars and stars groupings of variable powers, construct x1^a * .... * xn^b terms for all c <= a+...+b = degree
         all_powers = []

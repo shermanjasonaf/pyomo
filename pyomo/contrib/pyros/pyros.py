@@ -110,6 +110,36 @@ class InputDataStandardizer(object):
             assert isinstance(_, self.cdatatype)
         return ans
 
+
+class MultistageInputDataStandardizer(object):
+    """
+    Standardizer for modeling objects representing multi-stage
+    variables or uncertain parameters. Standard form is a
+    list of lists of `cdatatype` objects.
+    """
+    def __init__(self, ctype, cdatatype):
+        self.ctype = ctype
+        self.cdatatype = cdatatype
+
+    def __call__(self, obj):
+        if isinstance(obj, self.ctype):
+            return [list(obj.values())]
+        if isinstance(obj, self.cdatatype):
+            return [[obj]]
+        if isinstance(obj, (list, tuple)):
+            base_std = InputDataStandardizer(self.ctype, self.cdatatype)
+            if all(isinstance(itm, (list, tuple)) for itm in obj):
+                ans = list()
+                for item in obj:
+                    ans.append(base_std(item))
+            else:
+                ans = [base_std(obj)]
+        else:
+            raise TypeError("Not supported")
+
+        return ans
+
+
 def pyros_config():
     CONFIG = ConfigDict('PyROS')
 
@@ -251,8 +281,25 @@ def pyros_config():
                     "consisting of more detailed timing information and "
                     "an iteration log."
     ))
+    CONFIG.declare("nested_second_stage_variables", ConfigValue(
+        default=[], domain=MultistageInputDataStandardizer(Var, _VarData),
+        description=(
+            "A two-dimensional list for extending the second-stage "
+            "variables to multi-stage variables. Each list specifies "
+            "the variables adjusted in each stage."
+        )
+    ))
+    CONFIG.declare("nested_uncertain_params", ConfigValue(
+        default=[], domain=MultistageInputDataStandardizer(Param, _ParamData),
+        description=(
+            "A two-dimensional list for extending the uncertain parameters "
+            "variables to multi-stage context. Each list specifies "
+            "the parameters realized by the corresponding stage."
+        )
+    ))
 
     return CONFIG
+
 
 @SolverFactory.register(
     "pyros",
@@ -328,6 +375,10 @@ class PyROS(object):
         config.local_solver = local_solver
         config.global_solver = global_solver
 
+        # extend second-stage vars and uncertain params to multi-stage
+        config.nested_second_stage_variables = second_stage_variables
+        config.nested_uncertain_params = uncertain_params
+
         dev_options = kwds.pop('dev_options',{})
         config.set_value(kwds)
         config.set_value(dev_options)
@@ -367,6 +418,14 @@ class PyROS(object):
             util.first_stage_variables = config.first_stage_variables
             util.second_stage_variables = config.second_stage_variables
             util.uncertain_params = config.uncertain_params
+
+            # same for multistage params
+            util.nested_second_stage_variables = (
+                config.nested_second_stage_variables
+            )
+            util.nested_uncertain_params = (
+                config.nested_uncertain_params
+            )
 
             model_data.util_block = unique_component_name(model, 'util')
             model.add_component(model_data.util_block, util)
@@ -474,12 +533,24 @@ class PyROS(object):
             res.problem.objective_focus = config.objective_focus
             res.problem.sense = active_obj_sense
             res.problem.decision_rule_order = config.decision_rule_order
+
+            ssv_names = list(
+                list(v.name for v in ss_list)
+                for ss_list in config.nested_second_stage_variables
+            )
+            uncertain_param_names = list(
+                list(v.name for v in up_list)
+                for up_list in config.nested_uncertain_params
+            )
             res.problem.variable_partitioning = {
-                "first stage variables": [var.name for var in first_stage_variables],
-                "second stage variables": [var.name for var in second_stage_variables],
+                "first stage variables": [
+                    var.name for var in first_stage_variables
+                ],
+                "second stage variables": ssv_names,
                 "state variables": [var.name for var in state_vars],
             }
-            res.problem.uncertain_params = [param.name for param in uncertain_params]
+
+            res.problem.uncertain_params = uncertain_param_names
 
             if pyros_soln is not None and final_iter_separation_solns is not None:
                 appropriate_pyros_termination = (
