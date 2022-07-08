@@ -362,9 +362,36 @@ def minimize_dr_vars(model_data, config):
     if polish_soln.termination_condition not in acceptable:
         return results
 
-    for i, d in enumerate(model_data.master_model.scenarios[0, 0].util.decision_rule_vars):
-        for index in d:
-            d[index].set_value(polishing_model.scenarios[0, 0].util.decision_rule_vars[i][index].value, skip_validation=True)
+    # update master model second-stage, state, and decision rule
+    # variables to polishing model solution
+    for idx, blk in model_data.master_model.scenarios.items():
+        ssv_zip = zip(
+            blk.util.second_stage_variables,
+            polishing_model.scenarios[idx].util.second_stage_variables,
+        )
+        sv_zip = zip(
+            blk.util.second_stage_variables,
+            polishing_model.scenarios[idx].util.second_stage_variables,
+        )
+
+        for master_ssv, polish_ssv in ssv_zip:
+            master_ssv.set_value(value(polish_ssv))
+        for master_sv, polish_sv in sv_zip:
+            master_sv.set_value(value(polish_sv))
+
+        # update master problem decision rule variables
+        if idx == (0, 0):
+            dr_var_zip = zip(
+                blk.util.decision_rule_vars,
+                polishing_model.scenarios[idx].util.decision_rule_vars,
+            )
+            for master_dr, polish_dr in dr_var_zip:
+                for mvar, pvar in zip(master_dr.values(), polish_dr.values()):
+                    mvar.set_value(value(pvar))
+
+    # for i, d in enumerate(model_data.master_model.scenarios[0, 0].util.decision_rule_vars):
+    #     for index in d:
+    #         d[index].set_value(polishing_model.scenarios[0, 0].util.decision_rule_vars[i][index].value, skip_validation=True)
 
     return results
 
