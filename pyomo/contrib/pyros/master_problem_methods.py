@@ -127,6 +127,9 @@ def construct_master_feasibility_problem(model_data, config):
         for current, prev in zip(stvar_map[iteration], stvar_map[iteration-1]):
             current.set_value(value(prev))
 
+    # apply decision rule efficiencies
+    apply_decision_rule_efficiencies(model, config)
+
     # constraints to which slacks should be added
     # (all the constraints for the current iteration, except the DR eqns)
     targets = []
@@ -433,6 +436,39 @@ def add_scenario_to_master(model_data, violations):
         p.set_value(violations[j])
 
     return
+
+
+def apply_decision_rule_efficiencies(master_like_model, config):
+    """
+    Add higher-order decision rule variable efficiencies on
+    a model block.
+    """
+    # only need to change DR variables for nominal block;
+    # as the variables from other blocks are never declared or
+    # used
+    nominal_block = master_like_model.scenarios[0, 0]
+    num_iterations = len(master_like_model.scenarios)
+    if config.decision_rule_order != None and len(config.second_stage_variables) > 0:
+        # ensure all unfixed (unless subsequent conditions met)
+        for dr_var in nominal_block.util.decision_rule_vars:
+            dr_var.unfix()
+        num_dr_vars = len(nominal_block.util.decision_rule_vars[0])
+        num_uncertain_params = len(config.uncertain_params)
+
+        # for first iteration, only the static term is allowed to
+        # be nonzero
+        if num_iterations == 1:
+            for dr_var in nominal_block.util.decision_rule_vars:
+                for i in range(1, num_dr_vars):
+                    dr_var[i].fix(0)
+
+        # unless number iterations exceeds uncertainty set dimension,
+        # quadratic coefficients are zero
+        elif num_iterations <= num_uncertain_params and config.decision_rule_order > 1:
+            # Only applied in DR order > 1 case
+            for dr_var in nominal_block.util.decision_rule_vars:
+                for i in range(num_uncertain_params + 1, num_dr_vars):
+                    dr_var[i].fix(0)
 
 
 def higher_order_decision_rule_efficiency(config, model_data):
