@@ -1174,7 +1174,7 @@ def load_final_solution(model_data, master_soln, config):
     for var in master_model.scenarios[k, 0].util.second_stage_variables:
         sub_map[id(var)] = 0
 
-    for eq in master_model.scenarios[k, 0].util.decision_rule_eqns:
+    for idx, eq in enumerate(master_model.scenarios[k, 0].util.decision_rule_eqns):
         vars_in_dr_eq = ComponentSet(identify_variables(eq.body))
         ssv_set = ComponentSet(master_model.scenarios[k, 0].util.second_stage_variables)
 
@@ -1187,18 +1187,27 @@ def load_final_solution(model_data, master_soln, config):
         best_case_ssv_vals[v_name] = (
             value(decision_rule_expr)
         )
-        print(
-            v_name,
-            value(eq.body),
-            value(decision_rule_expr),
-        )
 
-    print("SSV vals:")
-    print(nom_ssv_vals)
-    print(best_case_ssv_vals)
+        from math import isclose
+        is_static = True
+        for dv_idx, dr_var in master_model.scenarios[0, 0].util.decision_rule_vars[idx].items():
+            if dv_idx >= 1 and not isclose(value(dr_var), 0, abs_tol=1e-5):
+                is_static = False
+                break
 
-    # import pdb
-    # pdb.set_trace()
+        if not is_static:
+            print(
+                v_name,
+                value(eq.body),
+                value(decision_rule_expr),
+                f"static: {is_static}",
+            )
+            dr_var.pprint()
+
+
+    # print("SSV vals:")
+    # print(nom_ssv_vals)
+    # print(best_case_ssv_vals)
 
     return solutions, final_sol_iter, nom_ssv_vals, best_case_ssv_vals
 
