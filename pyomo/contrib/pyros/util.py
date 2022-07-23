@@ -519,8 +519,8 @@ def validate_kwarg_inputs(model, config):
         raise ValueError(
             "Number of stages inferred from the second-stage variables "
             "and uncertain params should be equal, "
-            "but inferred {num_ssv_stages} stages from the "
-            "second-stage variables and {num_param_stages} from the "
+            f"but inferred {num_ssv_stages} stages from the "
+            f"second-stage variables and {num_param_stages} from the "
             "uncertain params"
         )
 
@@ -1135,7 +1135,7 @@ def load_final_solution(model_data, master_soln, config):
     k = len(list(blk for blk in master_soln.master_model.scenarios[:, 0])) - 1
     nom_ssv_vals = dict()
     best_case_ssv_vals = dict()
-    bds = config.uncertainty_set.bounds
+    bds = config.uncertainty_set.parameter_bounds
     nom_vals = list()
     curr_vals = list()
     sub_map = dict()

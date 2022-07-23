@@ -613,10 +613,21 @@ class PyROS(object):
                         if idx == final_soln_index:
                             # note worst case param realization
                             if config.objective_focus == ObjectiveType.worst_case:
-                                res.solver.worst_case_param_realization = (
-                                    model_data.separation_data
+                                param_names = [
+                                    param.name for param
+                                    in config.uncertain_params
+                                ]
+                                param_values = (
+                                    model_data
+                                    .separation_data
                                     .points_added_to_master[idx]
                                 )
+                                res.solver.worst_case_param_realization = {
+                                    name: val for name, val in zip(
+                                        param_names,
+                                        param_values,
+                                    )
+                                }
                             else:
                                 res.solver.worst_case_param_realization = None
                     if idx == 0:
