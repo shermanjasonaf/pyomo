@@ -41,45 +41,6 @@ def initial_construct_master(model_data):
     return master_data
 
 
-def get_state_vars(model, iterations):
-    """
-    Obtain the state variables of a two-stage model
-    for a given (sequence of) iterations corresponding
-    to model blocks.
-
-    Parameters
-    ----------
-    model : ConcreteModel
-        PyROS model.
-    iterations : iterable
-        Iterations to consider.
-
-    Returns
-    -------
-    iter_state_var_map : dict
-        Mapping from iterations to list(s) of state vars.
-    """
-    iter_state_var_map = dict()
-    for itn in iterations:
-        fsv_set = ComponentSet(
-                model.scenarios[itn, 0].util.first_stage_variables)
-        state_vars = list()
-        for blk in model.scenarios[itn, :]:
-            ssv_set = ComponentSet(blk.util.second_stage_variables)
-            state_vars.extend(
-                    v for v in blk.component_data_objects(
-                        Var,
-                        active=True,
-                        descend_into=True,
-                        sort=SortComponents.deterministic,  # guarantee order
-                    )
-                    if v not in fsv_set and v not in ssv_set
-            )
-        iter_state_var_map[itn] = state_vars
-
-    return iter_state_var_map
-
-
 def construct_master_feasibility_problem(model_data, config):
     """
     Construct a slack-variable based master feasibility model.
@@ -98,96 +59,10 @@ def construct_master_feasibility_problem(model_data, config):
     model : ConcreteModel
         Slack variable model.
     """
-
     model = model_data.master_model.clone()
-    for obj in model.component_data_objects(Objective):
-        obj.deactivate()
-    iteration = model_data.iteration
-
-    # first stage vars are already initialized appropriately.
-    # initialize second-stage DOF variables using DR equation expressions
-    if model.scenarios[iteration, 0].util.second_stage_variables:
-        for blk in model.scenarios[iteration, :]:
-            for eq in blk.util.decision_rule_eqns:
-                vars_in_dr_eq = ComponentSet(identify_variables(eq.body))
-                ssv_set = ComponentSet(blk.util.second_stage_variables)
-
-                # get second-stage var in DR eqn. should only be one var
-                ssv_in_dr_eq = [var for var in vars_in_dr_eq
-                                if var in ssv_set][0]
-
-                # update var value for initialization
-                # fine since DR eqns are f(d) - z == 0 (not z - f(d) == 0)
-                ssv_in_dr_eq.set_value(0)
-                ssv_in_dr_eq.set_value(value(eq.body))
-
-    # initialize state vars to previous master solution values
-    if iteration != 0:
-        stvar_map = get_state_vars(model, [iteration, iteration-1])
-        for current, prev in zip(stvar_map[iteration], stvar_map[iteration-1]):
-            current.set_value(value(prev))
-
-    # constraints to which slacks should be added
-    # (all the constraints for the current iteration, except the DR eqns)
-    targets = []
-    for blk in model.scenarios[iteration, :]:
-        if blk.util.second_stage_variables:
-            dr_eqs = blk.util.decision_rule_eqns
-        else:
-            dr_eqs = list()
-
-        targets.extend([
-            con for con in blk.component_data_objects(
-                Constraint, active=True, descend_into=True)
-            if con not in dr_eqs])
-
-    # retain original constraint exprs (for slack initialization and scaling)
-    pre_slack_con_exprs = ComponentMap([(con, con.body) for con in targets])
-
-    # add slack variables and objective
-    # inequalities g(v) <= b become g(v) -- s^-<= b
-    # equalities h(v) == b become h(v) -- s^- + s^+ == b
-    TransformationFactory("core.add_slack_variables").apply_to(model,
-                                                               targets=targets)
-    slack_vars = ComponentSet(
-            model._core_add_slack_variables.component_data_objects(
-                Var, descend_into=True)
-    )
-
-    # initialize and scale slack variables
-    for con in pre_slack_con_exprs:
-        # obtain slack vars in updated constraints
-        # and their coefficients (+/-1) in the constraint expression
-        repn = generate_standard_repn(con.body)
-        slack_var_coef_map = ComponentMap()
-        for idx in range(len(repn.linear_vars)):
-            var = repn.linear_vars[idx]
-            if var in slack_vars:
-                slack_var_coef_map[var] = repn.linear_coefs[idx]
-
-        slack_substitution_map = dict()
-
-        for slack_var in slack_var_coef_map:
-            # coefficient determines whether the slack is a +ve or -ve slack
-            if slack_var_coef_map[slack_var] == -1:
-                con_slack = max(0, value(pre_slack_con_exprs[con]))
-            else:
-                con_slack = max(0, -value(pre_slack_con_exprs[con]))
-
-            # initialize slack var, evaluate scaling coefficient
-            scaling_coeff = 1
-            slack_var.set_value(con_slack)
-
-            # update expression replacement map
-            slack_substitution_map[id(slack_var)] = (scaling_coeff * slack_var)
-
-        # finally, scale slack(s)
-        con.set_value(
-                (replace_expressions(con.lower, slack_substitution_map),
-                 replace_expressions(con.body, slack_substitution_map),
-                 replace_expressions(con.upper, slack_substitution_map),)
-        )
-
+    for o in model.component_data_objects(Objective):
+        o.deactivate()
+    TransformationFactory("core.add_slack_variables").apply_to(model)
     return model
 
 
@@ -513,11 +388,8 @@ def solve_master(model_data, config):
     Solve the master problem
     """
     master_soln = MasterResult()
-
-    # no master feas problem for iteration 0
-    if model_data.iteration > 0:
-        results = solve_master_feasibility_problem(model_data, config)
-        master_soln.feasibility_problem_results = results
+    results = solve_master_feasibility_problem(model_data, config)
+    master_soln.feasibility_problem_results = results
 
     solver = config.global_solver if config.solve_master_globally else config.local_solver
 
