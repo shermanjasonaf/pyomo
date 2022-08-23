@@ -406,9 +406,51 @@ class PyROS(object):
             # === Move bounds on control variables to explicit ineq constraints
             wm_util = model_data.working_model
 
+            def get_unused_vars(model, active=True, include_fixed=False):
+                """
+                Obtain variables of a model not found in the model's
+                active `Constraint`s or `Objective`.
+                """
+                from pyomo.common.collections import ComponentSet
+                from pyomo.core.expr.visitor import identify_variables
+                from pyomo.environ import Objective
+                var_set = ComponentSet(
+                    var for var in
+                    model.component_data_objects(Var, active=active)
+                    if include_fixed or not var.fixed
+                )
+                used_vars = ComponentSet()
+                ctypes = [Objective, Constraint]
+
+                for ctype in ctypes:
+                    for con in model.component_data_objects(
+                            Constraint, active=active):
+                        for var in identify_variables(con.body):
+                            if include_fixed or not var.fixed:
+                                used_vars.add(var)
+
+                return list(var_set - used_vars)
+
+            unused_vars = get_unused_vars(
+                model_data.working_model,
+                active=True,
+            )
+
+            fsv_list = model_data.working_model.util.first_stage_variables
+            ssv_list = model_data.working_model.util.second_stage_variables
+            fsv = ComponentSet(
+                model_data.working_model.util.first_stage_variables
+            )
+            ssv = ComponentSet(
+                model_data.working_model.util.second_stage_variables
+            )
+            for var in unused_vars:
+                if var in ssv:
+                    ssv_list.remove(var)
+                if var not in fsv:
+                    fsv_list.append(var)
+
             # === Assuming all other Var objects in the model are state variables
-            fsv = ComponentSet(model_data.working_model.util.first_stage_variables)
-            ssv = ComponentSet(model_data.working_model.util.second_stage_variables)
             sv = ComponentSet()
             model_data.working_model.util.state_vars = []
             for v in model_data.working_model.component_data_objects(Var):

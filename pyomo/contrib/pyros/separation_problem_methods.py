@@ -58,14 +58,7 @@ def make_separation_objective_functions(model, config):
         second_stage_variables_in_expr = list(v for v in model.util.second_stage_variables if v in _vars)
         if not c.equality and (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            is_flowrate_con = (
-                "flow_mol" in c.name
-                and "liquid_phase" in c.name
-                and "properties[0.0,1.0]" in c.name
-                and "upper_bound_con" in c.name
-            )
-            if "bound_con" not in c.name or is_flowrate_con:
-                performance_constraints.append(c)
+            performance_constraints.append(c)
         elif not c.equality and not (uncertain_params_in_expr or state_vars_in_expr or second_stage_variables_in_expr):
             c.deactivate() # These are x \in X constraints, not active in separation because x is fixed to x* from previous master
     model.util.performance_constraints = performance_constraints
@@ -248,6 +241,11 @@ def solve_separation_problem(model_data, config):
     global_solve_time = 0
     local_solve_time = 0
 
+    if model_data.iteration == 0:
+        model_data.violated_cons = [[]]
+    else:
+        model_data.violated_cons.append([])
+
     # List of objective functions
     objectives_map = model_data.separation_model.util.map_obj_to_constr
     constraint_map_to_master = model_data.separation_model.util.map_new_constraint_list_to_original_con
@@ -264,6 +262,11 @@ def solve_separation_problem(model_data, config):
     set_of_deterministic_constraints = model_data.separation_model.util.deterministic_constraints
     if hasattr(model_data.separation_model, "epigraph_constr"):
         set_of_deterministic_constraints.add(model_data.separation_model.epigraph_constr)
+
+    model_data.objectives_inverse_name_map = {
+        objective.name: perf_con.name
+        for perf_con, objective in objectives_map.items()
+    }
 
     # Determine whether to solve separation problems globally as well
     if config.bypass_global_separation:
@@ -406,15 +409,70 @@ def initialize_separation(model_data, config):
     In the case of the static_approx decision rule, control vars are treated
     as design vars are therefore fixed to the optimum from the master.
     """
-    if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
-        for idx, p in list(model_data.separation_model.util.uncertain_param_vars.items()):
-            p.set_value(config.nominal_uncertain_param_vals[idx],
-                        skip_validation=True)
-    for idx, v in enumerate(model_data.separation_model.util.first_stage_variables):
-        v.fix(model_data.opt_fsv_vals[idx])
+    # initialize to master solution corresponding to most recently
+    # added parameter realization
+    iter_num = model_data.iteration
+    sep_model = model_data.separation_model
+    master_mdl = model_data.master_model
+    fsv_set = ComponentSet(
+        master_mdl.scenarios[iter_num, 0].util.first_stage_variables
+    )
+    initialized_count = 0
 
-    for idx, c in enumerate(model_data.separation_model.util.second_stage_variables):
-        c.set_value(model_data.opt_ssv_vals[idx], skip_validation=True)
+    for var, var_val in model_data.master_solutions[iter_num, 0].items():
+        # NOTE:
+        # (1) all master solutions entries, the first-stage variables
+        #     (including decision rule variables) may be in the
+        #     scenarios[iter_num, 0] or scenarios[0, 0] block
+        # (2) hence, for future, if initializing separation model to
+        #     values from a different master_solution entry, need to
+        #     account for this
+        if var in fsv_set:
+            attempt_strs = {f"scenarios[0,0].", f"scenarios[{iter_num},0]."}
+        else:
+            attempt_strs = {f"scenarios[{iter_num},0]."}
+
+        for scenario_str in attempt_strs:
+            search_str = scenario_str.join(var.name.split(scenario_str)[1:])
+
+            if search_str != "":
+                sep_var = sep_model.find_component(search_str)
+            else:
+                sep_var = None
+
+            if sep_var is not None:
+                break
+
+        if sep_var is not None:
+            initialized_count += 1
+            sep_var.set_value(var_val, skip_validation=True)
+            if var in fsv_set:
+                sep_var.fix()
+        elif hasattr(master_mdl, "zeta") and var is master_mdl.zeta:
+            # account for epigraph variable, which is actually
+            # defined as a fixed param in the separation model
+            # and value already set
+            initialized_count += 1
+
+        # print(var.name, var_val, var.parent_block().name, type(var.parent_block()))
+
+    # ensure separation problem initialized to master model solution
+    num_master_sol_vars = len(model_data.master_solutions[iter_num, 0])
+    print(num_master_sol_vars, initialized_count)
+    assert num_master_sol_vars == initialized_count
+
+    # initialize uncertain parameter variables to their nominal
+    # values
+    if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
+        param_vars = sep_model.util.uncertain_param_vars
+        latest_param_values = model_data.points_added_to_master[iter_num]
+        for param_var, val in zip(param_vars.values(), latest_param_values):
+            param_var.set_value(val)
+
+    # if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
+    #     for idx, p in list(model_data.separation_model.util.uncertain_param_vars.items()):
+    #         p.set_value(config.nominal_uncertain_param_vals[idx],
+    #                     skip_validation=True)
 
     for c in model_data.separation_model.util.second_stage_variables:
         if config.decision_rule_order != 0:
@@ -430,7 +488,15 @@ def initialize_separation(model_data, config):
     if any(c.active for c in model_data.separation_model.util.h_x_q_constraints):
         raise AttributeError("All h(x,q) type constraints must be deactivated in separation.")
 
-    return
+    for con in sep_model.component_data_objects(Constraint, active=True):
+        lb, val, ub = value(con.lb), value(con.body), value(con.ub)
+        lb_viol = val < lb - 1e-5 if lb is not None else False
+        ub_viol = val > ub + 1e-5 if ub is not None else False
+        if lb_viol or ub_viol:
+            print(con.name, lb, val, ub)
+
+    print("ITERATION NUMBER", iter_num)
+
 
 locally_acceptable = {tc.optimal, tc.locallyOptimal, tc.globallyOptimal}
 globally_acceptable = {tc.optimal, tc.globallyOptimal}
@@ -458,15 +524,39 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
             raise RuntimeError("Solver %s is not available." %
                                solver)
 
-        results = solver.solve(nlp_model, tee=True, load_solutions=False)
+        results = solver.solve(nlp_model, tee=True, load_solutions=False,
+                               symbolic_solver_labels=True)
+
+        print(results.problem)
+        print(results.solver)
 
         from pyomo.environ import check_optimal_termination
 
-        if check_optimal_termination(results):
+        term_cond = results.solver.termination_condition
+        at_least_feasible = results.solver.termination_condition in {
+            tc.feasible, tc.optimal, tc.globallyOptimal, tc.locallyOptimal,
+        }
+        con_violated = (
+            isinstance(results.problem.lower_bound, (int, float))
+            and results.problem.lower_bound > config.robust_feasibility_tolerance
+        )
+        if is_global:
+            optimality_appropriate = term_cond in globally_acceptable
+        else:
+            optimality_appropriate = term_cond in locally_acceptable
+        acceptable_termination = (
+            optimality_appropriate or (at_least_feasible and con_violated)
+        )
+
+        if optimality_appropriate:
             nlp_model.solutions.load_from(results)
-        elif len(backup_solvers) > 0:
+        elif backup_solvers:
             continue
         else:
+            # clone model before loading solution,
+            # so that we can export model with variable values
+            # set to the initial point
+            cloned_model = nlp_model.clone()
             try:
                 nlp_model.solutions.load_from(results)
             except ValueError as err:
@@ -475,12 +565,31 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
                     return True
                 else:
                     raise
+            else:
+                if acceptable_termination:
+                    # invoke degeneracy hunter
+                    import pyomo.environ as pyo
+                    from idaes.core.util.model_diagnostics import DegeneracyHunter
+                    cloned_mdl = nlp_model.clone()
+
+                    cplex = pyo.SolverFactory("cplex")
+
+                    # degeneracy hunter for initial point
+                    dh = DegeneracyHunter(cloned_mdl, solver=cplex)
+                    dh.check_variable_bounds(tol=1e-6)
+
+                    # degeneracy hunter for acceptable solution
+                    dh = DegeneracyHunter(cloned_mdl, solver=cplex)
+                    dh.check_variable_bounds(tol=1e-6)
+
+                    # import pdb
+                    # pdb.set_trace()
 
         solver_status_dict[str(solver)] = results.solver.termination_condition
         solve_data.termination_condition = results.solver.termination_condition
         solve_data.results = results
         # === Process result
-        is_violation(model_data, config, solve_data)
+        con_is_violated = is_violation(model_data, config, solve_data)
         # ----- additional termination condition progress messages
         objective = str(list(nlp_model.component_data_objects(Objective, active=True))[0].name)
         viol = value(nlp_model.__getattribute__(objective))
@@ -494,11 +603,18 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         print(results.problem)
         print(results.solver)
 
-        if is_global and solve_data.termination_condition == tc.locallyOptimal:
-            solve_data.termination_condition = tc.globallyOptimal
-
-        if solve_data.termination_condition in globally_acceptable or \
-                (not is_global and solve_data.termination_condition in locally_acceptable):
+        # continue separation if problem solves to acceptable termination
+        # condition
+        if acceptable_termination:
+            iter_num = model_data.iteration
+            if con_is_violated:
+                model_data.violated_cons[iter_num].append(
+                    model_data.objectives_inverse_name_map[objective]
+                )
+            print(
+                f"Contraints violated in iteration {iter_num} so far "
+                f"{model_data.violated_cons[iter_num]}"
+            )
             return False
 
         # Else: continue with backup solvers unless we have hit time limit or not found any acceptable solutions
@@ -513,7 +629,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         name = os.path.join(save_dir,
                             config.uncertainty_set.type + "_" + nlp_model.name + "_separation_" +
                             str(model_data.iteration) + "_obj_" + objective + ".gms")
-        # nlp_model.write(name, io_options={'symbolic_solver_labels':True})
+        cloned_model.write(name, io_options={'symbolic_solver_labels':True})
         output_logger(config=config, separation_error=True, filename=name, iteration=model_data.iteration, objective=objective,
                       status_dict=solver_status_dict)
     return True

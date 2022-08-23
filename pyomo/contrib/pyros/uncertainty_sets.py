@@ -831,7 +831,7 @@ class EllipsoidalSet(UncertaintySet):
                 raise AttributeError("Shape matrix must be "
                                      "same dimensions as vector of uncertain parameters.")
         # === Symmetric shape_matrix
-        if not np.all(np.abs(array_shape_mat-array_shape_mat.T) < 1e-8):
+        if not np.allclose(array_shape_mat, array_shape_mat.T):
             raise AttributeError("Shape matrix must be symmetric.")
         # === Ensure scale is non-negative
         if scale < 0:

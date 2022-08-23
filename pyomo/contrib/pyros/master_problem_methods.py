@@ -81,6 +81,29 @@ def get_state_vars(model, iterations):
     return iter_state_var_map
 
 
+def get_master_solutions(master_model):
+    """
+    Obtain master model solutions
+    """
+    solutions = dict()
+    for key, blk in master_model.scenarios.items():
+        fsv = blk.util.first_stage_variables
+        ssv = blk.util.second_stage_variables
+        sv = get_state_vars(master_model, [key[0]])[key[0]]
+        sol_map = ComponentMap()
+
+        for var in fsv:
+            sol_map[var] = value(var)
+        for var in ssv:
+            sol_map[var] = value(var)
+        for var in sv:
+            sol_map[var] = value(var)
+
+        solutions[key] = sol_map
+
+    return solutions
+
+
 def construct_master_feasibility_problem(model_data, config):
     """
     Construct a slack-variable based master feasibility model.
@@ -143,7 +166,12 @@ def construct_master_feasibility_problem(model_data, config):
             if con not in dr_eqs])
 
     # retain original constraint exprs (for slack initialization and scaling)
-    pre_slack_con_exprs = ComponentMap([(con, con.body) for con in targets])
+    # all standardized constraints should have an upper bound,
+    # this needs to be accounted for to ensure slack variables
+    # are initialized to a feasible point
+    pre_slack_con_exprs = ComponentMap(
+        [(con, con.body - con.upper) for con in targets]
+    )
 
     # add slack variables and objective
     # inequalities g(v) <= b become g(v) -- s^-<= b
@@ -160,6 +188,7 @@ def construct_master_feasibility_problem(model_data, config):
         # obtain slack vars in updated constraints
         # and their coefficients (+/-1) in the constraint expression
         repn = generate_standard_repn(con.body)
+
         slack_var_coef_map = ComponentMap()
         for idx in range(len(repn.linear_vars)):
             var = repn.linear_vars[idx]
@@ -189,6 +218,14 @@ def construct_master_feasibility_problem(model_data, config):
                  replace_expressions(con.upper, slack_substitution_map),)
         )
 
+    # check which constraints infeasible
+    for con in model.component_data_objects(Constraint, active=True):
+        lb, val, ub = value(con.lb), value(con.body), value(con.ub)
+        lb_viol = val < lb - 1e-5 if lb is not None else False
+        ub_viol = val > ub + 1e-5 if ub is not None else False
+        if lb_viol or ub_viol:
+            print(con.name, lb, val, ub)
+
     return model
 
 
@@ -213,22 +250,91 @@ def solve_master_feasibility_problem(model_data, config):
             config.progress_logger.info(
                 f"Using backup solver . . . {str(opt)}"
             )
-        results = opt.solve(model, tee=True, load_solutions=False)
 
-        if check_optimal_termination(results):
-            model.solutions.load_from(results)
+        # now attempt to solve the model
+        try:
+            results = opt.solve(model, tee=True, load_solutions=False, symbolic_solver_labels=True)
+        except Exception as err:
+            # solver encountered an exception of some kind
+            # (such as function evaluation issue due to domain error)
+            # or something else
+            config.progress_logger.error(
+                f"Master feasibility problem solver {str(opt)}"
+                f" ({idx} of {len(backup_solvers)})"
+                f"encountered exception with repr {repr(err)}"
+            )
+            from pyomo.opt import SolverResults
+            from pyomo.opt import SolverStatus
+
+            # create makeshift results object, with error term condition
+            results = SolverResults()
+            results.solver.termination_condition = tc.error
+            results.solver.status = SolverStatus.error
+            results.solver.message = repr(err)
+
+        feasible_termination = (
+            results.solver.termination_condition == tc.feasible
+        )
+        print("Master feas solver status", results.solver.status)
+
+        if check_optimal_termination(results) or feasible_termination:
+            cloned_mdl = model.clone()
+            cloned_mdl_2 = model.clone()  # as insurance
 
             # load solution to master model
+            model.solutions.load_from(results)
             for v in model.component_data_objects(Var):
                 master_v = model_data.master_model.find_component(v)
                 if master_v is not None:
                     master_v.set_value(v.value, skip_validation=True)
 
-            return results
+            # evaluate, display master feasibility objective value
+            for ob in cloned_mdl.component_data_objects(Objective, active=True):
+                print("INITIALIZED MASTER FEAS OBJ", value(ob))
+            for ob in model.component_data_objects(Objective, active=True):
+                print("SOLVED MASTER FEAS OBJ", value(ob))
 
-    results.solver.termination_condition = tc.error
-    results.solver.message = ("Cannot load a SolverResults object with "
-                              "bad status: error")
+            # do some debugging first if only feasible solution found
+            if feasible_termination:
+                # invoke degeneracy hunter
+                import pyomo.environ as pyo
+                from idaes.core.util.model_diagnostics import DegeneracyHunter
+
+                # degeneracy hunter for initial point
+                cplex = pyo.SolverFactory("cplex")
+                dh = DegeneracyHunter(cloned_mdl, solver=cplex)
+                dh.check_variable_bounds(tol=1e-6)
+
+                # degeneracy hunter for acceptable solution
+                dh2 = DegeneracyHunter(model, solver=cplex)
+                dh2.check_variable_bounds(tol=1e-6)
+
+                import pdb
+                pdb.set_trace()
+
+            return results
+        else:
+            print("Did not solve master feas to optimality")
+
+    # all backup solvers failed. Serialize
+    save_dir = config.subproblem_file_directory
+    if save_dir and config.keepfiles:
+        name = os.path.join(
+            save_dir,
+            (
+                config.uncertainty_set.type
+                + "_"
+                + model_data.original.name
+                + "_master_feasibility"
+                + str(model_data.iteration)
+                + ".gms"
+            ),
+        )
+        model.write(
+            name,
+            io_options={'symbolic_solver_labels': True},
+        )
+
     return results
 
 
@@ -371,9 +477,32 @@ def minimize_dr_vars(model_data, config):
     if polish_soln.termination_condition not in acceptable:
         return results
 
-    for i, d in enumerate(model_data.master_model.scenarios[0, 0].util.decision_rule_vars):
-        for index in d:
-            d[index].set_value(polishing_model.scenarios[0, 0].util.decision_rule_vars[i][index].value, skip_validation=True)
+    # update master model second-stage, state, and decision rule
+    # variables to polishing model solution
+    for idx, blk in model_data.master_model.scenarios.items():
+        ssv_zip = zip(
+            blk.util.second_stage_variables,
+            polishing_model.scenarios[idx].util.second_stage_variables,
+        )
+        sv_zip = zip(
+            get_state_vars(model_data.master_model, [idx[0]])[idx[0]],
+            get_state_vars(polishing_model, [idx[0]])[idx[0]],
+        )
+
+        for master_ssv, polish_ssv in ssv_zip:
+            master_ssv.set_value(value(polish_ssv))
+        for master_sv, polish_sv in sv_zip:
+            master_sv.set_value(value(polish_sv))
+
+        # update master problem decision rule variables
+        if idx == (0, 0):
+            dr_var_zip = zip(
+                blk.util.decision_rule_vars,
+                polishing_model.scenarios[idx].util.decision_rule_vars,
+            )
+            for master_dr, polish_dr in dr_var_zip:
+                for mvar, pvar in zip(master_dr.values(), polish_dr.values()):
+                    mvar.set_value(value(pvar))
 
     return results
 
@@ -471,56 +600,126 @@ def solver_call_master(model_data, config, solver, solve_data):
 
     higher_order_decision_rule_efficiency(config, model_data)
 
-    while len(backup_solvers) > 0:
-        solver = backup_solvers.pop(0)
+    for idx, solver in enumerate(backup_solvers):
+        tee = True
         try:
-            tee = config.tee if solver is config.local_solver else True
-            results = solver.solve(nlp_model, tee=tee, load_solutions=False)
-        except ValueError as err:
-            if 'Cannot load a SolverResults object with bad status: error' in str(err):
-                results.solver.termination_condition = tc.error
-                results.solver.message = str(err)
-                master_soln.results = results
-                master_soln.pyros_termination_condition = pyrosTerminationCondition.subsolver_error
-                return master_soln, ()
-            else:
-                raise
+            results = solver.solve(nlp_model, tee=tee, load_solutions=False,
+                                   symbolic_solver_labels=True)
+        except Exception as err:
+            # solver encountered an exception of some kind
+            # (such as function evaluation issue due to domain error)
+            # or something else
+            config.progress_logger.error(
+                f"Master problem solver {str(solver)}"
+                f" ({idx} of {len(backup_solvers)})"
+                f"encountered exception with repr {repr(err)}"
+            )
+            from pyomo.opt import SolverResults
+            from pyomo.opt import SolverStatus
 
-        if len(backup_solvers) > 1 and not check_optimal_termination(results):
-            continue
-        else:
+            # create makeshift results object, with error term condition
+            results = SolverResults()
+            results.solver.termination_condition = tc.error
+            results.solver.status = SolverStatus.error
+            results.solver.message = repr(err)
+
+        optimal_termination = check_optimal_termination(results)
+        feasible_termination = (
+            results.solver.termination_condition == tc.feasible
+        )
+        solver_term_cond_dict[str(solver)] = str(
+            results.solver.termination_condition
+        )
+
+        if idx + 1 < len(backup_solvers) and not optimal_termination:
+            if feasible_termination:
+                model_clone = nlp_model.clone()
+                # degeneracy hunter routine
+                ...
+        elif optimal_termination:
+            # no backup solvers, or unsuccessful termination
             nlp_model.solutions.load_from(results)
+        elif not optimal_termination:
+            model_clone = nlp_model.clone()
 
-        solver_term_cond_dict[str(solver)] = str(results.solver.termination_condition)
         master_soln.termination_condition = results.solver.termination_condition
-        master_soln.pyros_termination_condition = None  # determined later in the algorithm
-        master_soln.fsv_vals = list(v.value for v in nlp_model.scenarios[0, 0].util.first_stage_variables)
-
-        if config.objective_focus is ObjectiveType.nominal:
-            master_soln.ssv_vals = list(v.value for v in nlp_model.scenarios[0, 0].util.second_stage_variables)
-            master_soln.second_stage_objective = value(nlp_model.scenarios[0, 0].second_stage_objective)
-        else:
-            idx =  max(nlp_model.scenarios.keys())[0]
-            master_soln.ssv_vals = list(v.value for v in nlp_model.scenarios[idx, 0].util.second_stage_variables)
-            master_soln.second_stage_objective = value(nlp_model.scenarios[idx, 0].second_stage_objective)
-        master_soln.first_stage_objective = value(nlp_model.scenarios[0, 0].first_stage_objective)
-
+        master_soln.pyros_termination_condition = None
+        master_soln.master_subsolver_results = (
+            process_termination_condition_master_problem(
+                config=config, results=results
+            )
+        )
         master_soln.nominal_block = nlp_model.scenarios[0, 0]
         master_soln.results = results
         master_soln.master_model = nlp_model
 
-        master_soln.master_subsolver_results = process_termination_condition_master_problem(config=config, results=results)
-
-        if master_soln.master_subsolver_results[0] == False:
+        # model solved to either acceptable optimality
+        # or infeasibility. Store master solution,
+        # and move on
+        # NOTE: for now, accept local infeasibility
+        infeasible = results.solver.termination_condition == tc.infeasible
+        if not master_soln.master_subsolver_results[0] and not infeasible:
+            master_soln.fsv_vals = list(
+                v.value
+                for v in nlp_model.scenarios[0, 0].util.first_stage_variables
+            )
+            if config.objective_focus is ObjectiveType.nominal:
+                master_soln.ssv_vals = list(
+                    v.value
+                    for v
+                    in nlp_model.scenarios[0, 0].util.second_stage_variables
+                )
+                master_soln.second_stage_objective = value(
+                    nlp_model.scenarios[0, 0].second_stage_objective
+                )
+            else:
+                idx = max(nlp_model.scenarios.keys())[0]
+                master_soln.ssv_vals = list(
+                    v.value
+                    for v
+                    in nlp_model.scenarios[idx, 0].util.second_stage_variables
+                )
+                master_soln.second_stage_objective = value(
+                    nlp_model.scenarios[idx, 0].second_stage_objective
+                )
+            master_soln.first_stage_objective = value(
+                nlp_model.scenarios[0, 0].first_stage_objective
+            )
             return master_soln
 
-    # === At this point, all sub-solvers have been tried and none returned an acceptable status or return code
+    # === At this point, all sub-solvers have been tried and
+    #     none returned an acceptable status or return code
+    #     subsolver error. Serialize model
     save_dir = config.subproblem_file_directory
     if save_dir and config.keepfiles:
-        name = os.path.join(save_dir,  config.uncertainty_set.type + "_" + model_data.original.name + "_master_" + str(model_data.iteration) + ".bar")
-        nlp_model.write(name, io_options={'symbolic_solver_labels':True})
-        output_logger(config=config, master_error=True, status_dict=solver_term_cond_dict, filename=name, iteration=model_data.iteration)
-    master_soln.pyros_termination_condition = pyrosTerminationCondition.subsolver_error
+        name = os.path.join(
+            save_dir,
+            (
+                config.uncertainty_set.type
+                + "_"
+                + model_data.original.name
+                + "_master_"
+                + str(model_data.iteration)
+                + ".gms"
+            ),
+        )
+        model_clone.write(name, io_options={'symbolic_solver_labels': True})
+        output_logger(
+            config=config,
+            master_error=True,
+            status_dict=solver_term_cond_dict,
+            filename=name,
+            iteration=model_data.iteration,
+        )
+    else:
+        config.progress_logger.info(
+            "Failed to solve master problem at "
+            f"iteration {model_data.iteration}"
+        )
+
+    master_soln.pyros_termination_condition = (
+        pyrosTerminationCondition.subsolver_error
+    )
     return master_soln
 
 
@@ -531,15 +730,21 @@ def solve_master(model_data, config):
     master_soln = MasterResult()
 
     # no master feas problem for iteration 0
-    if model_data.iteration > 0:
-        from pyomo.opt.results import SolverResults
+    from pyomo.opt.results import SolverResults
+    if False:  # model_data.iteration > 0:
+        results = solve_master_feasibility_problem(model_data, config)
+    else:
         results = SolverResults()
         results.solver.time = 0
         results.solver.user_time = 0
-        # results = solve_master_feasibility_problem(model_data, config)
-        master_soln.feasibility_problem_results = results
+
+    master_soln.feasibility_problem_results = results
 
     solver = config.global_solver if config.solve_master_globally else config.local_solver
 
-    return solver_call_master(model_data=model_data, config=config, solver=solver,
-                       solve_data=master_soln)
+    return solver_call_master(
+        model_data=model_data,
+        config=config,
+        solver=solver,
+        solve_data=master_soln,
+    )

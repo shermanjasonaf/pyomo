@@ -155,11 +155,6 @@ def turn_bounds_to_constraints(variable, model, config=None):
     :param config: solver config
     :return: the list of inequality constraints that are the bounds
     '''
-    from pyomo.core.expr.numeric_expr import (
-        NPV_MaxExpression,
-        NPV_MinExpression,
-    )
-
     lb, ub = variable.lower, variable.upper
     if variable.domain is not Reals:
         variable.domain = Reals
@@ -181,7 +176,7 @@ def turn_bounds_to_constraints(variable, model, config=None):
                 model,
                 variable.name + f"_lower_bound_con_{count}",
             )
-            model.add_component(name, Constraint(expr=-variable <= -arg))
+            model.add_component(name, Constraint(expr=arg - variable <= 0))
             count += 1
             variable.setlb(None)
 
@@ -192,31 +187,26 @@ def turn_bounds_to_constraints(variable, model, config=None):
                 model,
                 variable.name + f"_upper_bound_con_{count}",
             )
-            model.add_component(name, Constraint(expr=variable <= arg))
+            model.add_component(name, Constraint(expr=variable - arg <= 0))
             count += 1
             variable.setub(None)
-
-    if variable.bounds != (None, None):
-        print(variable.name, variable.bounds)
 
 
 def get_time_from_solver(results):
     '''
-    Based on the solver used (GAMS or other pyomo solver) the time is named differently. This function gets the time
+    Based on the solver used (GAMS or other pyomo solver) the time
+    is named differently. This function gets the time
     based on which sub-solver type is used.
     :param results: the results returned from the solver
     :return: time
     '''
-    if hasattr(results.solver, "name"):
-        if type(results.solver.name) == str:
-            if "GAMS" in results.solver.name:
-                return results.solver.user_time
-            else:
-                raise ValueError("Accessing the time for this type of solver is not supported by get_time_from_solver.")
-        else:
-            return results.solver.time
-    else:
-        return results.solver.time
+    candidate_attrs = ["time", "user_time"]
+    from pyomo.opt import UndefinedData
+    for attr in candidate_attrs:
+        time_val = getattr(results.solver, attr, UndefinedData())
+        if isinstance(time_val, (int, float)):
+            return time_val
+    return float("nan")
 
 
 def validate_uncertainty_set(config):

@@ -34,6 +34,7 @@ def update_grcs_solve_data(pyros_soln, term_cond, nominal_data, timing_data, sep
 
     return
 
+
 def ROSolver_iterative_solve(model_data, config):
     '''
     GRCS algorithm implementation
@@ -235,6 +236,9 @@ def ROSolver_iterative_solve(model_data, config):
                 dr_var_lists_polished.append(vals)
 
         # === Set up for the separation problem
+        from pyomo.contrib.pyros.master_problem_methods import get_master_solutions
+        separation_data.master_solutions = get_master_solutions(master_data.master_model)
+
         separation_data.opt_fsv_vals = [v.value for v in master_soln.master_model.scenarios[0,0].util.first_stage_variables]
         separation_data.opt_ssv_vals = master_soln.ssv_vals
 
