@@ -142,7 +142,8 @@ def ROSolver_iterative_solve(model_data, config):
     nominal_data.nom_obj = 0
 
     # === Time information
-    timing_data = Block()
+    from pyomo.common.collections import Bunch
+    timing_data = Bunch()
     timing_data.total_master_solve_time = 0
     timing_data.total_separation_local_time = 0
     timing_data.total_separation_global_time = 0

@@ -20,6 +20,8 @@ from pyomo.common.dependencies import scipy as sp
 from pyomo.core.expr.numvalue import native_types
 from pyomo.util.vars_from_expressions import get_vars_from_components
 from pyomo.core.expr.numeric_expr import SumExpression
+from pyomo.opt import SolverStatus, SolutionStatus
+from pyomo.opt import TerminationCondition as tc
 import itertools as it
 import timeit
 from contextlib import contextmanager
@@ -98,6 +100,71 @@ class pyrosTerminationCondition(Enum):
     max_iter = 3
     subsolver_error = 4
     time_out = 5
+
+    @classmethod
+    def solver_status(cls, pyros_term_cond, infeasible_aborted=False):
+        """
+        Map PyROS termination conditino to a Pyomo solver status.
+        """
+        cond_status_map = {
+            pyrosTerminationCondition.robust_feasible: SolverStatus.ok,
+            pyrosTerminationCondition.robust_optimal: SolverStatus.ok,
+            pyrosTerminationCondition.robust_infeasible: SolverStatus.warning,
+            pyrosTerminationCondition.max_iter: SolverStatus.warning,
+            pyrosTerminationCondition.time_out: SolverStatus.warning,
+            pyrosTerminationCondition.subsolver_error: SolverStatus.warning,
+        }
+        is_infeasible = (
+            pyros_term_cond == pyrosTerminationCondition.robust_infeasible
+        )
+        if is_infeasible and infeasible_aborted:
+            return SolverStatus.aborted
+        else:
+            return cond_status_map[pyros_term_cond]
+
+    @classmethod
+    def termination_condition(cls, pyros_term_cond):
+        """
+        Map PyROS termination condition to a Pyomo termination
+        condition.
+        """
+        term_cond_map = {
+            pyrosTerminationCondition.robust_feasible:
+                tc.feasible,
+            pyrosTerminationCondition.robust_optimal:
+                tc.optimal,
+            pyrosTerminationCondition.robust_infeasible:
+                tc.infeasible,
+            pyrosTerminationCondition.max_iter:
+                tc.maxIterations,
+            pyrosTerminationCondition.time_out:
+                tc.maxTimeLimit,
+            pyrosTerminationCondition.subsolver_error:
+                tc.error
+        }
+        return term_cond_map[pyros_term_cond]
+
+    @classmethod
+    def solution_status(cls, pyros_term_cond):
+        """
+        Map PyROS termination condition to a Pyomo solution
+        status.
+        """
+        solution_status_map = {
+            pyrosTerminationCondition.robust_feasible:
+                SolutionStatus.feasible,
+            pyrosTerminationCondition.robust_infeasible:
+                SolutionStatus.infeasible,
+            pyrosTerminationCondition.robust_optimal:
+                SolutionStatus.globallyOptimal,
+            pyrosTerminationCondition.max_iter:
+                SolutionStatus.stoppedByLimit,
+            pyrosTerminationCondition.time_out:
+                SolutionStatus.stoppedByLimit,
+            pyrosTerminationCondition.subsolver_error:
+                SolutionStatus.error,
+        }
+        return solution_status_map[pyros_term_cond]
 
 
 class SeparationStrategy(Enum):
@@ -902,30 +969,65 @@ def identify_objective_functions(model, objective):
 
 
 def load_final_solution(model_data, master_soln, config):
-    '''
-    load the final solution into the original model object
-    :param model_data: model data container object
-    :param master_soln: results data container object returned to user
-    :return:
-    '''
+    """
+    Load final PyROS solution(s) (i.e. model variable, objective,
+    etc. values) into a sequence of Pyomo `Solution` objects,
+    depending on user options.
+
+    Parameters
+    ----------
+    model_data : Bunch
+        Model data container object, consisting of the original
+        user model.
+    master_soln : MasterResult
+        Container for the master model.
+    config : ConfigDict
+        User options for a PyROS `solve` call.
+
+    Returns
+    -------
+    solutions : list(pyomo.opt.results.Solution)
+        Sequence of model solutions (first-stage, second-stage,
+        state variable values), each taken from a block of the
+        master model provided in `master_soln`.
+    final_sol_iter : int
+        Index of the solution in `solutions` containing the nominal
+        or worst-case model solution.
+    """
+    from pyomo.opt.results import Solution
+
+    model = model_data.original_model
+
     if config.objective_focus == ObjectiveType.nominal:
-        model = model_data.original_model
-        soln = master_soln.nominal_block
+        final_sol_iter = 0
     elif config.objective_focus == ObjectiveType.worst_case:
-        model = model_data.original_model
         indices = range(len(master_soln.master_model.scenarios))
-        k = max(indices, key=lambda i: value(master_soln.master_model.scenarios[i, 0].first_stage_objective +
-                                             master_soln.master_model.scenarios[i, 0].second_stage_objective))
-        soln = master_soln.master_model.scenarios[k, 0]
+        final_sol_iter = max(
+            indices,
+            key=lambda i: value(
+                master_soln.master_model.scenarios[i, 0].first_stage_objective
+                + master_soln.master_model.scenarios[i, 0].second_stage_objective
+            )
+        )
 
     src_vars = getattr(model, 'tmp_var_list')
-    local_vars = getattr(soln, 'tmp_var_list')
-    varMap = list(zip(src_vars, local_vars))
 
-    for src, local in varMap:
-        src.set_value(local.value, skip_validation=True)
+    # obtain list of model solutions(s) from final master solution
+    solutions = list()
+    for itn, blk in enumerate(master_soln.master_model.scenarios[:, 0]):
+        blk_sol = Solution()
+        blk_vars = getattr(blk, "tmp_var_list")
+        for src, local in zip(src_vars, blk_vars):
+            if local.value is not None:
+                blk_sol.variable[src.name] = {"Value": local.value}
+        blk_sol.objective["objective"] = {
+            "Value": value(
+                blk.first_stage_objective + blk.second_stage_objective
+            )
+        }
+        solutions.append(blk_sol)
 
-    return
+    return solutions, final_sol_iter
 
 
 def process_termination_condition_master_problem(config, results):
