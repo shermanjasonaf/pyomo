@@ -1122,8 +1122,18 @@ def load_final_solution(model_data, master_soln, config):
                 blk.first_stage_objective + blk.second_stage_objective
             )
         }
-
         solutions.append(blk_sol)
+
+    # mapping names of non-static DR coefficients to their
+    # values (if values > 0)
+    nonzero_nonstatic_dr_vars = {}
+
+    # determine DR vars which are nonzero
+    dr_vars = blk.util.decision_rule_vars
+    for indexed_var in dr_vars:
+        for key, dr_var in indexed_var.items():
+            if key > 0 and abs(value(dr_var)) > 0:
+                nonzero_nonstatic_dr_vars[dr_var.name] = value(dr_var)
 
     # remove temporary variable references from user-input model
     del model.tmp_var_list
@@ -1209,7 +1219,13 @@ def load_final_solution(model_data, master_soln, config):
     # print(nom_ssv_vals)
     # print(best_case_ssv_vals)
 
-    return solutions, final_sol_iter, nom_ssv_vals, best_case_ssv_vals
+    return (
+        solutions,
+        final_sol_iter,
+        nom_ssv_vals,
+        best_case_ssv_vals,
+        nonzero_nonstatic_dr_vars,
+    )
 
 
 def process_termination_condition_master_problem(config, results):

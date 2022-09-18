@@ -558,10 +558,17 @@ class PyROS(object):
                     {pyrosTerminationCondition.robust_optimal,
                      pyrosTerminationCondition.robust_feasible}
                 )
-                solutions, final_soln_index, nom_ssv, best_ssv = load_final_solution(
-                    model_data,
-                    pyros_soln.master_soln,
-                    config,
+                solutions, *middle, nonzero_nonstatic_dr_vars = (
+                    load_final_solution(
+                        model_data,
+                        pyros_soln.master_soln,
+                        config,
+                    )
+                )
+                final_soln_index, nom_ssv, best_ssv = middle
+
+                res.solver.nonzero_nonstatic_dr_vars = (
+                    nonzero_nonstatic_dr_vars
                 )
 
                 # === Return time info
