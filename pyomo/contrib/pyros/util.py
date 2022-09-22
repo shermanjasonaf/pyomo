@@ -1132,7 +1132,7 @@ def load_final_solution(model_data, master_soln, config):
     dr_vars = blk.util.decision_rule_vars
     for indexed_var in dr_vars:
         for key, dr_var in indexed_var.items():
-            if key > 0 and abs(value(dr_var)) > 0:
+            if key is not None and key > 0 and abs(value(dr_var)) > 0:
                 nonzero_nonstatic_dr_vars[dr_var.name] = value(dr_var)
 
     # remove temporary variable references from user-input model
@@ -1201,7 +1201,7 @@ def load_final_solution(model_data, master_soln, config):
         from math import isclose
         is_static = True
         for dv_idx, dr_var in master_model.scenarios[0, 0].util.decision_rule_vars[idx].items():
-            if dv_idx >= 1 and not isclose(value(dr_var), 0, abs_tol=1e-5):
+            if dv_idx is not None and dv_idx >= 1 and not isclose(value(dr_var), 0, abs_tol=1e-5):
                 is_static = False
                 break
 
