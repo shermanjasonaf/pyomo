@@ -25,6 +25,7 @@ import os
 from copy import deepcopy
 from pyomo.common.errors import ApplicationError
 from pyomo.common.modeling import unique_component_name
+from pyomo.contrib.pyros.util import get_logfile_path, export_model
 
 
 def initial_construct_master(model_data):
@@ -551,13 +552,31 @@ def solver_call_master(model_data, config, solver, solve_data):
 
     higher_order_decision_rule_efficiency(config, model_data)
 
+    nlp_model.name = model_data.original.name
+    model_outfile = export_model(
+        model=nlp_model,
+        solver=solver,
+        config=config,
+        subproblem_type="master",
+        itn=model_data.iteration,
+        fmt=".bar"
+    )
     for opt in backup_solvers:
+        logfile = get_logfile_path(
+            model=nlp_model,
+            solver=opt,
+            config=config,
+            subproblem_type="master",
+            itn=model_data.iteration,
+            fmt=".txt"
+        )
         try:
             results = opt.solve(
                 nlp_model,
                 tee=config.tee,
                 load_solutions=False,
                 symbolic_solver_labels=True,
+                logfile=logfile,
             )
         except ApplicationError:
             # account for possible external subsolver errors
@@ -633,31 +652,16 @@ def solver_call_master(model_data, config, solver, solve_data):
 
     # all solvers have failed to return an acceptable status.
     # we will terminate PyROS with subsolver error status.
-    # at this point, export subproblem to file, if desired.
-    # NOTE: subproblem is written with variables set to their
-    #       initial values (not the final subsolver iterate)
-    save_dir = config.subproblem_file_directory
-    if save_dir and config.keepfiles:
-        name = os.path.join(
-            save_dir,
-            (
-                config.uncertainty_set.type
-                + "_"
-                + model_data.original.name
-                + "_master_"
-                + str(model_data.iteration)
-                + ".bar"
-            )
-        )
-        nlp_model.write(name, io_options={'symbolic_solver_labels': True})
-        output_logger(
-            config=config,
-            master_error=True,
-            status_dict=solver_term_cond_dict,
-            filename=name,
-            iteration=model_data.iteration,
-        )
-    master_soln.pyros_termination_condition = pyrosTerminationCondition.subsolver_error
+    output_logger(
+        config=config,
+        master_error=True,
+        status_dict=solver_term_cond_dict,
+        filename=model_outfile,
+        iteration=model_data.iteration,
+    )
+    master_soln.pyros_termination_condition = (
+        pyrosTerminationCondition.subsolver_error
+    )
     return master_soln
 
 

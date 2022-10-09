@@ -2,6 +2,7 @@
 Utility functions for the PyROS solver
 '''
 import copy
+import os
 from enum import Enum, auto
 from pyomo.common.collections import ComponentSet
 from pyomo.common.modeling import unique_component_name
@@ -1068,3 +1069,88 @@ def output_logger(config, **kwargs):
                                                                                                            filename))
 
     return
+
+
+def get_path(subdir, model, solver, config, subproblem_type, itn, fmt):
+    """
+    Determine path for file to which to export (such as a
+    solver log or subproblem model). Create any necessary
+    subdirectories as needed.
+    If `config.subproblem_file_directory` is ``None``
+    or ``config.keepfiles`` is ``False``, then ``None``
+    is returned.
+    """
+    if not config.keepfiles or config.subproblem_file_directory is None:
+        return None
+
+    assert subdir in ["logfiles", "subproblems"]
+
+    master_types = {
+        "master",
+        "master_feas",
+        "dr_polishing",
+    }
+    separation_types = {"local_separation", "global_separation"}
+    assert subproblem_type in master_types | separation_types
+
+    def rmkdir(base_dir, subdir_names):
+        assert os.path.exists(base_dir)
+        dirpath = base_dir
+        for name in subdir_names:
+            dirpath = os.path.join(dirpath, name)
+            if not os.path.exists(dirpath):
+                os.mkdir(dirpath)
+        return dirpath
+
+    if subproblem_type in master_types:
+        prob_type_dir_name = "master"
+    else:
+        prob_type_dir_name = "separation"
+
+    # make directories recursively as necessary
+    file_dir = rmkdir(
+        config.subproblem_file_directory,
+        [subdir, f"iter_{itn}", prob_type_dir_name]
+    )
+    solver_name = getattr(solver, "name", type(solver).__name__)
+
+    return os.path.join(
+        file_dir,
+        f"{model.name}_{subproblem_type}_{itn}_{solver_name}{fmt}"
+    )
+
+
+def get_logfile_path(**kwargs):
+    """
+    Get logfile path, and make any subdirectories needed
+    to ensure logfile can be written to that path.
+    """
+    return get_path("logfiles", **kwargs)
+
+
+def get_subproblem_path(**kwargs):
+    """
+    Determine subproblem export path. Create any
+    subdirectories necesary to export model object
+    to that path.
+    """
+    assert kwargs["fmt"] in {".bar"}
+    return get_path("subproblems", **kwargs)
+
+
+def export_model(**kwargs):
+    """
+    Export model to file if subproblem directory provided
+    and keepfiles option set to ``True``. Otherwise,
+    model is not exported to file.
+
+    Returns
+    -------
+    filepath : str
+        Path to output file.
+    """
+    filepath = get_subproblem_path(**kwargs)
+    model = kwargs["model"]
+    if filepath is not None:
+        model.write(filepath, io_options={"symbolic_solver_labels": True})
+    return filepath

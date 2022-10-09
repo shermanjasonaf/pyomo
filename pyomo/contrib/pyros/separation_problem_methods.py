@@ -20,6 +20,7 @@ from pyomo.contrib.pyros.util import get_main_elapsed_time, is_certain_parameter
 from pyomo.contrib.pyros.uncertainty_sets import Geometry
 from pyomo.common.errors import ApplicationError
 from pyomo.contrib.pyros.util import ABS_CON_CHECK_FEAS_TOL
+from pyomo.contrib.pyros.util import export_model, get_logfile_path
 import os
 from copy import deepcopy
 
@@ -559,13 +560,36 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
     # === Initialize separation problem; fix first-stage variables
     initialize_separation(model_data, config)
 
+    orig_model_name = nlp_model.name
+    objective = str(
+        list(nlp_model.component_data_objects(Objective, active=True))[0].name
+    )
+    nlp_model.name = nlp_model.name + "_obj_" + objective
+    sep_type = "global" if is_global else "local"
+    model_outfile = export_model(
+        model=nlp_model,
+        solver=solver,
+        config=config,
+        subproblem_type=f"{sep_type}_separation",
+        itn=model_data.iteration,
+        fmt=".bar"
+    )
     for opt in backup_solvers:
+        logfile = get_logfile_path(
+            model=nlp_model,
+            solver=opt,
+            config=config,
+            subproblem_type=f"{sep_type}_separation",
+            itn=model_data.iteration,
+            fmt=".txt"
+        )
         try:
             results = opt.solve(
                 nlp_model,
                 tee=config.tee,
                 load_solutions=False,
                 symbolic_solver_labels=True,
+                logfile=logfile,
             )
         except ApplicationError:
             # account for possible external subsolver errors
@@ -575,6 +599,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
                 f"Solver {repr(opt)} encountered exception attempting to "
                 f"optimize master problem in iteration {model_data.iteration}"
             )
+            nlp_model.name = orig_model_name
             raise
 
         # record termination condition for this particular solver
@@ -586,6 +611,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
         elapsed = get_main_elapsed_time(model_data.timing)
         if config.time_limit:
             if elapsed >= config.time_limit:
+                nlp_model.name = orig_model_name
                 solve_data.found_violation = False
                 return True
 
@@ -598,6 +624,7 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
             solve_data.termination_condition in acceptable_conditions
         )
         if optimal_termination:
+            nlp_model.name = orig_model_name
             nlp_model.solutions.load_from(results)
             solve_data.found_violation = update_solve_data_violations(
                 model_data,
@@ -612,33 +639,15 @@ def solver_call_separation(model_data, config, solver, solve_data, is_global):
     # All subordinate solvers failed to optimize model to appropriate
     # termination condition. PyROS will terminate with subsolver
     # error. At this point, export model if desired
-    save_dir = config.subproblem_file_directory
-    if save_dir and config.keepfiles:
-        objective = str(
-            list(nlp_model.component_data_objects(Objective, active=True))[0].name
-        )
-        name = os.path.join(
-            save_dir,
-            (
-                config.uncertainty_set.type
-                + "_"
-                + nlp_model.name
-                + "_separation_"
-                + str(model_data.iteration)
-                + "_obj_"
-                + objective
-                + ".bar"
-            ),
-        )
-        nlp_model.write(name, io_options={'symbolic_solver_labels':True})
-        output_logger(
-            config=config,
-            separation_error=True,
-            filename=name,
-            iteration=model_data.iteration,
-            objective=objective,
-            status_dict=solver_status_dict,
-        )
+    nlp_model.name = orig_model_name
+    output_logger(
+        config=config,
+        separation_error=True,
+        filename=model_outfile,
+        iteration=model_data.iteration,
+        objective=objective,
+        status_dict=solver_status_dict,
+    )
     return True
 
 
