@@ -239,8 +239,30 @@ def solve_master_feasibility_problem(model_data, config):
     else:
         solver = config.local_solver
 
+    model.name = model_data.original.name
+    export_model(
+        model=model,
+        solver=solver,
+        config=config,
+        subproblem_type="master_feas",
+        itn=model_data.iteration,
+        fmt=".bar"
+    )
+    logfile = get_logfile_path(
+        model=model,
+        solver=solver,
+        config=config,
+        subproblem_type="master_feas",
+        itn=model_data.iteration,
+        fmt=".txt"
+    )
     try:
-        results = solver.solve(model, tee=config.tee, load_solutions=False)
+        results = solver.solve(
+            model,
+            tee=config.tee,
+            load_solutions=False,
+            logfile=logfile,
+        )
     except ApplicationError:
         # account for possible external subsolver errors
         # (such as segmentation faults, function evaluation
@@ -397,11 +419,29 @@ def minimize_dr_vars(model_data, config):
         solver = config.local_solver
 
     # === Solve the polishing model
+    polishing_model.name = model_data.original.name
+    export_model(
+        model=model,
+        solver=solver,
+        config=config,
+        subproblem_type="dr_polishing",
+        itn=model_data.iteration,
+        fmt=".bar"
+    )
+    logfile = get_logfile_path(
+        model=polishing_model,
+        solver=solver,
+        config=config,
+        subproblem_type="dr_polishing",
+        itn=model_data.iteration,
+        fmt=".txt"
+    )
     try:
         results = solver.solve(
             polishing_model,
             tee=config.tee,
             load_solutions=False,
+            logfile=logfile,
         )
     except ApplicationError:
         config.progress_logger.error(
