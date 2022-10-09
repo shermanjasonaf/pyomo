@@ -1105,7 +1105,7 @@ def get_path(subdir, model, solver, config, subproblem_type, itn, fmt):
     if subproblem_type in master_types:
         prob_type_dir_name = "master"
     else:
-        prob_type_dir_name = "separation"
+        prob_type_dir_name = subproblem_type
 
     # make directories recursively as necessary
     file_dir = rmkdir(
