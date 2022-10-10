@@ -645,28 +645,12 @@ class FactorModelSet(UncertaintySet):
         """
         Bounds on the realizations of the uncertain parameters, as inferred from the uncertainty set.
         """
-        nom_val = self.origin
-        psi_mat = self.psi_mat
+        return []
 
-        F = self.number_of_factors
-        beta_F = self.beta * F
-        floor_beta_F = math.floor(beta_F)
-        parameter_bounds = []
-        for i in range(len(nom_val)):
-            non_decreasing_factor_row = sorted(psi_mat[i], reverse=True)
-            # deviation = sum_j=1^floor(beta F) {psi_if_j} + (beta F - floor(beta F)) psi_{if_{betaF +1}}
-            # because indexing starts at 0, we adjust the limit on the sum and the final factor contribution
-            if beta_F - floor_beta_F == 0:
-                deviation = sum(non_decreasing_factor_row[j] for j in range(floor_beta_F - 1))
-            else:
-                deviation = sum(non_decreasing_factor_row[j] for j in range(floor_beta_F - 1)) + (
-                            beta_F - floor_beta_F) * psi_mat[i][floor_beta_F]
-            lb = nom_val[i] - deviation
-            ub = nom_val[i] + deviation
-            if lb > ub:
-                raise AttributeError("The computed lower bound on uncertain parameters must be less than or equal to the upper bound.")
-            parameter_bounds.append((lb, ub))
-        return parameter_bounds
+    @staticmethod
+    def add_bounds_on_uncertain_parameters(model, config):
+        """Add bounds on uncertain parameters."""
+        add_bounds_for_uncertain_parameters(model=model, config=config)
 
     def set_as_constraint(self, uncertain_params, **kwargs):
         """
