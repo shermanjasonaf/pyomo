@@ -813,7 +813,7 @@ class GAMSShell(_GAMSSolver):
         elif tee and logfile:
             command.append("lo=4")
         if logfile:
-            command.append("lf=" + str(logfile))
+            command.append("lf=" + str(os.path.split(logfile)[-1]))
 
         try:
             ostreams = [StringIO()]
@@ -853,6 +853,21 @@ class GAMSShell(_GAMSSolver):
                 model_soln, stat_vars = self._parse_dat_results(
                     results_filename, statresults_filename)
         finally:
+            # MOVE LOGFILE FROM TMPDIR TO SPECIFIED PATH
+            if logfile is not None:
+                # get expected path of logfile in tmpdir.
+                logfile_path = os.path.join(
+                    tmpdir,
+                    os.path.split(logfile)[-1]
+                )
+
+                # file should be at this path, as care was taken to specify
+                # the logfile path in the GAMS shell command call
+                assert os.path.exists(logfile_path)
+
+                # directory to which logfile is to be written must exist
+                os.rename(logfile_path, logfile)
+
             if not keepfiles:
                 if newdir:
                     shutil.rmtree(tmpdir)
