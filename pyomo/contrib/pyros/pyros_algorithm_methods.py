@@ -151,6 +151,7 @@ def ROSolver_iterative_solve(model_data, config):
     dr_var_lists_polished = []
 
     k = 0
+    master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
         master_data.iteration = k
 
@@ -162,7 +163,6 @@ def ROSolver_iterative_solve(model_data, config):
         config.progress_logger.info("PyROS working on iteration %s..." % k)
         master_soln = master_problem_methods.solve_master(model_data=master_data, config=config)
         #config.progress_logger.info("Done solving Master Problem!")
-        master_soln.master_problem_subsolver_statuses = []
 
         # === Keep track of total time and subsolver termination conditions
         timing_data.total_master_solve_time += get_time_from_solver(master_soln.results)
@@ -170,7 +170,8 @@ def ROSolver_iterative_solve(model_data, config):
         if k > 0:  # master feas problem not solved for iteration 0
             timing_data.total_master_solve_time += get_time_from_solver(master_soln.feasibility_problem_results)
 
-        master_soln.master_problem_subsolver_statuses.append(master_soln.results.solver.termination_condition)
+        master_statuses.append(master_soln.results.solver.termination_condition)
+        master_soln.master_problem_subsolver_statuses = master_statuses
 
         # === Check for robust infeasibility or error or time-out in master problem solve
         if master_soln.master_subsolver_results[1] is pyrosTerminationCondition.robust_infeasible:
