@@ -64,6 +64,50 @@ from pyomo.contrib.pyros.util import add_bounds_for_uncertain_parameters
 valid_num_types = tuple(native_numeric_types)
 
 
+class InputDataStandardizer(object):
+    def __init__(self, ctype, cdatatype):
+        self.ctype = ctype
+        self.cdatatype = cdatatype
+
+    def __call__(self, obj):
+        if isinstance(obj, self.ctype):
+            return list(obj.values())
+        if isinstance(obj, self.cdatatype):
+            return [obj]
+        ans = []
+        for item in obj:
+            ans.extend(self.__call__(item))
+        for _ in ans:
+            assert isinstance(_, self.cdatatype)
+        return ans
+
+
+def standardize_uncertain_params_arg(val):
+    """
+    Standardize uncertain parameters.
+    """
+    from pyomo.core.base.component import Component, ComponentData
+
+    # deal with Component types
+    if isinstance(val, Component):
+        return list(val.values())
+    if isinstance(val, ComponentData):
+        return [val]
+    elif not isinstance(val, Iterable):
+        raise TypeError(
+            f"Uncertain params contains argument of invalid type {type(val)}. "
+            "Ensure argument is a Component or ComponentData object, or "
+            "an iterable of such objects"
+        )
+
+    # deal with iterable of component types
+    uncertain_params = []
+    for item in val:
+        uncertain_params.extend(standardize_uncertain_params_arg(item))
+
+    return uncertain_params
+
+
 def validate_arg_type(
     arg_name,
     arg_val,
@@ -545,10 +589,18 @@ class UncertaintySetList(MutableSequence):
         provided, then the minimum required length is set to 0.
     """
 
-    def __init__(self, uncertainty_sets=[], name=None, min_length=None):
+    def __init__(
+            self,
+            uncertainty_sets=[],
+            name=None,
+            min_length=None,
+            require_common_dimension=True,
+            require_fixed_total_dimension=True,
+            ):
         """Initialize self (see class docstring)."""
         self._name = name
         self._min_length = 0 if min_length is None else min_length
+        self._require_common_dimension = require_common_dimension
 
         # check minimum length requirement satisfied
         initlist = list(uncertainty_sets)
@@ -570,6 +622,19 @@ class UncertaintySetList(MutableSequence):
         # now initialize the list
         self._list = []
         self.extend(initlist)
+
+        # in event total dimension needs to be fixed
+        self._require_fixed_total_dimension = require_fixed_total_dimension
+        if self._require_fixed_total_dimension:
+            self._init_total_dim = sum(uset.dim for uset in self)
+
+    @property
+    def total_dim(self):
+        """
+        int : Sum of dimensions of the uncertainty sets contained
+        in `self`.
+        """
+        return sum(uset.dim for uset in self)
 
     def __len__(self):
         """Length of the list contained in self."""
@@ -706,7 +771,7 @@ class UncertaintySetList(MutableSequence):
                 self._dim = value.dim
             else:
                 # ensure set added matches common dimension
-                if value.dim != self._dim:
+                if self._require_common_dimension and value.dim != self._dim:
                     raise ValueError(
                         f"Uncertainty set list with name {self._name!r} "
                         f"contains UncertaintySet objects of dimension "
@@ -852,6 +917,8 @@ class BoxSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         conlist = ConstraintList()
         conlist.construct()
 
@@ -1065,6 +1132,8 @@ class CardinalitySet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         # === Ensure dimensions
         if len(uncertain_params) != len(self.origin):
             raise AttributeError(
@@ -1335,6 +1404,7 @@ class PolyhedralSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
 
         # === Ensure valid dimensions of lhs and rhs w.r.t uncertain_params
         if np.asarray(self.coefficients_mat).shape[1] != len(uncertain_params):
@@ -1678,6 +1748,8 @@ class BudgetSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         # === Ensure matrix cols == len uncertain params
         if self.dim != len(uncertain_params):
             raise ValueError(
@@ -1993,6 +2065,8 @@ class FactorModelSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         model = kwargs['model']
 
         # === Ensure dimensions
@@ -2216,7 +2290,7 @@ class AxisAlignedEllipsoidalSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
-        all_params = list()
+        all_params = standardize_uncertain_params_arg(uncertain_params)
 
         # expand all uncertain parameters to a list.
         # this accounts for the cases in which `uncertain_params`
@@ -2224,10 +2298,6 @@ class AxisAlignedEllipsoidalSet(UncertaintySet):
         # or is itself a single indexed component
         if not isinstance(uncertain_params, (tuple, list)):
             uncertain_params = [uncertain_params]
-
-        all_params = []
-        for uparam in uncertain_params:
-            all_params.extend(uparam.values())
 
         if len(all_params) != len(self.center):
             raise AttributeError(
@@ -2514,6 +2584,8 @@ class EllipsoidalSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         inv_covar = np.linalg.inv(self.shape_matrix)
 
         if len(uncertain_params) != len(self.center):
@@ -2676,6 +2748,8 @@ class DiscreteScenarioSet(UncertaintySet):
         conlist : ConstraintList
             The constraints on the uncertain parameters.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         # === Ensure point is of correct dimensionality as the uncertain parameters
         dim = len(uncertain_params)
         if any(len(d) != dim for d in self.scenarios):
@@ -2953,6 +3027,8 @@ class IntersectionSet(UncertaintySet):
         AttributeError
             If the intersection set is found to be empty.
         """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
         try:
             nlp_solver = kwargs["config"].global_solver
         except:
@@ -3012,3 +3088,95 @@ class IntersectionSet(UncertaintySet):
 
         add_bounds_for_uncertain_parameters(model=model, config=config)
         return
+
+
+class CartesianProductSet(UncertaintySet):
+    """
+    Cartesian product of multiple uncertainty sets.
+
+    Parameters
+    ----------
+    *uncertainty_sets : tuple of UncertaintySet
+        Uncertainty sets of which to take the Cartesian product.
+    """
+    def __init__(self, *uncertainty_sets):
+        """Initialize self (see class docstring).
+
+        """
+        self.uncertainty_sets = uncertainty_sets
+
+    @property
+    def uncertainty_sets(self):
+        """
+        UncertaintySetList : Uncertainty set of which to
+        take the Cartesian product.
+        """
+        return self._uncertainty_sets
+
+    @uncertainty_sets.setter
+    def uncertainty_sets(self, val):
+        self._uncertainty_sets = UncertaintySetList(
+            val,
+            name="uncertainty_sets",
+            min_length=1,
+            require_common_dimension=False,
+            require_fixed_total_dimension=True,
+        )
+
+    @property
+    def geometry(self):
+        """
+        Geometry of the cartesian product set.
+        See the `Geometry` class documentation.
+        """
+        return Geometry(
+            max(uset.geometry.value for uset in self.uncertainty_sets)
+        )
+
+    @property
+    def type(self):
+        """
+        str : Brief descriptor for the type of the uncertainty set.
+        """
+        return "cartesian_product"
+
+    @property
+    def dim(self):
+        """
+        int : Dimension of the uncertainty set.
+        """
+        return sum(uset.dim for uset in self.uncertainty_sets)
+
+    @property
+    def parameter_bounds(self):
+        """
+        list of numeric type : Interval enclosures for coordinate values.
+        """
+        from itertools import chain
+        return list(chain.from_iterable(
+            uset.parameter_bounds for uset in self.uncertainty_sets
+        ))
+
+    def set_as_constraint(self, uncertain_params, **kwargs):
+        """
+        Write constraints.
+        """
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
+        conlist = ConstraintList()
+        conlist.construct()
+
+        uncertain_params = standardize_uncertain_params_arg(uncertain_params)
+
+        dim_start = 0
+        for idx, unc_set in enumerate(self.uncertainty_sets):
+            dim_stop = dim_start + unc_set.dim
+            cons = unc_set.set_as_constraint(
+                uncertain_params[dim_start:dim_stop],
+                **kwargs,
+            )
+            for con in cons.values():
+                conlist.add(con.expr)
+            dim_start += unc_set.dim
+
+        return conlist
