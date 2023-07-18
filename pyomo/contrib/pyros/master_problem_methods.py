@@ -126,25 +126,25 @@ def construct_master_feasibility_problem(model_data, config):
 
     # first stage vars are already initialized appropriately.
     # initialize second-stage DOF variables using DR equation expressions
-    if model.scenarios[iteration, 0].util.second_stage_variables:
-        for blk in model.scenarios[iteration, :]:
-            for eq in blk.util.decision_rule_eqns:
-                vars_in_dr_eq = ComponentSet(identify_variables(eq.body))
-                ssv_set = ComponentSet(blk.util.second_stage_variables)
+    # if model.scenarios[iteration, 0].util.second_stage_variables:
+    #     for blk in model.scenarios[iteration, :]:
+    #         for eq in blk.util.decision_rule_eqns:
+    #             vars_in_dr_eq = ComponentSet(identify_variables(eq.body))
+    #             ssv_set = ComponentSet(blk.util.second_stage_variables)
 
-                # get second-stage var in DR eqn. should only be one var
-                ssv_in_dr_eq = [var for var in vars_in_dr_eq if var in ssv_set][0]
+    #             # get second-stage var in DR eqn. should only be one var
+    #             ssv_in_dr_eq = [var for var in vars_in_dr_eq if var in ssv_set][0]
 
-                # update var value for initialization
-                # fine since DR eqns are f(d) - z == 0 (not z - f(d) == 0)
-                ssv_in_dr_eq.set_value(0)
-                ssv_in_dr_eq.set_value(value(eq.body))
+    #             # update var value for initialization
+    #             # fine since DR eqns are f(d) - z == 0 (not z - f(d) == 0)
+    #             ssv_in_dr_eq.set_value(0)
+    #             ssv_in_dr_eq.set_value(value(eq.body))
 
-    # initialize state vars to previous master solution values
-    if iteration != 0:
-        stvar_map = get_state_vars(model, [iteration, iteration - 1])
-        for current, prev in zip(stvar_map[iteration], stvar_map[iteration - 1]):
-            current.set_value(value(prev))
+    # # initialize state vars to previous master solution values
+    # if iteration != 0:
+    #     stvar_map = get_state_vars(model, [iteration, iteration - 1])
+    #     for current, prev in zip(stvar_map[iteration], stvar_map[iteration - 1]):
+    #         current.set_value(value(prev))
 
     # constraints to which slacks should be added
     # (all the constraints for the current iteration, except the DR eqns)
@@ -162,6 +162,7 @@ def construct_master_feasibility_problem(model_data, config):
                     Constraint, active=True, descend_into=True
                 )
                 if con not in dr_eqs
+                and not con.equality
             ]
         )
 
