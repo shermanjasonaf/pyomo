@@ -635,10 +635,13 @@ def perform_separation_loop(model_data, config, solve_globally):
     all_solve_call_results = ComponentMap()
     for priority, perf_constraints in sorted_priority_groups.items():
         priority_group_solve_call_results = ComponentMap()
-        for perf_con in perf_constraints:
-            # config.progress_logger.info(
-            #     f"Separating constraint {perf_con.name}"
-            # )
+        for idx, perf_con in enumerate(perf_constraints):
+            if idx % max(1, int(len(perf_constraints) / 10)) == 0:
+                solve_adverb = "Globally" if solve_globally else "Locally"
+                config.progress_logger.info(
+                    f"{solve_adverb} separating constraint {perf_con.name} "
+                    f"({idx + 1} of {len(perf_constraints)})"
+                )
 
             # solve separation problem for this performance constraint
             if uncertainty_set_is_discrete:
@@ -689,17 +692,18 @@ def perform_separation_loop(model_data, config, solve_globally):
                 )
 
             # # auxiliary log messages
-            # objectives_map = (
-            #     model_data.separation_model.util.map_obj_to_constr
-            # )
-            # violated_con_name = list(objectives_map.keys())[
-            #     worst_case_perf_con
-            # ]
-            # config.progress_logger.info(
-            #     f"Violation found for constraint {violated_con_name} "
-            #     "under realization "
-            #     f"{worst_case_res.violating_param_realization}"
-            # )
+            violated_con_names = "\n ".join(
+                con.name for con, res in all_solve_call_results.items()
+                if res.found_violation
+            )
+            config.progress_logger.info(
+                f"Violated constraints:\n {violated_con_names} "
+            )
+            config.progress_logger.info(
+                f"Worst-case constraint {worst_case_perf_con.name} "
+                "under realization "
+                f"{worst_case_res.violating_param_realization}"
+            )
 
             # violating separation problem solution now chosen.
             # exit loop
@@ -1014,6 +1018,9 @@ def solver_call_separation(
             separation_obj.deactivate()
 
             return solve_call_results
+        else:
+            print(f"Solver {opt} failed for {perf_con_to_maximize}")
+            print(results.solver)
 
     # All subordinate solvers failed to optimize model to appropriate
     # termination condition. PyROS will terminate with subsolver
