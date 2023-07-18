@@ -884,6 +884,17 @@ class PyROS(object):
                 return_soln.final_objective_value = None
                 return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
+
+        from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
+        master_model = pyros_soln.master_soln.master_model
+        return_soln.final_decision_rule = DecisionRuleInterface(
+            model=master_model,
+            second_stage_vars=master_model.scenarios[0, 0].util.second_stage_variables,
+            uncertain_params=master_model.scenarios[0, 0].util.uncertain_params,
+            decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
+            decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
+        )
+
         return return_soln
 
 
