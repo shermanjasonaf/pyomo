@@ -27,6 +27,40 @@ class DecisionRuleInterface:
     Decision rule equations are polynomial (up to degree 2)
     equations of the form
     d[0] + d[1] * q[0] + d[2] * q[1] + ... - z == 0
+
+    Parameters
+    ----------
+    model : BlockData
+        Model containing decision rule components.
+    second_stage_vars : list of VarData
+        Second-stage variables.
+    uncertain_params : list of Param
+        Uncertain parameters.
+    decision_rule_vars : list of IndexedVar
+        Decision rule coefficient variables.
+    decision_rule_eqns : list of Constraint
+        Decision rule equations.
+
+    Attributes
+    ----------
+    num_ssv : int
+        Number of second-stage variables.
+    num_uncertain_params : int
+        Number of uncertain parameters.
+    orig_ssv_names : list of str
+        Names of second-stage variable objects passed
+        at construction.
+    orig_uncertain_param_names : list of str
+        Names of uncertain parameter objects passed
+        at construction.
+    static_dr_coeffs : (N,) numpy.ndarray
+        Static DR coefficients, where `N` is the value of
+        `self.num_ssv`.
+    affine_dr_coeffs : (N, P) numpy.ndarray
+        Affine DR coefficients, where `P` is value of
+        `self.num_uncertain_params`
+    quadratic_dr_coeffs : (N, P, P) numpy.ndarray
+        Quadratic DR coefficients.
     """
 
     def __init__(
@@ -48,12 +82,9 @@ class DecisionRuleInterface:
         self.orig_uncertain_param_names = [
             param.name for param in uncertain_params
         ]
-        self.orig_dr_var_names = [
-            dr_var.name for dr_var in decision_rule_vars
-        ]
 
         # arrays for containing DR coefficients
-        constant_dr_coeffs = np.zeros(self.num_ssv)
+        static_dr_coeffs = np.zeros(self.num_ssv)
         affine_dr_coeffs = np.zeros((self.num_ssv, self.num_uncertain_params))
         quadratic_dr_coeffs = np.zeros((
             self.num_ssv,
@@ -69,7 +100,7 @@ class DecisionRuleInterface:
         )
         for ssv_idx, (ssv, dr_eq) in enumerate(ssv_dr_eq_zip):
             for term in dr_eq.body.args:
-                is_constant_dr_term = (
+                is_static_dr_term = (
                     isinstance(term.args[0], int)
                     and term.args[0] == 1
                     and isinstance(term.args[1], VarData)
@@ -91,10 +122,10 @@ class DecisionRuleInterface:
                     isinstance(term.args[0], NPV_PowExpression)
                     and isinstance(term.args[1], VarData)
                 )
-                if is_constant_dr_term:
+                if is_static_dr_term:
                     uncertain_param_idxs = ()
                     dr_var_value = term.args[1].value
-                    constant_dr_coeffs[ssv_idx] = dr_var_value
+                    static_dr_coeffs[ssv_idx] = dr_var_value
                 elif is_linear_term:
                     uncertain_param_idxs = (
                         param_names.index(term.args[0].name),
@@ -134,15 +165,14 @@ class DecisionRuleInterface:
                         f"of DR equation {dr_eq}."
                     )
 
-        self.constant_dr_coeffs = constant_dr_coeffs
+        self.static_dr_coeffs = static_dr_coeffs
         self.affine_dr_coeffs = affine_dr_coeffs
         self.quadratic_dr_coeffs = quadratic_dr_coeffs
 
     @property
     def degree(self):
         """
-        Evaluate polynomial degree of decision rule
-        contained in self.
+        int : Polynomial degree of decision rule contained in self.
         """
         quadratic_coeffs_all_zero = np.all(self.quadratic_dr_coeffs == 0)
         affine_coeffs_all_zero = np.all(self.affine_dr_coeffs == 0)
@@ -154,28 +184,55 @@ class DecisionRuleInterface:
 
         return degree
 
-    def get_new_dr_vars(self, degree):
+    @staticmethod
+    def create_dr_vars(num_uncertain_params, degree):
         """
-        Construct new decision rule variables for a single
-        DR equation.
+        Create new decision rule indexed Var object
+        for a polynomial decision rule expression of given
+        degree and with a given number of uncertain parameters.
+
+        Parameters
+        ----------
+        num_uncertain_params : int
+            Number of uncertain parameters in model of interest.
+        degree : int
+            Desired degree of the equation
+
+        Returns
+        -------
+        IndexedVar
+            Decision rule indexed Var object. Contains
+            as many entries as needed for construction
+            of a polynomial DR expression.
         """
         from scipy.special import comb
         num_of_monomials = comb(
-            N=self.num_uncertain_params + degree,
+            N=num_uncertain_params + degree,
             k=degree,
             exact=True,
             repetition=False,
         )
-        return [pyo.Var(range(num_of_monomials)) for _ in range(self.num_ssv)]
+        return pyo.Var(range(num_of_monomials))
 
     def evaluate_dr_at(self, param_values):
         """
         Evaluate second-stage variable values
         according to decision rules.
+
+        Parameters
+        ----------
+        param_values : (P,) numpy.ndarray of float
+            Uncertain parameter point.
+
+        Returns
+        -------
+        (N,) numpy.ndarray
+            Second-stage variable values prescribed by
+            the decision rule contained in `self`.
         """
         param_vals_arr = np.array(param_values)
         return (
-            self.constant_dr_coeffs
+            self.static_dr_coeffs
             + self.affine_dr_coeffs @ param_vals_arr
             + param_vals_arr @ self.quadratic_dr_coeffs @ param_vals_arr
         )
@@ -184,9 +241,16 @@ class DecisionRuleInterface:
         """
         Get mapping from tuples of uncertain parameter indexes
         to corresponding DR coefficient values.
+
+        Returns
+        -------
+        dict
+            Mapping from tuples of uncertain parameter indexes
+            (according to order the parameters were passed in at
+            construction) to DR coefficient values.
         """
         dr_map = {}
-        for ssv_idx, const_coef in enumerate(self.constant_dr_coeffs):
+        for ssv_idx, const_coef in enumerate(self.static_dr_coeffs):
             map_for_this_ssv = {}
             map_for_this_ssv[()] = const_coef
             map_for_this_ssv.update({
@@ -213,7 +277,7 @@ class DecisionRuleInterface:
 
         return dr_map
 
-    def generate_dr_eqns(
+    def create_dr_eqns(
             self,
             second_stage_vars,
             uncertain_params,
@@ -221,7 +285,25 @@ class DecisionRuleInterface:
             dr_order=None,
             ):
         """
-        Generate decision rule constraints.
+        Construct new decision rule equality constraints
+        using decision rule coefficient values contained
+        in `self`.
+
+        Parameters
+        ----------
+        second_stage_vars : list of VarData
+            Second-stage variables.
+        uncertain_params : list of ParamData
+            Uncertain parameters.
+        dr_order : int or None, optional
+            Desired degree of the DR constraints.
+            Note: must be between `self.degree` and 2.
+            If None is passed, then `self.degree` is used.
+
+        Returns
+        -------
+        dr_eqns : ConstraintList
+            Decision rule equality constraints.
         """
         # standardize and validate DR order argument
         if dr_order is None:
@@ -231,8 +313,8 @@ class DecisionRuleInterface:
         dr_eqns = pyo.ConstraintList()
         dr_eqns.construct()
         for ssv_idx, ssv in enumerate(second_stage_vars):
-            # constant terms
-            dr_expr = 1 * self.constant_dr_coeffs[ssv_idx]
+            # static terms
+            dr_expr = 1 * self.static_dr_coeffs[ssv_idx]
 
             # affine terms
             if dr_order >= 1:
