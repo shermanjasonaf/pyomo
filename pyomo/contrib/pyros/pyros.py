@@ -885,6 +885,16 @@ class PyROS(object):
                 return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
 
+            config.progress_logger.info(
+                f" Solve time (wall s): {return_soln.time}"
+            )
+            config.progress_logger.info(
+                f" Iterations: {return_soln.iterations}"
+            )
+            config.progress_logger.info(
+                f" Final objective value: {return_soln.final_objective_value}"
+            )
+
         from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
         master_model = pyros_soln.master_soln.master_model
         return_soln.final_decision_rule = DecisionRuleInterface(
