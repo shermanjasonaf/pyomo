@@ -700,9 +700,16 @@ def perform_separation_loop(model_data, config, solve_globally):
                 f"Violated constraints:\n {violated_con_names} "
             )
             config.progress_logger.info(
-                f"Worst-case constraint {worst_case_perf_con.name} "
+                f"Worst-case constraint {worst_case_perf_con.name!r} "
                 "under realization "
                 f"{worst_case_res.violating_param_realization}"
+            )
+            config.progress_logger.info(
+                f"Maximal scaled violation "
+                f"{worst_case_res.scaled_violations[worst_case_perf_con]} "
+                "from this constraint "
+                "exceeds the robust feasibility tolerance "
+                f"{config.robust_feasibility_tolerance}"
             )
 
             # violating separation problem solution now chosen.

@@ -636,6 +636,8 @@ def solver_call_master(model_data, config, solver, solve_data):
 
     higher_order_decision_rule_efficiency(config, model_data)
 
+    config.progress_logger.info("Solving master problem")
+
     timer = TicTocTimer()
     for opt in backup_solvers:
         orig_setting, custom_setting_present = adjust_solver_time_settings(
@@ -704,7 +706,12 @@ def solver_call_master(model_data, config, solver, solve_data):
                     nlp_model.scenarios[0, 0].second_stage_objective
                 )
             else:
-                idx = max(nlp_model.scenarios.keys())[0]
+                idx = max(
+                    nlp_model.scenarios.keys(),
+                    key=lambda blk_idx: value(nlp_model.scenarios[blk_idx].second_stage_objective)
+                )[0]
+
+                # idx = max(nlp_model.scenarios.keys())[0]
                 master_soln.ssv_vals = list(
                     v.value
                     for v in nlp_model.scenarios[idx, 0].util.second_stage_variables
@@ -715,6 +722,34 @@ def solver_call_master(model_data, config, solver, solve_data):
             master_soln.first_stage_objective = value(
                 nlp_model.scenarios[0, 0].first_stage_objective
             )
+
+            config.progress_logger.info("Master objective")
+
+            # fsv_vals_dict = {}
+            # for var in config.first_stage_variables:
+            #     fsv_vals_dict[var.name] = value(
+            #         nlp_model.scenarios[0, 0].find_component(var),
+            #         exception=False,
+            #     )
+            # config.progress_logger.info(
+            #     f"First-stage variable values: {fsv_vals_dict}"
+            # )
+            # for scen_idx, blk in nlp_model.scenarios.items():
+            #     config.progress_logger.info(
+            #         f" Obj for blk {scen_idx} "
+            #         f"{value(blk.first_stage_objective + blk.second_stage_objective)}"
+            #     )
+            config.progress_logger.info(
+                f" First-stage objective {master_soln.first_stage_objective}"
+            )
+            config.progress_logger.info(
+                f" Second-stage objective {master_soln.second_stage_objective}"
+            )
+            master_obj = (
+                master_soln.first_stage_objective
+                + master_soln.second_stage_objective
+            )
+            config.progress_logger.info(f" Objective {master_obj}")
 
             master_soln.nominal_block = nlp_model.scenarios[0, 0]
             master_soln.results = results
