@@ -655,6 +655,20 @@ def perform_separation_loop(model_data, config, solve_globally):
                 worst_case_perf_con=None,
             )
 
+    def get_orig_con_name(perf_con, with_qual=True):
+        con_name = perf_con.name
+        orig_con = (
+            model_data
+            .separation_model
+            .util
+            .map_new_constraint_list_to_original_con.get(perf_con, None)
+        )
+        if orig_con is not None and with_qual:
+            con_str = f"{con_name!r} (originally {orig_con.name!r})"
+        else:
+            con_str = f"{con_name!r}"
+        return con_str
+
     all_solve_call_results = ComponentMap()
     for priority, perf_constraints in sorted_priority_groups.items():
         priority_group_solve_call_results = ComponentMap()
@@ -662,7 +676,8 @@ def perform_separation_loop(model_data, config, solve_globally):
             if idx % max(1, int(len(perf_constraints) / 10)) == 0:
                 solve_adverb = "Globally" if solve_globally else "Locally"
                 config.progress_logger.info(
-                    f"{solve_adverb} separating constraint {perf_con.name!r} "
+                    f"{solve_adverb} separating constraint "
+                    f"{get_orig_con_name(perf_con)} "
                     f"(group priority {priority}, "
                     f"constraint {idx + 1} of {len(perf_constraints)})"
                 )
@@ -717,14 +732,15 @@ def perform_separation_loop(model_data, config, solve_globally):
 
             # # auxiliary log messages
             violated_con_names = "\n ".join(
-                con.name for con, res in all_solve_call_results.items()
+                get_orig_con_name(con)
+                for con, res in all_solve_call_results.items()
                 if res.found_violation
             )
             config.progress_logger.info(
                 f"Violated constraints:\n {violated_con_names} "
             )
             config.progress_logger.info(
-                f"Worst-case constraint {worst_case_perf_con.name!r} "
+                f"Worst-case constraint {get_orig_con_name(worst_case_perf_con)} "
                 "under realization "
                 f"{worst_case_res.violating_param_realization}"
             )
