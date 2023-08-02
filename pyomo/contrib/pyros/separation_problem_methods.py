@@ -28,6 +28,7 @@ from pyomo.contrib.pyros.util import (
     TIC_TOC_SOLVE_TIME_ATTR,
     adjust_solver_time_settings,
     revert_solver_max_time_adjustment,
+    DEFAULT_SEPARATION_PRIORITY,
 )
 import os
 from copy import deepcopy
@@ -83,6 +84,10 @@ def make_separation_objective_functions(model, config):
         ):
             # This inequality constraint depends on uncertain parameters therefore it must be separated against
             performance_constraints.append(c)
+            model.pyros_separation_priority.setdefault(
+                c,
+                (None, DEFAULT_SEPARATION_PRIORITY),
+            )
         elif not c.equality and not (
             uncertain_params_in_expr
             or state_vars_in_expr
@@ -140,6 +145,18 @@ def make_separation_problem(model_data, config):
         )
         separation_model.add_component("epigraph_constr", constr)
 
+        # active_obj = next(
+        #     obj for obj in
+        #     separation_model.component_data_objects(Objective, active=True)
+        # )
+        # separation_model.pyros_separation_priority[constr] = (
+        #     None,
+        #     separation_model.pyros_separation_priority.get(
+        #         active_obj,
+        #         DEFAULT_SEPARATION_PRIORITY,
+        #     ),
+        # )
+
     substitution_map = {}
     # Separation problem initialized to nominal uncertain parameter values
     for idx, var in enumerate(list(param_vars.values())):
@@ -188,9 +205,14 @@ def make_separation_problem(model_data, config):
                     "Unable to parse constraint for building the separation problem."
                 )
             c.deactivate()
-            map_new_constraint_list_to_original_con[
-                constraints[constraints.index_set().last()]
-            ] = c
+            new_con = constraints[constraints.index_set().last()]
+            map_new_constraint_list_to_original_con[new_con] = c
+            separation_model.pyros_separation_priority[new_con] = (
+                separation_model.pyros_separation_priority.get(
+                    c,
+                    (None, DEFAULT_SEPARATION_PRIORITY),
+                )
+            )
 
     separation_model.util.map_new_constraint_list_to_original_con = (
         map_new_constraint_list_to_original_con
@@ -432,10 +454,11 @@ def group_performance_constraints_by_priority(model_data, config):
         (i.e. highest priority first).
     """
     separation_priority_groups = dict()
-    config_sep_priority_dict = config.separation_priority_order
     for perf_con in model_data.separation_model.util.performance_constraints:
         # by default, priority set to 0
-        priority = config_sep_priority_dict.get(perf_con.name, 0)
+        priority = (
+            model_data.separation_model.pyros_separation_priority[perf_con][1]
+        )
         cons_with_same_priority = separation_priority_groups.setdefault(priority, [])
         cons_with_same_priority.append(perf_con)
 
@@ -639,8 +662,9 @@ def perform_separation_loop(model_data, config, solve_globally):
             if idx % max(1, int(len(perf_constraints) / 10)) == 0:
                 solve_adverb = "Globally" if solve_globally else "Locally"
                 config.progress_logger.info(
-                    f"{solve_adverb} separating constraint {perf_con.name} "
-                    f"({idx + 1} of {len(perf_constraints)})"
+                    f"{solve_adverb} separating constraint {perf_con.name!r} "
+                    f"(group priority {priority}, "
+                    f"constraint {idx + 1} of {len(perf_constraints)})"
                 )
 
             # solve separation problem for this performance constraint

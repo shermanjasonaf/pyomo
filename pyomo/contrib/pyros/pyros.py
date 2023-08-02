@@ -773,6 +773,51 @@ class PyROS(object):
             setattr(model_data.original_model, cname, src_vars)
             model_data.working_model = model_data.original_model.clone()
 
+            # normalize separation priority orders
+            has_active_separation_priority = (
+                hasattr(model_data.working_model, "pyros_separation_priority")
+                and model_data.working_model.pyros_separation_priority.active
+            )
+            if has_active_separation_priority:
+                separation_priority_suffix = (
+                    model_data.working_model.pyros_separation_priority
+                )
+                comp_priority_items = list(separation_priority_suffix.items())
+                for component, priority in comp_priority_items:
+                    if component.is_indexed():
+                        separation_priority_suffix.clear_value(
+                            component,
+                            expand=False,
+                        )
+                    standardize_to_tuple = (
+                        not isinstance(component, Objective)
+                        and not isinstance(priority, tuple)
+                    )
+                    if standardize_to_tuple:
+                        lb_priority = (
+                            priority if component.lower is not None else None
+                        )
+                        ub_priority = (
+                            priority if component.upper is not None else None
+                        )
+                        standard_priority = (lb_priority, ub_priority)
+                    else:
+                        standard_priority = priority
+                    separation_priority_suffix.set_value(
+                        component,
+                        standard_priority,
+                        expand=True,
+                    )
+            else:
+                from pyomo.environ import Suffix
+                model_data.working_model.pyros_separation_priority = Suffix(
+                    direction=Suffix.EXPORT,
+                    datatype=None,
+                )
+
+            # can deactivate here to prevent issues with subsolvers
+            model_data.working_model.pyros_separation_priority.deactivate()
+
             # identify active objective function
             # (there should only be one at this point)
             # recast to minimization if necessary
@@ -795,7 +840,8 @@ class PyROS(object):
             # === Replace variable bounds depending on uncertain params with
             #     explicit inequality constraints
             replace_uncertain_bounds_with_constraints(
-                model_data.working_model, model_data.working_model.util.uncertain_params
+                model_data.working_model,
+                model_data.working_model.util.uncertain_params
             )
 
             # === Add decision rule information
