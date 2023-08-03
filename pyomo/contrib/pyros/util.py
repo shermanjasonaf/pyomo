@@ -1345,6 +1345,13 @@ def identify_objective_functions(model, objective):
     model.first_stage_objective = Expression(expr=first_stage_cost_expr)
     model.second_stage_objective = Expression(expr=second_stage_cost_expr)
 
+    model.pyros_separation_priority[model.first_stage_objective] = (
+        model.pyros_separation_priority.get(
+            objective,
+            DEFAULT_SEPARATION_PRIORITY,
+        )
+    )
+
 
 def load_final_solution(model_data, master_soln, config):
     '''

@@ -144,6 +144,12 @@ def make_separation_problem(model_data, config):
             <= 0
         )
         separation_model.add_component("epigraph_constr", constr)
+        separation_model.pyros_separation_priority[constr] = (
+            None,
+            separation_model.pyros_separation_priority[
+                separation_model.first_stage_objective
+            ],
+        )
 
         # active_obj = next(
         #     obj for obj in
