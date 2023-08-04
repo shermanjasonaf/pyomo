@@ -308,34 +308,6 @@ def ROSolver_iterative_solve(model_data, config):
                     vals.append(dvar.value)
                 dr_var_lists_polished.append(vals)
 
-            config.progress_logger.info("Polished Master objective")
-            # print master solution
-            if config.objective_focus == ObjectiveType.worst_case:
-                worst_blk_idx = max(
-                    master_data.master_model.scenarios.keys(),
-                    key=lambda idx: value(
-                        master_data.master_model.scenarios[idx]
-                        .second_stage_objective
-                    )
-                )
-            else:
-                worst_blk_idx = (0, 0)
-
-            worst_master_blk = master_data.master_model.scenarios[worst_blk_idx]
-            config.progress_logger.info(
-                " First-stage objective "
-                f"{value(worst_master_blk.first_stage_objective)}"
-            )
-            config.progress_logger.info(
-                " Second-stage objective "
-                f"{value(worst_master_blk.second_stage_objective)}"
-            )
-            polished_master_obj = value(
-                worst_master_blk.first_stage_objective
-                + worst_master_blk.second_stage_objective
-            )
-            config.progress_logger.info(f" Objective {polished_master_obj}")
-
         # === Check if time limit reached
         elapsed = get_main_elapsed_time(model_data.timing)
         if config.time_limit:
