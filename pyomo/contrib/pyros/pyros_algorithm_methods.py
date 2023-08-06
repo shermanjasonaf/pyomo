@@ -163,16 +163,17 @@ def ROSolver_iterative_solve(model_data, config):
     num_fsv = len(config.first_stage_variables)
     num_ssv = len(config.second_stage_variables)
     num_sv = len(nom_util_blk.state_vars)
-    num_dr_vars = len(ComponentSet(chain(
-        indexed_dr_var.values()
+    dr_vars = ComponentSet(chain(*tuple(
+        indexed_dr_var
         for indexed_dr_var in model_data.working_model.util.decision_rule_vars
     )))
+    num_dr_vars = len(dr_vars)
     num_vars = num_fsv + num_ssv + num_sv + num_dr_vars
 
-    dr_eq_set = ComponentSet(chain(
-        indexed_dr_eq.values()
+    dr_eq_set = ComponentSet(chain(*tuple(
+        indexed_dr_eq
         for indexed_dr_eq in model_data.working_model.util.decision_rule_eqns
-    ))
+    )))
 
     num_perf_cons = len(separation_model.util.performance_constraints)
     num_eq_cons = len([
