@@ -436,9 +436,9 @@ def minimize_dr_vars(model_data, config):
     else:
         solver = config.local_solver
 
-    config.progress_logger.info("Solving DR polishing problem")
+    config.progress_logger.debug("Solving DR polishing problem")
 
-    config.progress_logger.info(
+    config.progress_logger.debug(
         f" Initial total norm: {value(polishing_model.polishing_obj)}"
     )
     # === Solve the polishing model
@@ -463,13 +463,13 @@ def minimize_dr_vars(model_data, config):
             solver, orig_setting, custom_setting_present, config
         )
 
-    config.progress_logger.info(
+    config.progress_logger.debug(
         " Done solving DR polishing problem"
     )
-    config.progress_logger.info(
+    config.progress_logger.debug(
         f"  Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)} s"
     )
-    config.progress_logger.info(
+    config.progress_logger.debug(
         f"  Termination status: {results.solver.termination_condition} "
     )
 
@@ -504,11 +504,11 @@ def minimize_dr_vars(model_data, config):
             for mvar, pvar in zip(master_dr.values(), polish_dr.values()):
                 mvar.set_value(value(pvar), skip_validation=True)
 
-    config.progress_logger.info(
+    config.progress_logger.debug(
         f" Optimized total norm: {value(polishing_model.polishing_obj)}"
     )
 
-    config.progress_logger.info("Polished Master objective")
+    config.progress_logger.debug("Polished Master objective")
     # print master solution
     if config.objective_focus == ObjectiveType.worst_case:
         worst_blk_idx = max(
@@ -522,11 +522,11 @@ def minimize_dr_vars(model_data, config):
         worst_blk_idx = (0, 0)
 
     worst_master_blk = model_data.master_model.scenarios[worst_blk_idx]
-    config.progress_logger.info(
+    config.progress_logger.debug(
         " First-stage objective "
         f"{value(worst_master_blk.first_stage_objective)}"
     )
-    config.progress_logger.info(
+    config.progress_logger.debug(
         " Second-stage objective "
         f"{value(worst_master_blk.second_stage_objective)}"
     )
@@ -534,7 +534,7 @@ def minimize_dr_vars(model_data, config):
         worst_master_blk.first_stage_objective
         + worst_master_blk.second_stage_objective
     )
-    config.progress_logger.info(f" Objective {polished_master_obj}")
+    config.progress_logger.debug(f" Objective {polished_master_obj}")
 
     return results
 
@@ -651,7 +651,7 @@ def solver_call_master(model_data, config, solver, solve_data):
 
     higher_order_decision_rule_efficiency(config, model_data)
 
-    config.progress_logger.info("Solving master problem")
+    config.progress_logger.debug("Solving master problem")
 
     timer = TicTocTimer()
     for opt in backup_solvers:
@@ -738,7 +738,7 @@ def solver_call_master(model_data, config, solver, solve_data):
                 nlp_model.scenarios[0, 0].first_stage_objective
             )
 
-            config.progress_logger.info("Master objective")
+            config.progress_logger.debug("Master objective")
 
             # fsv_vals_dict = {}
             # for var in config.first_stage_variables:
@@ -746,25 +746,25 @@ def solver_call_master(model_data, config, solver, solve_data):
             #         nlp_model.scenarios[0, 0].find_component(var),
             #         exception=False,
             #     )
-            # config.progress_logger.info(
+            # config.progress_logger.debug(
             #     f"First-stage variable values: {fsv_vals_dict}"
             # )
             # for scen_idx, blk in nlp_model.scenarios.items():
-            #     config.progress_logger.info(
+            #     config.progress_logger.debug(
             #         f" Obj for blk {scen_idx} "
             #         f"{value(blk.first_stage_objective + blk.second_stage_objective)}"
             #     )
-            config.progress_logger.info(
+            config.progress_logger.debug(
                 f" First-stage objective {master_soln.first_stage_objective}"
             )
-            config.progress_logger.info(
+            config.progress_logger.debug(
                 f" Second-stage objective {master_soln.second_stage_objective}"
             )
             master_obj = (
                 master_soln.first_stage_objective
                 + master_soln.second_stage_objective
             )
-            config.progress_logger.info(f" Objective {master_obj}")
+            config.progress_logger.debug(f" Objective {master_obj}")
 
             master_soln.nominal_block = nlp_model.scenarios[0, 0]
             master_soln.results = results

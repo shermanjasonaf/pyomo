@@ -38,6 +38,7 @@ from pyomo.contrib.pyros.util import (
     turn_bounds_to_constraints,
     replace_uncertain_bounds_with_constraints,
     output_logger,
+    DEFAULT_LOGGER_NAME,
 )
 from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
@@ -485,7 +486,7 @@ def pyros_config():
     CONFIG.declare(
         "progress_logger",
         PyROSConfigValue(
-            default="pyomo.contrib.pyros",
+            default=DEFAULT_LOGGER_NAME,
             domain=a_logger,
             doc=(
                 """
@@ -642,6 +643,7 @@ class PyROS(object):
     '''
 
     CONFIG = pyros_config()
+    _LOG_LINE_LENGTH = 78
 
     def available(self, exception_flag=True):
         """Check if solver is available."""
@@ -662,6 +664,57 @@ class PyROS(object):
 
     def __exit__(self, et, ev, tb):
         pass
+
+    def _log_intro(self, log_func):
+        """
+        Log introductory message.
+        """
+        log_func("=" * self._LOG_LINE_LENGTH)
+        log_func(
+            "PyROS: The Pyomo Robust Optimization Solver",
+        )
+        log_func(
+            "Developed by: Natalie M. Isenberg (1), Jason A. F. Sherman (1),",
+        )
+        log_func(
+            "              John D. Siirola (2), Chrysanthos E. Gounaris (1)",
+        )
+        log_func(
+            "(1) Carnegie Mellon University, "
+            " Department of Chemical Engineering",
+        )
+        log_func(
+            "(2) Sandia National Laboratories, Center for Computing Research",
+        )
+        log_func("")
+        log_func(
+            "The developers gratefully acknowledge support "
+            "from the U.S. Department of Energy's "
+            "Institute for the Design of Advanced Energy Systems (IDAES).",
+        )
+        log_func("=" * self._LOG_LINE_LENGTH)
+
+    def _log_disclaimer(self, log_func, **log_func_kwargs):
+        """
+        Log disclaimer message.
+        """
+        disclaimer_header = " DISCLAIMER ".center(self._LOG_LINE_LENGTH, "=")
+
+        log_func(disclaimer_header)
+        log_func(
+            "PyROS is still under development. ",
+        )
+        log_func(
+            "Please provide feedback and/or report any issues by creating "
+            "an issue from the official Pyomo repository at: "
+            "https://github.com/Pyomo/pyomo/issues/new/choose",
+        )
+        log_func("=" * self._LOG_LINE_LENGTH)
+
+    def _log_results(self, res, log_func):
+        """
+        Log PyROS results.
+        """
 
     def solve(
         self,
@@ -743,14 +796,18 @@ class PyROS(object):
         model_data.timing = Bunch()
 
         # === Set up logger for logging results
+        from pyomo.common.timing import TicTocTimer
+        from pyomo.contrib.pyros.util import IterationLogRecord, make_tic_toc_log_func
+
+        tt_timer = TicTocTimer(logger=config.progress_logger)
+        tt_timer.tic(msg=None)
+        log_func = make_tic_toc_log_func(tt_timer)
+        model_data.tic_toc_log_func = log_func
         with time_code(model_data.timing, 'total', is_main_timer=True):
-            config.progress_logger.setLevel(logging.INFO)
+            # config.progress_logger.setLevel(logging.INFO)
 
-            # === PREAMBLE
-            output_logger(config=config, preamble=True, version=str(self.version()))
-
-            # === DISCLAIMER
-            output_logger(config=config, disclaimer=True)
+            self._log_intro(log_func)
+            self._log_disclaimer(log_func)
 
             # === A block to hold list-type data to make cloning easy
             util = Block(concrete=True)
@@ -882,6 +939,8 @@ class PyROS(object):
                 model_data, config
             )
 
+            IterationLogRecord.log_header_rule(log_func, fillchar="-")
+
             return_soln = ROSolveResults()
             if pyros_soln is not None and final_iter_separation_solns is not None:
                 if config.load_solution and (
@@ -931,15 +990,31 @@ class PyROS(object):
                 return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
 
-            config.progress_logger.info(
-                f" Solve time (wall s): {return_soln.time}"
-            )
-            config.progress_logger.info(
-                f" Iterations: {return_soln.iterations}"
-            )
-            config.progress_logger.info(
-                f" Final objective value: {return_soln.final_objective_value}"
-            )
+        termination_msg_dict = {
+            pyrosTerminationCondition.robust_optimal: (
+                "Robust optimal solution identified."
+            ),
+            pyrosTerminationCondition.robust_feasible: (
+                "Robust feasible solution identified."
+            ),
+            pyrosTerminationCondition.robust_infeasible: (
+                "Problem is robust infeasible."
+            ),
+            pyrosTerminationCondition.time_out: (
+                "Maximum allowable time exceeded."
+            ),
+            pyrosTerminationCondition.max_iter: (
+                "Maximum number of iterations reached."
+            ),
+            pyrosTerminationCondition.subsolver_error: (
+                "Subsolver error encountered."
+            ),
+        }
+        log_func(termination_msg_dict[return_soln.pyros_termination_condition])
+        log_func(f" Iterations: {return_soln.iterations}")
+        log_func(f" Solve time (wall s): {return_soln.time}")
+        log_func(f" Final objective value: {return_soln.final_objective_value}")
+        log_func("=" * self._LOG_LINE_LENGTH)
 
         from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
         master_model = pyros_soln.master_soln.master_model

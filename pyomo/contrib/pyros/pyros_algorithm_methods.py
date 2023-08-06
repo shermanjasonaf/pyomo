@@ -19,6 +19,7 @@ from pyomo.contrib.pyros.util import (
 )
 from pyomo.core.base import value
 from pyomo.common.collections import ComponentSet
+from pyomo.contrib.pyros.util import IterationLogRecord
 
 
 def update_grcs_solve_data(
@@ -156,6 +157,81 @@ def ROSolver_iterative_solve(model_data, config):
         model_data=master_data, config=config
     )
 
+    from itertools import chain
+    # print model statistics
+    nom_util_blk = master_data.master_model.scenarios[0, 0].util
+    num_fsv = len(config.first_stage_variables)
+    num_ssv = len(config.second_stage_variables)
+    num_sv = len(nom_util_blk.state_vars)
+    num_dr_vars = len(ComponentSet(chain(
+        indexed_dr_var.values()
+        for indexed_dr_var in model_data.working_model.util.decision_rule_vars
+    )))
+    num_vars = num_fsv + num_ssv + num_sv + num_dr_vars
+
+    dr_eq_set = ComponentSet(chain(
+        indexed_dr_eq.values()
+        for indexed_dr_eq in model_data.working_model.util.decision_rule_eqns
+    ))
+
+    num_perf_cons = len(separation_model.util.performance_constraints)
+    num_eq_cons = len([
+        con for con in
+        model_data.working_model.component_data_objects(
+            Constraint,
+            active=True,
+        )
+        if con.equality
+    ])
+    num_dr_cons = len(dr_eq_set)
+    num_coefficient_matching_cons = len(getattr(
+        model_data.working_model,
+        "coefficient_matching_constraints",
+        [],
+    ))
+
+    num_ineq_cons = len([
+        con for con in
+        model_data.working_model.component_data_objects(
+            Constraint,
+            active=True,
+        )
+        if not con.equality
+    ]) + int(ObjectiveType.worst_case == config.objective_focus)
+
+    model_data.tic_toc_log_func(
+        "Done preprocessing and preparing subproblem objects. "
+        "Model statistics:"
+    )
+    model_data.tic_toc_log_func(
+        f"{'Number of variables':<45s}: {num_vars}"
+    )
+    model_data.tic_toc_log_func(f"{'  First-stage variables':<45s}: {num_fsv}")
+    model_data.tic_toc_log_func(f"{'  Second-stage variables':<45s}: {num_ssv}")
+    model_data.tic_toc_log_func(f"{'  State variables':<45s}: {num_sv}")
+    model_data.tic_toc_log_func(f"{'  Decision rule variables':<45s}: {num_dr_vars}")
+    model_data.tic_toc_log_func(
+        f"{'Number of constraints':<45s}: "
+        f"{num_ineq_cons + num_eq_cons}"
+    )
+    model_data.tic_toc_log_func(f"{'  Equality constraints':<45s}: {num_eq_cons}")
+    model_data.tic_toc_log_func(
+        f"{'    Decision rule equations':<45s}: {num_dr_cons}"
+    )
+    model_data.tic_toc_log_func(
+        f"{'    Coefficient matching constraints':<45s}: {num_coefficient_matching_cons}"
+    )
+    model_data.tic_toc_log_func(
+        f"{'    All other equality constraints':<45s}: "
+        f"{num_eq_cons - num_coefficient_matching_cons - num_dr_cons}"
+    )
+    model_data.tic_toc_log_func(f"{'  Inequality constraints':<45s}: {num_ineq_cons}")
+    model_data.tic_toc_log_func(f"{'    Performance constraints':<45s}: {num_perf_cons}")
+    model_data.tic_toc_log_func(
+        f"{'    First-stage inequalities':<45s}: "
+        f"{num_perf_cons - num_ineq_cons}"
+    )
+
     # === Create separation problem data container object and add information to catalog during solve
     separation_data = SeparationProblemData()
     separation_data.separation_model = separation_model
@@ -204,6 +280,7 @@ def ROSolver_iterative_solve(model_data, config):
     dr_var_lists_original = []
     dr_var_lists_polished = []
 
+    IterationLogRecord.log_header(model_data.tic_toc_log_func)
     k = 0
     master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
@@ -216,7 +293,7 @@ def ROSolver_iterative_solve(model_data, config):
             )
 
         # === Solve Master Problem
-        config.progress_logger.info("PyROS working on iteration %s..." % k)
+        config.progress_logger.debug("PyROS working on iteration %s..." % k)
         master_soln = master_problem_methods.solve_master(
             model_data=master_data, config=config
         )
@@ -239,7 +316,7 @@ def ROSolver_iterative_solve(model_data, config):
             is pyrosTerminationCondition.robust_infeasible
         ):
             term_cond = pyrosTerminationCondition.robust_infeasible
-            output_logger(config=config, robust_infeasible=True)
+            # output_logger(config=config, robust_infeasible=True)
         elif (
             master_soln.pyros_termination_condition
             is pyrosTerminationCondition.subsolver_error
@@ -257,6 +334,13 @@ def ROSolver_iterative_solve(model_data, config):
             pyrosTerminationCondition.time_out,
             pyrosTerminationCondition.robust_infeasible,
         }:
+            log_record = IterationLogRecord(
+                iteration=k,
+                objective=None,
+                num_violated_cons=None,
+                max_violation=None,
+            )
+            log_record.log(model_data.tic_toc_log_func)
             update_grcs_solve_data(
                 pyros_soln=model_data,
                 k=k,
@@ -312,7 +396,7 @@ def ROSolver_iterative_solve(model_data, config):
         elapsed = get_main_elapsed_time(model_data.timing)
         if config.time_limit:
             if elapsed >= config.time_limit:
-                output_logger(config=config, time_out=True, elapsed=elapsed)
+                # output_logger(config=config, time_out=True, elapsed=elapsed)
                 update_grcs_solve_data(
                     pyros_soln=model_data,
                     k=k,
@@ -376,10 +460,38 @@ def ROSolver_iterative_solve(model_data, config):
             separation_results.violating_param_realization
         )
 
+        worst_case_perf_con = separation_results.worst_case_perf_con
+        if worst_case_perf_con is not None:
+            max_sep_con_violation = separation_results.scaled_violations[
+                worst_case_perf_con
+            ]
+            num_violated_cons = len(
+                separation_results.violated_performance_constraints
+            )
+        elif separation_results.time_out or separation_results.subsolver_error:
+            max_sep_con_violation = None
+            num_violated_cons = None
+        else:
+            max_sep_con_violation = max(
+                solve_call_res.scaled_violations[con]
+                for con, solve_call_res
+                in separation_results.main_loop_results.solver_call_results.items()
+            )
+            num_violated_cons = len(
+                separation_results.violated_performance_constraints
+            )
+
+        iter_log_record = IterationLogRecord(
+            iteration=k,
+            objective=value(master_data.master_model.obj),
+            num_violated_cons=num_violated_cons,
+            max_violation=max_sep_con_violation,
+        )
+
         # terminate on time limit
         elapsed = get_main_elapsed_time(model_data.timing)
         if separation_results.time_out:
-            output_logger(config=config, time_out=True, elapsed=elapsed)
+            # output_logger(config=config, time_out=True, elapsed=elapsed)
             termination_condition = pyrosTerminationCondition.time_out
             update_grcs_solve_data(
                 pyros_soln=model_data,
@@ -390,6 +502,7 @@ def ROSolver_iterative_solve(model_data, config):
                 separation_data=separation_data,
                 master_soln=master_soln,
             )
+            iter_log_record.log(model_data.tic_toc_log_func)
             return model_data, separation_results
 
         # terminate on separation subsolver error
@@ -404,24 +517,25 @@ def ROSolver_iterative_solve(model_data, config):
                 separation_data=separation_data,
                 master_soln=master_soln,
             )
+            iter_log_record.log(model_data.tic_toc_log_func)
             return model_data, separation_results
 
         # === Check if we terminate due to robust optimality or feasibility,
         #     or in the event of bypassing global separation, no violations
         robustness_certified = separation_results.robustness_certified
         if robustness_certified:
-            output_logger(
-                config=config, bypass_global_separation=config.bypass_global_separation
-            )
+            # output_logger(
+            #     config=config, bypass_global_separation=config.bypass_global_separation
+            # )
             robust_optimal = (
                 config.solve_master_globally
                 and config.objective_focus is ObjectiveType.worst_case
             )
             if robust_optimal:
-                output_logger(config=config, robust_optimal=True)
+                # output_logger(config=config, robust_optimal=True)
                 termination_condition = pyrosTerminationCondition.robust_optimal
             else:
-                output_logger(config=config, robust_feasible=True)
+                # output_logger(config=config, robust_feasible=True)
                 termination_condition = pyrosTerminationCondition.robust_feasible
             update_grcs_solve_data(
                 pyros_soln=model_data,
@@ -432,6 +546,7 @@ def ROSolver_iterative_solve(model_data, config):
                 separation_data=separation_data,
                 master_soln=master_soln,
             )
+            iter_log_record.log(model_data.tic_toc_log_func)
             return model_data, separation_results
 
         # === Add block to master at violation
@@ -443,7 +558,7 @@ def ROSolver_iterative_solve(model_data, config):
             separation_results.violating_param_realization
         )
 
-        print(
+        config.progress_logger.debug(
             "Points added to master:\n",
             "\n ".join(str(pt) for pt in separation_data.points_added_to_master)
         )
@@ -453,12 +568,13 @@ def ROSolver_iterative_solve(model_data, config):
             master_var.set_value(val)
 
         k += 1
+        iter_log_record.log(model_data.tic_toc_log_func)
 
     # Iteration limit reached
-    output_logger(config=config, max_iter=True)
+    # output_logger(config=config, max_iter=True)
     update_grcs_solve_data(
         pyros_soln=model_data,
-        k=k,
+        k=k - 1,
         term_cond=pyrosTerminationCondition.max_iter,
         nominal_data=nominal_data,
         timing_data=timing_data,

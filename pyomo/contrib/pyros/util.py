@@ -51,6 +51,7 @@ COEFF_MATCH_ABS_TOL = 0
 ABS_CON_CHECK_FEAS_TOL = 1e-5
 TIC_TOC_SOLVE_TIME_ATTR = "pyros_tic_toc_time"
 DEFAULT_SEPARATION_PRIORITY = 0
+DEFAULT_LOGGER_NAME = "pyomo.contrib.pyros"
 
 
 '''Code borrowed from gdpopt: time_code, get_main_elapsed_time, a_logger.'''
@@ -229,7 +230,14 @@ def a_logger(str_or_logger):
     if isinstance(str_or_logger, logging.Logger):
         return str_or_logger
     else:
-        return logging.getLogger(str_or_logger)
+        logger = logging.getLogger(str_or_logger)
+        if str_or_logger == DEFAULT_LOGGER_NAME:
+            logger.propagate = False
+        ch = logging.StreamHandler()
+        logger.handlers.clear()
+        logger.addHandler(ch)
+        logger.setLevel(logging.INFO)
+        return logger
 
 
 def ValidEnum(enum_class):
@@ -1439,6 +1447,96 @@ def process_termination_condition_master_problem(config, results):
                 "This solver return termination condition (%s) "
                 "is currently not supported by PyROS." % termination_condition
             )
+
+
+def make_tic_toc_log_func(tt_timer):
+    def toc_func(msg):
+        """Tic toc timer toc function."""
+        tt_timer.toc(msg, delta=False)
+    return toc_func
+
+
+class IterationLogRecord:
+    """
+    PyROS iteration log record.
+    """
+
+    _LINE_LENGTH = 78
+    _ATTR_FORMAT_LENGTHS = {
+        "iteration": 18,
+        "objective": 20,
+        "num_violated_cons": 20,
+        "max_violation": 20,
+    }
+
+    def __init__(
+            self,
+            iteration,
+            objective,
+            num_violated_cons,
+            max_violation,
+            ):
+        """Initialize self (see class docstring)."""
+        self.iteration = iteration
+        self.objective = objective
+        self.num_violated_cons = num_violated_cons
+        self.max_violation = max_violation
+
+    def get_log_str(self):
+        """Get iteration log string."""
+        attrs = [
+            "iteration", "objective", "num_violated_cons", "max_violation"
+        ]
+        return "".join(self._format_record_attr(attr) for attr in attrs)
+
+    def _format_record_attr(self, attr_name):
+        """Format attribute record for logging."""
+        attr_val = getattr(self, attr_name)
+        if attr_val is None:
+            fmt_str = f"<{self._ATTR_FORMAT_LENGTHS[attr_name]}s"
+            return f"{'-':{fmt_str}}"
+        else:
+            attr_format_strs = {
+                "iteration": f"<{self._ATTR_FORMAT_LENGTHS['iteration']}d",
+                "objective": f"<{self._ATTR_FORMAT_LENGTHS['objective']}.4f",
+                "num_violated_cons": (
+                    f"<{self._ATTR_FORMAT_LENGTHS['num_violated_cons']}d"
+                ),
+                "max_violation": (
+                    f"<{self._ATTR_FORMAT_LENGTHS['max_violation']}.4e"
+                ),
+            }
+            return f"{attr_val:{attr_format_strs[attr_name]}}"
+
+    def log(self, log_func):
+        """Log self."""
+        log_str = self.get_log_str()
+        log_func(log_str)
+
+    @staticmethod
+    def get_log_header_str():
+        """Get string for iteration log header."""
+        fmt_lengths_dict = IterationLogRecord._ATTR_FORMAT_LENGTHS
+        return (
+            f"{'Iteration':<{fmt_lengths_dict['iteration']}s}"
+            f"{'Objective':<{fmt_lengths_dict['objective']}s}"
+            f"{'Num Violated Cons':<{fmt_lengths_dict['num_violated_cons']}s}"
+            f"{'Max Violation':<{fmt_lengths_dict['max_violation']}s}"
+        )
+
+    @staticmethod
+    def log_header(log_func, with_rules=True):
+        """Log header."""
+        if with_rules:
+            IterationLogRecord.log_header_rule(log_func)
+        log_func(IterationLogRecord.get_log_header_str())
+        if with_rules:
+            IterationLogRecord.log_header_rule(log_func)
+
+    @staticmethod
+    def log_header_rule(log_func, fillchar="-"):
+        """Log header rule."""
+        log_func(fillchar * IterationLogRecord._LINE_LENGTH)
 
 
 def output_logger(config, **kwargs):

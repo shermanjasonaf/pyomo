@@ -681,7 +681,7 @@ def perform_separation_loop(model_data, config, solve_globally):
         for idx, perf_con in enumerate(perf_constraints):
             if idx % max(1, int(len(perf_constraints) / 10)) == 0:
                 solve_adverb = "Globally" if solve_globally else "Locally"
-                config.progress_logger.info(
+                config.progress_logger.debug(
                     f"{solve_adverb} separating constraint "
                     f"{get_orig_con_name(perf_con)} "
                     f"(group priority {priority}, "
@@ -742,15 +742,15 @@ def perform_separation_loop(model_data, config, solve_globally):
                 for con, res in all_solve_call_results.items()
                 if res.found_violation
             )
-            config.progress_logger.info(
+            config.progress_logger.debug(
                 f"Violated constraints:\n {violated_con_names} "
             )
-            config.progress_logger.info(
+            config.progress_logger.debug(
                 f"Worst-case constraint {get_orig_con_name(worst_case_perf_con)} "
                 "under realization "
                 f"{worst_case_res.violating_param_realization}"
             )
-            config.progress_logger.info(
+            config.progress_logger.debug(
                 f"Maximal scaled violation "
                 f"{worst_case_res.scaled_violations[worst_case_perf_con]} "
                 "from this constraint "
