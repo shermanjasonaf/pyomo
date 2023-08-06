@@ -159,79 +159,101 @@ def ROSolver_iterative_solve(model_data, config):
 
     from itertools import chain
     # print model statistics
-    nom_util_blk = master_data.master_model.scenarios[0, 0].util
-    num_fsv = len(config.first_stage_variables)
-    num_ssv = len(config.second_stage_variables)
-    num_sv = len(nom_util_blk.state_vars)
-    dr_vars = ComponentSet(chain(*tuple(
-        indexed_dr_var
+    dr_var_set = ComponentSet(chain(*tuple(
+        indexed_dr_var.values()
         for indexed_dr_var in model_data.working_model.util.decision_rule_vars
     )))
-    num_dr_vars = len(dr_vars)
+    first_stage_vars = [
+        var for var in model_data.working_model.util.first_stage_variables
+        if var not in dr_var_set
+    ]
+    num_fsv = len(first_stage_vars)
+    num_ssv = len(model_data.working_model.util.second_stage_variables)
+    num_sv = len(model_data.working_model.util.state_vars)
+    num_dr_vars = len(dr_var_set)
     num_vars = num_fsv + num_ssv + num_sv + num_dr_vars
 
-    dr_eq_set = ComponentSet(chain(*tuple(
-        indexed_dr_eq
-        for indexed_dr_eq in model_data.working_model.util.decision_rule_eqns
-    )))
-
-    num_perf_cons = len(separation_model.util.performance_constraints)
-    num_eq_cons = len([
+    eq_cons = [
         con for con in
         model_data.working_model.component_data_objects(
             Constraint,
             active=True,
         )
         if con.equality
-    ])
+    ]
+    dr_eq_set = ComponentSet(chain(*tuple(
+        indexed_dr_eq.values()
+        for indexed_dr_eq in model_data.working_model.util.decision_rule_eqns
+    )))
+    num_eq_cons = len(eq_cons)
     num_dr_cons = len(dr_eq_set)
     num_coefficient_matching_cons = len(getattr(
         model_data.working_model,
         "coefficient_matching_constraints",
         [],
     ))
+    num_other_eq_cons = num_eq_cons - num_dr_cons - num_coefficient_matching_cons
 
-    num_ineq_cons = len([
+    new_sep_con_map = separation_model.util.map_new_constraint_list_to_original_con
+    non_epigraph_perf_cons = ComponentSet(
+        model_data.working_model.find_component(new_sep_con_map.get(con, con))
+        for con in separation_model.util.performance_constraints
+        if con is not getattr(separation_model, "epigraph_constr", None)
+    )
+    num_perf_cons = len(separation_model.util.performance_constraints)
+    num_fsv_bounds = sum(
+        int(var.lower is not None) + int(var.upper is not None)
+        for var in first_stage_vars
+    )
+    ineq_con_set = [
         con for con in
         model_data.working_model.component_data_objects(
             Constraint,
             active=True,
         )
         if not con.equality
-    ]) + int(ObjectiveType.worst_case == config.objective_focus)
+    ]
+    num_fsv_ineqs = num_fsv_bounds + len(
+        [con for con in ineq_con_set if con not in non_epigraph_perf_cons]
+    )
+    num_ineq_cons = (
+        len(ineq_con_set)
+        + int(ObjectiveType.worst_case == config.objective_focus)
+        + num_fsv_bounds
+    )
 
     model_data.tic_toc_log_func(
         "Done preprocessing and preparing subproblem objects. "
         "Model statistics:"
     )
     model_data.tic_toc_log_func(
-        f"{'Number of variables':<45s}: {num_vars}"
+        f"{'Number of variables':<60s}: {num_vars}"
     )
-    model_data.tic_toc_log_func(f"{'  First-stage variables':<45s}: {num_fsv}")
-    model_data.tic_toc_log_func(f"{'  Second-stage variables':<45s}: {num_ssv}")
-    model_data.tic_toc_log_func(f"{'  State variables':<45s}: {num_sv}")
-    model_data.tic_toc_log_func(f"{'  Decision rule variables':<45s}: {num_dr_vars}")
+    model_data.tic_toc_log_func(f"{'  First-stage variables':<60s}: {num_fsv}")
+    model_data.tic_toc_log_func(f"{'  Second-stage variables':<60s}: {num_ssv}")
+    model_data.tic_toc_log_func(f"{'  State variables':<60s}: {num_sv}")
+    model_data.tic_toc_log_func(f"{'  Decision rule variables':<60s}: {num_dr_vars}")
     model_data.tic_toc_log_func(
-        f"{'Number of constraints':<45s}: "
+        f"{'Number of constraints':<60s}: "
         f"{num_ineq_cons + num_eq_cons}"
     )
-    model_data.tic_toc_log_func(f"{'  Equality constraints':<45s}: {num_eq_cons}")
+    model_data.tic_toc_log_func(f"{'  Equality constraints':<60s}: {num_eq_cons}")
     model_data.tic_toc_log_func(
-        f"{'    Decision rule equations':<45s}: {num_dr_cons}"
+        f"{'    Coefficient matching constraints':<60s}: {num_coefficient_matching_cons}"
     )
     model_data.tic_toc_log_func(
-        f"{'    Coefficient matching constraints':<45s}: {num_coefficient_matching_cons}"
+        f"{'    Decision rule equations':<60s}: {num_dr_cons}"
     )
     model_data.tic_toc_log_func(
-        f"{'    All other equality constraints':<45s}: "
-        f"{num_eq_cons - num_coefficient_matching_cons - num_dr_cons}"
+        f"{'    All other equality constraints':<60s}: "
+        f"{num_other_eq_cons}"
     )
-    model_data.tic_toc_log_func(f"{'  Inequality constraints':<45s}: {num_ineq_cons}")
-    model_data.tic_toc_log_func(f"{'    Performance constraints':<45s}: {num_perf_cons}")
+    model_data.tic_toc_log_func(f"{'  Inequality constraints':<60s}: {num_ineq_cons}")
     model_data.tic_toc_log_func(
-        f"{'    First-stage inequalities':<45s}: "
-        f"{num_ineq_cons - num_perf_cons}"
+        f"{'    First-stage inequalities (incl. certain var bounds)':<60s}: "
+        f"{num_fsv_ineqs}"
     )
+    model_data.tic_toc_log_func(f"{'    Performance constraints (incl. var bounds)':<60s}: {num_perf_cons}")
 
     # === Create separation problem data container object and add information to catalog during solve
     separation_data = SeparationProblemData()
