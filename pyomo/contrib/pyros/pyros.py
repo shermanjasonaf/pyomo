@@ -10,7 +10,6 @@
 #  ___________________________________________________________________________
 
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
-import logging
 from textwrap import indent, dedent, wrap
 from pyomo.common.collections import Bunch, ComponentSet
 from pyomo.common.config import ConfigDict, ConfigValue, In, NonNegativeFloat
@@ -808,6 +807,23 @@ class PyROS(object):
 
             self._log_intro(log_func)
             self._log_disclaimer(log_func)
+
+            # log solver options
+            excl_from_config_display = [
+                "first_stage_variables",
+                "second_stage_variables",
+                "uncertain_params",
+                "uncertainty_set",
+                "local_solver",
+                "global_solver",
+            ]
+            model_data.tic_toc_log_func("Solver options:")
+            for key, val in config.items():
+                if key not in excl_from_config_display:
+                    model_data.tic_toc_log_func(f" {key}={val}")
+            model_data.tic_toc_log_func("-" * self._LOG_LINE_LENGTH)
+
+            model_data.tic_toc_log_func("Preprocessing...")
 
             # === A block to hold list-type data to make cloning easy
             util = Block(concrete=True)
