@@ -1089,8 +1089,10 @@ def solver_call_separation(
 
             return solve_call_results
         else:
-            print(f"Solver {opt} failed for {perf_con_to_maximize}")
-            print(results.solver)
+            config.progress_logger.debug(
+                f"Solver {opt} failed for {perf_con_to_maximize!r}"
+            )
+            config.progress_logger.debug(results.solver)
 
     # All subordinate solvers failed to optimize model to appropriate
     # termination condition. PyROS will terminate with subsolver
