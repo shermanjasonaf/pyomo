@@ -229,7 +229,7 @@ def ROSolver_iterative_solve(model_data, config):
     model_data.tic_toc_log_func(f"{'    Performance constraints':<45s}: {num_perf_cons}")
     model_data.tic_toc_log_func(
         f"{'    First-stage inequalities':<45s}: "
-        f"{num_perf_cons - num_ineq_cons}"
+        f"{num_ineq_cons - num_perf_cons}"
     )
 
     # === Create separation problem data container object and add information to catalog during solve
