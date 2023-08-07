@@ -670,7 +670,7 @@ class PyROS(object):
         """
         log_func("=" * self._LOG_LINE_LENGTH)
         log_func(
-            "PyROS: The Pyomo Robust Optimization Solver",
+            f"PyROS: The Pyomo Robust Optimization Solver, version {self.version()}",
         )
         log_func(
             "Developed by: Natalie M. Isenberg (1), Jason A. F. Sherman (1),",
