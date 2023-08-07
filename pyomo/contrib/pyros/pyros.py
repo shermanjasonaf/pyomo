@@ -48,6 +48,24 @@ from pyomo.core.base import Constraint
 __version__ = "1.2.7"
 
 
+def get_git_commit_hash():
+    """
+    Get Pyomo git commit hash.
+    """
+    import os
+    import subprocess
+
+    pyros_dir = os.path.join(*os.path.split(__file__)[:-1])
+    try:
+        hash = subprocess.check_output([
+            "git", "-C", f"{pyros_dir}", "rev-parse", "--short", "HEAD",
+        ]).decode("ascii").strip()
+    except subprocess.CalledProcessError:
+        hash = "unknown"
+
+    return hash
+
+
 def NonNegIntOrMinusOne(obj):
     '''
     if obj is a non-negative int, return the non-negative int
@@ -670,7 +688,8 @@ class PyROS(object):
         """
         log_func("=" * self._LOG_LINE_LENGTH)
         log_func(
-            f"PyROS: The Pyomo Robust Optimization Solver, version {self.version()}",
+            f"PyROS: The Pyomo Robust Optimization Solver, "
+            f"v{self.version()}, git hash {get_git_commit_hash()}"
         )
         log_func(
             "Developed by: Natalie M. Isenberg (1), Jason A. F. Sherman (1),",
