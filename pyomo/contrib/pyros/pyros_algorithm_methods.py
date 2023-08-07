@@ -303,6 +303,25 @@ def ROSolver_iterative_solve(model_data, config):
     dr_var_lists_original = []
     dr_var_lists_polished = []
 
+    # set up first-stage variable and DR variable sets
+    from pyomo.common.collections import ComponentMap
+    master_dr_var_set = ComponentSet(chain(*tuple(
+        indexed_var.values()
+        for indexed_var
+        in master_data.master_model.scenarios[0, 0].util.decision_rule_vars
+    )))
+    master_fsv_set = ComponentSet(
+        var for var in
+        master_data.master_model.scenarios[0, 0].util.first_stage_variables
+        if var not in dr_var_set
+    )
+    previous_master_fsv_vals = ComponentMap(
+        (var, None) for var in master_fsv_set
+    )
+    previous_master_dr_var_vals = ComponentMap(
+        (var, None) for var in master_dr_var_set
+    )
+
     IterationLogRecord.log_header(model_data.tic_toc_log_func)
     k = 0
     master_statuses = []
@@ -360,6 +379,8 @@ def ROSolver_iterative_solve(model_data, config):
             log_record = IterationLogRecord(
                 iteration=k,
                 objective=None,
+                first_stage_var_shift=None,
+                dr_var_shift=None,
                 num_violated_cons=None,
                 max_violation=None,
             )
@@ -430,6 +451,28 @@ def ROSolver_iterative_solve(model_data, config):
                     master_soln=master_soln,
                 )
                 return model_data, []
+
+        # get current first-stage and DR variable values
+        current_master_fsv_vals = ComponentMap(
+            (var, value(var))
+            for var in master_fsv_set
+        )
+        current_master_dr_var_vals = ComponentMap(
+            (var, value(var))
+            for var in master_dr_var_set
+        )
+        if k > 0:
+            first_stage_var_shift = max(
+                abs(current_master_fsv_vals[var] - previous_master_fsv_vals[var])
+                for var in previous_master_fsv_vals
+            )
+            dr_var_shift = max(
+                abs(current_master_dr_var_vals[var] - previous_master_dr_var_vals[var])
+                for var in previous_master_dr_var_vals
+            )
+        else:
+            first_stage_var_shift = None
+            dr_var_shift = None
 
         # === Set up for the separation problem
         separation_data.opt_fsv_vals = [
@@ -507,6 +550,8 @@ def ROSolver_iterative_solve(model_data, config):
         iter_log_record = IterationLogRecord(
             iteration=k,
             objective=value(master_data.master_model.obj),
+            first_stage_var_shift=first_stage_var_shift,
+            dr_var_shift=dr_var_shift,
             num_violated_cons=num_violated_cons,
             max_violation=max_sep_con_violation,
         )
@@ -592,6 +637,9 @@ def ROSolver_iterative_solve(model_data, config):
 
         k += 1
         iter_log_record.log(model_data.tic_toc_log_func)
+
+        previous_master_fsv_vals = current_master_fsv_vals
+        previous_master_dr_var_vals = current_master_dr_var_vals
 
     # Iteration limit reached
     # output_logger(config=config, max_iter=True)

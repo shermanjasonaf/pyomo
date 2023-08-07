@@ -1459,14 +1459,46 @@ def make_tic_toc_log_func(tt_timer):
 class IterationLogRecord:
     """
     PyROS iteration log record.
+
+    Attributes
+    ----------
+    iteration : int or None
+        Iteration number.
+    objective : int or None
+        Master problem objective value.
+    first_stage_var_shift : float or None
+        Infinity norm of the difference between first-stage
+        variable vectors for the current and previous iterations.
+    dr_var_shift : float or None
+        Infinity norm of the difference between decision rule
+        variable vectors for the current and previous iterations.
+    num_violated_cons : int or None
+        Number of performance constraints found to be violated
+        during separation step.
+    max_violation : int or None
+        If ``num_violated_cons=0``, then this is the
+        maximum scaled violation of any performance constraint
+        found during separation step.
+        Otherwise, the maximum scaled violation of the constraint
+        corresponding to the reported violating separation solution.
     """
 
     _LINE_LENGTH = 78
     _ATTR_FORMAT_LENGTHS = {
-        "iteration": 18,
-        "objective": 20,
-        "num_violated_cons": 20,
-        "max_violation": 20,
+        "iteration": 7,
+        "objective": 12,
+        "first_stage_var_shift": 15,
+        "dr_var_shift": 13,
+        "num_violated_cons": 15,
+        "max_violation": 15,
+    }
+    _ATTR_HEADER_NAMES = {
+        "iteration": "Iter",
+        "objective": "Objective",
+        "first_stage_var_shift": "1st-Stg Shift",
+        "dr_var_shift": "DR Shift",
+        "num_violated_cons": "Num Viol Cons",
+        "max_violation": "Max Viol",
     }
 
     def __init__(
@@ -1475,17 +1507,26 @@ class IterationLogRecord:
             objective,
             num_violated_cons,
             max_violation,
+            first_stage_var_shift=None,
+            dr_var_shift=None,
             ):
         """Initialize self (see class docstring)."""
         self.iteration = iteration
         self.objective = objective
+        self.first_stage_var_shift = first_stage_var_shift
+        self.dr_var_shift = dr_var_shift
         self.num_violated_cons = num_violated_cons
         self.max_violation = max_violation
 
     def get_log_str(self):
         """Get iteration log string."""
         attrs = [
-            "iteration", "objective", "num_violated_cons", "max_violation"
+            "iteration",
+            "objective",
+            "first_stage_var_shift",
+            "dr_var_shift",
+            "num_violated_cons",
+            "max_violation",
         ]
         return "".join(self._format_record_attr(attr) for attr in attrs)
 
@@ -1498,7 +1539,13 @@ class IterationLogRecord:
         else:
             attr_format_strs = {
                 "iteration": f"<{self._ATTR_FORMAT_LENGTHS['iteration']}d",
-                "objective": f"<{self._ATTR_FORMAT_LENGTHS['objective']}.4f",
+                "objective": f"<{self._ATTR_FORMAT_LENGTHS['objective']}.4e",
+                "first_stage_var_shift": (
+                    f"<{self._ATTR_FORMAT_LENGTHS['first_stage_var_shift']}.4e"
+                ),
+                "dr_var_shift": (
+                    f"<{self._ATTR_FORMAT_LENGTHS['dr_var_shift']}.4e"
+                ),
                 "num_violated_cons": (
                     f"<{self._ATTR_FORMAT_LENGTHS['num_violated_cons']}d"
                 ),
@@ -1517,11 +1564,10 @@ class IterationLogRecord:
     def get_log_header_str():
         """Get string for iteration log header."""
         fmt_lengths_dict = IterationLogRecord._ATTR_FORMAT_LENGTHS
-        return (
-            f"{'Iteration':<{fmt_lengths_dict['iteration']}s}"
-            f"{'Objective':<{fmt_lengths_dict['objective']}s}"
-            f"{'Num Violated Cons':<{fmt_lengths_dict['num_violated_cons']}s}"
-            f"{'Max Violation':<{fmt_lengths_dict['max_violation']}s}"
+        header_names_dict = IterationLogRecord._ATTR_HEADER_NAMES
+        return "".join(
+            f"{header_names_dict[attr]:<{fmt_lengths_dict[attr]}s}"
+            for attr in fmt_lengths_dict
         )
 
     @staticmethod
