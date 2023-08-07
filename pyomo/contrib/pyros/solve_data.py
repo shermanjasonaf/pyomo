@@ -610,7 +610,11 @@ class SeparationResults:
         """
         Return list of violated performance constraints.
         """
-        return self.get_violating_attr("violated_performance_constraints")
+        if self.solved_globally:
+            loop_res = self.global_separation_loop_results
+        else:
+            loop_res = self.local_separation_loop_results
+        return loop_res.violated_performance_constraints
 
     def evaluate_local_solve_time(self, evaluator_func, **evaluator_func_kwargs):
         """
