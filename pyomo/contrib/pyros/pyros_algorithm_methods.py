@@ -195,11 +195,22 @@ def ROSolver_iterative_solve(model_data, config):
     num_other_eq_cons = num_eq_cons - num_dr_cons - num_coefficient_matching_cons
 
     new_sep_con_map = separation_model.util.map_new_constraint_list_to_original_con
-    non_epigraph_perf_cons = ComponentSet(
+
+    perf_con_set = ComponentSet(
         model_data.working_model.find_component(new_sep_con_map.get(con, con))
         for con in separation_model.util.performance_constraints
-        if con is not getattr(separation_model, "epigraph_constr", None)
+        if con is not None
     )
+    sep_model_epigraph_con = getattr(separation_model, "epigraph_constr", None)
+    has_epigraph_con = sep_model_epigraph_con is not None
+    is_epigraph_con_first_stage = (
+        has_epigraph_con
+        and (
+            sep_model_epigraph_con
+            not in ComponentSet(separation_model.util.performance_constraints)
+        )
+    )
+
     num_perf_cons = len(separation_model.util.performance_constraints)
     num_fsv_bounds = sum(
         int(var.lower is not None) + int(var.upper is not None)
@@ -214,11 +225,11 @@ def ROSolver_iterative_solve(model_data, config):
         if not con.equality
     ]
     num_fsv_ineqs = num_fsv_bounds + len(
-        [con for con in ineq_con_set if con not in non_epigraph_perf_cons]
-    )
+        [con for con in ineq_con_set if con not in perf_con_set]
+    ) + is_epigraph_con_first_stage
     num_ineq_cons = (
         len(ineq_con_set)
-        + int(ObjectiveType.worst_case == config.objective_focus)
+        + has_epigraph_con
         + num_fsv_bounds
     )
 
