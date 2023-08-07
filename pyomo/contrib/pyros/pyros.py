@@ -680,7 +680,7 @@ class PyROS(object):
         )
         log_func(
             "(1) Carnegie Mellon University, "
-            " Department of Chemical Engineering",
+            "Department of Chemical Engineering",
         )
         log_func(
             "(2) Sandia National Laboratories, Center for Computing Research",
@@ -708,7 +708,7 @@ class PyROS(object):
         )
         log_func(
             "Please provide feedback and/or report any issues by creating "
-            "an issue at"
+            "a ticket at"
         )
         log_func("https://github.com/Pyomo/pyomo/issues/new/choose")
         log_func("=" * self._LOG_LINE_LENGTH)
