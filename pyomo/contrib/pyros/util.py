@@ -1466,6 +1466,8 @@ class IterationLogRecord:
         Iteration number.
     objective : int or None
         Master problem objective value.
+        Note: if the sense of the original model is maximization,
+        then this is the negative of the objective value.
     first_stage_var_shift : float or None
         Infinity norm of the difference between first-stage
         variable vectors for the current and previous iterations.
@@ -1482,12 +1484,12 @@ class IterationLogRecord:
 
     _LINE_LENGTH = 78
     _ATTR_FORMAT_LENGTHS = {
-        "iteration": 7,
-        "objective": 12,
+        "iteration": 6,
+        "objective": 13,
         "first_stage_var_shift": 15,
         "dr_var_shift": 13,
         "num_violated_cons": 15,
-        "max_violation": 15,
+        "max_violation": 13,
     }
     _ATTR_HEADER_NAMES = {
         "iteration": "Iter",
