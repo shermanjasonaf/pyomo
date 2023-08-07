@@ -688,8 +688,11 @@ class PyROS(object):
         log_func("")
         log_func(
             "The developers gratefully acknowledge support "
-            "from the U.S. Department of Energy's "
-            "Institute for the Design of Advanced Energy Systems (IDAES).",
+            "from the U.S. Department"
+        )
+        log_func(
+            "of Energy's "
+            "Institute for the Design of Advanced Energy Systems (IDAES)."
         )
         log_func("=" * self._LOG_LINE_LENGTH)
 
