@@ -705,9 +705,9 @@ class PyROS(object):
         )
         log_func(
             "Please provide feedback and/or report any issues by creating "
-            "an issue from the official Pyomo repository at: "
-            "https://github.com/Pyomo/pyomo/issues/new/choose",
+            "an issue at"
         )
+        log_func("https://github.com/Pyomo/pyomo/issues/new/choose")
         log_func("=" * self._LOG_LINE_LENGTH)
 
     def _log_results(self, res, log_func):
