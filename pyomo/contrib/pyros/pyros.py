@@ -1026,13 +1026,17 @@ class PyROS(object):
                 "Maximum number of iterations reached."
             ),
             pyrosTerminationCondition.subsolver_error: (
-                "Subsolver error encountered."
+                "Subordinate optimizer(s) could not solve a subproblem "
+                "to an acceptable status."
             ),
         }
         log_func(termination_msg_dict[return_soln.pyros_termination_condition])
-        log_func(f"{'Iterations':<30s}: {return_soln.iterations}")
-        log_func(f"{'Solve time (wall s)':<30s}: {return_soln.time:.4f}")
-        log_func(f"{'Final objective value':<30s}: {return_soln.final_objective_value}")
+        log_func("-" * self._LOG_LINE_LENGTH)
+        log_func("Termination stats:")
+        log_func(f" {'Iterations':<30s}: {return_soln.iterations}")
+        log_func(f" {'Solve time (wall s)':<30s}: {return_soln.time:.4f}")
+        log_func(f" {'Final objective value':<30s}: {return_soln.final_objective_value}")
+        log_func(f" {'Termination condition':<30s}: {return_soln.pyros_termination_condition}")
         log_func("=" * self._LOG_LINE_LENGTH)
 
         from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
