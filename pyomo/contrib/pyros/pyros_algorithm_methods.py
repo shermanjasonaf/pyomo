@@ -526,15 +526,7 @@ def ROSolver_iterative_solve(model_data, config):
             separation_results.violating_param_realization
         )
 
-        worst_case_perf_con = separation_results.worst_case_perf_con
-        if worst_case_perf_con is not None:
-            max_sep_con_violation = separation_results.scaled_violations[
-                worst_case_perf_con
-            ]
-            num_violated_cons = len(
-                separation_results.violated_performance_constraints
-            )
-        elif separation_results.time_out or separation_results.subsolver_error:
+        if separation_results.time_out or separation_results.subsolver_error:
             max_sep_con_violation = None
             num_violated_cons = None
         else:

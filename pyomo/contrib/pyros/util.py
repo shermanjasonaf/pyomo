@@ -1476,11 +1476,8 @@ class IterationLogRecord:
         Number of performance constraints found to be violated
         during separation step.
     max_violation : int or None
-        If ``num_violated_cons=0``, then this is the
-        maximum scaled violation of any performance constraint
+        Maximum scaled violation of any performance constraint
         found during separation step.
-        Otherwise, the maximum scaled violation of the constraint
-        corresponding to the reported violating separation solution.
     """
 
     _LINE_LENGTH = 78
