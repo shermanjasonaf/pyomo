@@ -313,7 +313,7 @@ def ROSolver_iterative_solve(model_data, config):
     master_fsv_set = ComponentSet(
         var for var in
         master_data.master_model.scenarios[0, 0].util.first_stage_variables
-        if var not in dr_var_set
+        if var not in master_dr_var_set
     )
     previous_master_fsv_vals = ComponentMap(
         (var, None) for var in master_fsv_set
@@ -465,11 +465,11 @@ def ROSolver_iterative_solve(model_data, config):
             first_stage_var_shift = max(
                 abs(current_master_fsv_vals[var] - previous_master_fsv_vals[var])
                 for var in previous_master_fsv_vals
-            )
+            ) if current_master_fsv_vals else None
             dr_var_shift = max(
                 abs(current_master_dr_var_vals[var] - previous_master_dr_var_vals[var])
                 for var in previous_master_dr_var_vals
-            )
+            ) if current_master_dr_var_vals else None
         else:
             first_stage_var_shift = None
             dr_var_shift = None
