@@ -530,11 +530,15 @@ def ROSolver_iterative_solve(model_data, config):
             max_sep_con_violation = None
             num_violated_cons = None
         else:
-            max_sep_con_violation = max(
+            scaled_violations = [
                 solve_call_res.scaled_violations[con]
                 for con, solve_call_res
                 in separation_results.main_loop_results.solver_call_results.items()
-            )
+            ]
+            if scaled_violations:
+                max_sep_con_violation = max(scaled_violations)
+            else:
+                max_sep_con_violation = None
             num_violated_cons = len(
                 separation_results.violated_performance_constraints
             )
