@@ -235,36 +235,45 @@ def ROSolver_iterative_solve(model_data, config):
 
     model_data.tic_toc_log_func(
         "Done preprocessing and preparing subproblem objects. "
+    )
+    model_data.tic_toc_log_func(
         "Model statistics:"
     )
     model_data.tic_toc_log_func(
-        f"{'Number of variables':<60s}: {num_vars}"
+        f"{'  Number of variables':<60s}: {num_vars}"
     )
-    model_data.tic_toc_log_func(f"{'  First-stage variables':<60s}: {num_fsv}")
-    model_data.tic_toc_log_func(f"{'  Second-stage variables':<60s}: {num_ssv}")
-    model_data.tic_toc_log_func(f"{'  State variables':<60s}: {num_sv}")
-    model_data.tic_toc_log_func(f"{'  Decision rule variables':<60s}: {num_dr_vars}")
+    model_data.tic_toc_log_func(f"{'    First-stage variables':<60s}: {num_fsv}")
+    model_data.tic_toc_log_func(f"{'    Second-stage variables':<60s}: {num_ssv}")
+    model_data.tic_toc_log_func(f"{'    State variables':<60s}: {num_sv}")
+    model_data.tic_toc_log_func(f"{'    Decision rule variables':<60s}: {num_dr_vars}")
     model_data.tic_toc_log_func(
-        f"{'Number of constraints':<60s}: "
+        f"{'  Number of constraints':<60s}: "
         f"{num_ineq_cons + num_eq_cons}"
     )
-    model_data.tic_toc_log_func(f"{'  Equality constraints':<60s}: {num_eq_cons}")
     model_data.tic_toc_log_func(
-        f"{'    Coefficient matching constraints':<60s}: {num_coefficient_matching_cons}"
+        f"{'    Equality constraints':<60s}: {num_eq_cons}"
     )
     model_data.tic_toc_log_func(
-        f"{'    Decision rule equations':<60s}: {num_dr_cons}"
+        f"{'      Coefficient matching constraints':<60s}: "
+        f"{num_coefficient_matching_cons}"
     )
     model_data.tic_toc_log_func(
-        f"{'    All other equality constraints':<60s}: "
+        f"{'      Decision rule equations':<60s}: {num_dr_cons}"
+    )
+    model_data.tic_toc_log_func(
+        f"{'      All other equality constraints':<60s}: "
         f"{num_other_eq_cons}"
     )
-    model_data.tic_toc_log_func(f"{'  Inequality constraints':<60s}: {num_ineq_cons}")
     model_data.tic_toc_log_func(
-        f"{'    First-stage inequalities (incl. certain var bounds)':<60s}: "
+        f"{'    Inequality constraints':<60s}: {num_ineq_cons}"
+    )
+    model_data.tic_toc_log_func(
+        f"{'      First-stage inequalities (incl. certain var bounds)':<60s}: "
         f"{num_fsv_ineqs}"
     )
-    model_data.tic_toc_log_func(f"{'    Performance constraints (incl. var bounds)':<60s}: {num_perf_cons}")
+    model_data.tic_toc_log_func(
+        f"{'      Performance constraints (incl. var bounds)':<60s}: {num_perf_cons}"
+    )
 
     # === Create separation problem data container object and add information to catalog during solve
     separation_data = SeparationProblemData()
