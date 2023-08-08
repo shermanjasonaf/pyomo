@@ -39,6 +39,8 @@ from pyomo.common.modeling import unique_component_name
 from pyomo.common.timing import TicTocTimer
 from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR
 
+import logging
+
 
 def initial_construct_master(model_data):
     """
@@ -253,10 +255,12 @@ def solve_master_feasibility_problem(model_data, config):
         # account for possible external subsolver errors
         # (such as segmentation faults, function evaluation
         # errors, etc.)
-        config.progress_logger.error(
+        model_data.tic_toc_timer(
             f"Solver {repr(solver)} encountered exception attempting to "
             "optimize master feasibility problem in iteration "
-            f"{model_data.iteration}"
+            f"{model_data.iteration}",
+            delta=False,
+            level=logging.DEBUG,
         )
         raise
     else:
@@ -436,10 +440,16 @@ def minimize_dr_vars(model_data, config):
     else:
         solver = config.local_solver
 
-    config.progress_logger.debug("Solving DR polishing problem")
+    model_data.tic_toc_timer.toc(
+        "Solving DR polishing problem",
+        level=logging.DEBUG,
+        delta=False,
+    )
 
-    config.progress_logger.debug(
-        f" Initial total norm: {value(polishing_model.polishing_obj)}"
+    model_data.tic_toc_timer.toc(
+        f" Initial total norm: {value(polishing_model.polishing_obj)}",
+        level=logging.DEBUG,
+        delta=False,
     )
     # === Solve the polishing model
     timer = TicTocTimer()
@@ -450,10 +460,12 @@ def minimize_dr_vars(model_data, config):
     try:
         results = solver.solve(polishing_model, tee=config.tee, load_solutions=False)
     except ApplicationError:
-        config.progress_logger.error(
+        model_data.tic_toc_timer.toc(
             f"Optimizer {repr(solver)} encountered an exception "
             "attempting to solve decision rule polishing problem "
-            f"in iteration {model_data.iteration}"
+            f"in iteration {model_data.iteration}",
+            level=logging.ERROR,
+            delta=False,
         )
         raise
     else:
@@ -463,14 +475,20 @@ def minimize_dr_vars(model_data, config):
             solver, orig_setting, custom_setting_present, config
         )
 
-    config.progress_logger.debug(
-        " Done solving DR polishing problem"
+    model_data.tic_toc_timer.toc(
+        " Done solving DR polishing problem",
+        delta=False,
+        level=logging.DEBUG,
     )
-    config.progress_logger.debug(
-        f"  Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)} s"
+    model_data.tic_toc_timer.toc(
+        f"  Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)} s",
+        delta=False,
+        level=logging.DEBUG,
     )
-    config.progress_logger.debug(
-        f"  Termination status: {results.solver.termination_condition} "
+    model_data.tic_toc_timer.toc(
+        f"  Termination status: {results.solver.termination_condition} ",
+        delta=False,
+        level=logging.DEBUG,
     )
 
     # === Process solution by termination condition
@@ -504,11 +522,17 @@ def minimize_dr_vars(model_data, config):
             for mvar, pvar in zip(master_dr.values(), polish_dr.values()):
                 mvar.set_value(value(pvar), skip_validation=True)
 
-    config.progress_logger.debug(
-        f" Optimized total norm: {value(polishing_model.polishing_obj)}"
+    model_data.tic_toc_timer.toc(
+        f" Optimized total norm: {value(polishing_model.polishing_obj)}",
+        level=logging.DEBUG,
+        delta=False,
     )
 
-    config.progress_logger.debug("Polished Master objective")
+    model_data.tic_toc_timer.toc(
+        "Polished Master objective",
+        level=logging.DEBUG,
+        delta=False,
+    )
     # print master solution
     if config.objective_focus == ObjectiveType.worst_case:
         worst_blk_idx = max(
@@ -522,19 +546,27 @@ def minimize_dr_vars(model_data, config):
         worst_blk_idx = (0, 0)
 
     worst_master_blk = model_data.master_model.scenarios[worst_blk_idx]
-    config.progress_logger.debug(
+    model_data.tic_toc_timer.toc(
         " First-stage objective "
-        f"{value(worst_master_blk.first_stage_objective)}"
+        f"{value(worst_master_blk.first_stage_objective)}",
+        level=logging.DEBUG,
+        delta=False,
     )
-    config.progress_logger.debug(
+    model_data.tic_toc_timer.toc(
         " Second-stage objective "
-        f"{value(worst_master_blk.second_stage_objective)}"
+        f"{value(worst_master_blk.second_stage_objective)}",
+        level=logging.DEBUG,
+        delta=False,
     )
     polished_master_obj = value(
         worst_master_blk.first_stage_objective
         + worst_master_blk.second_stage_objective
     )
-    config.progress_logger.debug(f" Objective {polished_master_obj}")
+    model_data.tic_toc_timer.toc(
+        f" Objective {polished_master_obj}",
+        level=logging.DEBUG,
+        delta=False,
+    )
 
     return results
 
@@ -652,7 +684,7 @@ def solver_call_master(model_data, config, solver, solve_data):
 
     higher_order_decision_rule_efficiency(config, model_data)
 
-    config.progress_logger.debug("Solving master problem")
+    model_data.tic_toc_timer.toc("Solving master problem", level=logging.DEBUG, delta=False)
 
     timer = TicTocTimer()
     for opt in backup_solvers:
@@ -671,9 +703,11 @@ def solver_call_master(model_data, config, solver, solve_data):
             # account for possible external subsolver errors
             # (such as segmentation faults, function evaluation
             # errors, etc.)
-            config.progress_logger.error(
+            model_data.tic_toc_timer.toc(
                 f"Solver {repr(opt)} encountered exception attempting to "
-                f"optimize master problem in iteration {model_data.iteration}"
+                f"optimize master problem in iteration {model_data.iteration}",
+                delta=False,
+                level=logging.ERROR,
             )
             raise
         else:
@@ -739,7 +773,11 @@ def solver_call_master(model_data, config, solver, solve_data):
                 nlp_model.scenarios[0, 0].first_stage_objective
             )
 
-            config.progress_logger.debug("Master objective")
+            model_data.tic_toc_timer.toc(
+                "Master objective",
+                delta=False,
+                level=logging.DEBUG,
+            )
 
             # fsv_vals_dict = {}
             # for var in config.first_stage_variables:
@@ -755,17 +793,25 @@ def solver_call_master(model_data, config, solver, solve_data):
             #         f" Obj for blk {scen_idx} "
             #         f"{value(blk.first_stage_objective + blk.second_stage_objective)}"
             #     )
-            config.progress_logger.debug(
-                f" First-stage objective {master_soln.first_stage_objective}"
+            model_data.tic_toc_timer.toc(
+                f" First-stage objective {master_soln.first_stage_objective}",
+                delta=False,
+                level=logging.DEBUG,
             )
-            config.progress_logger.debug(
-                f" Second-stage objective {master_soln.second_stage_objective}"
+            model_data.tic_toc_timer.toc(
+                f" Second-stage objective {master_soln.second_stage_objective}",
+                delta=False,
+                level=logging.DEBUG,
             )
             master_obj = (
                 master_soln.first_stage_objective
                 + master_soln.second_stage_objective
             )
-            config.progress_logger.debug(f" Objective {master_obj}")
+            model_data.tic_toc_timer.toc(
+                f" Objective {master_obj}",
+                delta=False,
+                level=logging.DEBUG,
+            )
 
             master_soln.nominal_block = nlp_model.scenarios[0, 0]
             master_soln.results = results

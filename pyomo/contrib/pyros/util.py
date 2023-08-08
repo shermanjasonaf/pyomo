@@ -1554,10 +1554,10 @@ class IterationLogRecord:
             }
             return f"{attr_val:{attr_format_strs[attr_name]}}"
 
-    def log(self, log_func):
+    def log(self, log_func, **log_func_kwargs):
         """Log self."""
         log_str = self.get_log_str()
-        log_func(log_str)
+        log_func(log_str, **log_func_kwargs)
 
     @staticmethod
     def get_log_header_str():
@@ -1570,18 +1570,18 @@ class IterationLogRecord:
         )
 
     @staticmethod
-    def log_header(log_func, with_rules=True):
+    def log_header(log_func, with_rules=True, **log_func_kwargs):
         """Log header."""
         if with_rules:
-            IterationLogRecord.log_header_rule(log_func)
-        log_func(IterationLogRecord.get_log_header_str())
+            IterationLogRecord.log_header_rule(log_func, **log_func_kwargs)
+        log_func(IterationLogRecord.get_log_header_str(), **log_func_kwargs)
         if with_rules:
-            IterationLogRecord.log_header_rule(log_func)
+            IterationLogRecord.log_header_rule(log_func, **log_func_kwargs)
 
     @staticmethod
-    def log_header_rule(log_func, fillchar="-"):
+    def log_header_rule(log_func, fillchar="-", **log_func_kwargs):
         """Log header rule."""
-        log_func(fillchar * IterationLogRecord._LINE_LENGTH)
+        log_func(fillchar * IterationLogRecord._LINE_LENGTH, **log_func_kwargs)
 
 
 def output_logger(config, **kwargs):

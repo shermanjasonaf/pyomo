@@ -20,6 +20,7 @@ from pyomo.contrib.pyros.util import (
 from pyomo.core.base import value
 from pyomo.common.collections import ComponentSet
 from pyomo.contrib.pyros.util import IterationLogRecord
+import numpy as np
 
 
 def update_grcs_solve_data(
@@ -104,6 +105,7 @@ def ROSolver_iterative_solve(model_data, config):
 
     # === Build the master problem and master problem data container object
     master_data = master_problem_methods.initial_construct_master(model_data)
+    master_data.tic_toc_timer = model_data.tic_toc_timer
 
     # === If using p_robustness, add ConstraintList for additional constraints
     if config.p_robustness:
@@ -236,50 +238,62 @@ def ROSolver_iterative_solve(model_data, config):
         + num_fsv_bounds
     )
 
-    model_data.tic_toc_log_func(
+    import logging
+
+    def toc_func(msg, delta=False, level=logging.INFO, **other_toc_kwargs):
+        """
+        Wrapper function around TicTocTimer.toc, to encapsulate desired
+        defaults.
+        """
+        return model_data.tic_toc_timer.toc(
+            msg, level=level, delta=delta, **other_toc_kwargs
+        )
+
+    toc_func(
         "Done preprocessing and preparing subproblem objects. "
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         "Model statistics:"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'  Number of variables':<60s}: {num_vars}"
     )
-    model_data.tic_toc_log_func(f"{'    First-stage variables':<60s}: {num_fsv}")
-    model_data.tic_toc_log_func(f"{'    Second-stage variables':<60s}: {num_ssv}")
-    model_data.tic_toc_log_func(f"{'    State variables':<60s}: {num_sv}")
-    model_data.tic_toc_log_func(f"{'    Decision rule variables':<60s}: {num_dr_vars}")
-    model_data.tic_toc_log_func(
+    toc_func(f"{'    First-stage variables':<60s}: {num_fsv}")
+    toc_func(f"{'    Second-stage variables':<60s}: {num_ssv}")
+    toc_func(f"{'    State variables':<60s}: {num_sv}")
+    toc_func(f"{'    Decision rule variables':<60s}: {num_dr_vars}")
+    toc_func(
         f"{'  Number of constraints':<60s}: "
         f"{num_ineq_cons + num_eq_cons}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'    Equality constraints':<60s}: {num_eq_cons}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'      Coefficient matching constraints':<60s}: "
         f"{num_coefficient_matching_cons}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'      Decision rule equations':<60s}: {num_dr_cons}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'      All other equality constraints':<60s}: "
         f"{num_other_eq_cons}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'    Inequality constraints':<60s}: {num_ineq_cons}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'      First-stage inequalities (incl. certain var bounds)':<60s}: "
         f"{num_fsv_ineqs}"
     )
-    model_data.tic_toc_log_func(
+    toc_func(
         f"{'      Performance constraints (incl. var bounds)':<60s}: {num_perf_cons}"
     )
 
     # === Create separation problem data container object and add information to catalog during solve
     separation_data = SeparationProblemData()
+    separation_data.tic_toc_timer = model_data.tic_toc_timer
     separation_data.separation_model = separation_model
     separation_data.points_separated = (
         []
@@ -345,7 +359,7 @@ def ROSolver_iterative_solve(model_data, config):
         (var, None) for var in master_dr_var_set
     )
 
-    IterationLogRecord.log_header(model_data.tic_toc_log_func)
+    IterationLogRecord.log_header(toc_func)
     k = 0
     master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
@@ -358,7 +372,7 @@ def ROSolver_iterative_solve(model_data, config):
             )
 
         # === Solve Master Problem
-        config.progress_logger.debug("PyROS working on iteration %s..." % k)
+        toc_func("PyROS working on iteration %s..." % k, level=logging.DEBUG)
         master_soln = master_problem_methods.solve_master(
             model_data=master_data, config=config
         )
@@ -419,7 +433,7 @@ def ROSolver_iterative_solve(model_data, config):
                 num_violated_cons=None,
                 max_violation=None,
             )
-            log_record.log(model_data.tic_toc_log_func)
+            log_record.log(toc_func)
             model_data.detailed_termination_msg = detailed_termination_msg
             update_grcs_solve_data(
                 pyros_soln=model_data,
@@ -603,7 +617,7 @@ def ROSolver_iterative_solve(model_data, config):
                 separation_data=separation_data,
                 master_soln=master_soln,
             )
-            iter_log_record.log(model_data.tic_toc_log_func)
+            iter_log_record.log(toc_func)
             model_data.detailed_termination_msg = None
             return model_data, separation_results
 
@@ -648,7 +662,7 @@ def ROSolver_iterative_solve(model_data, config):
                 separation_data=separation_data,
                 master_soln=master_soln,
             )
-            iter_log_record.log(model_data.tic_toc_log_func)
+            iter_log_record.log(toc_func)
             return model_data, separation_results
 
         # === Check if we terminate due to robust optimality or feasibility,
@@ -677,7 +691,7 @@ def ROSolver_iterative_solve(model_data, config):
                 separation_data=separation_data,
                 master_soln=master_soln,
             )
-            iter_log_record.log(model_data.tic_toc_log_func)
+            iter_log_record.log(toc_func)
             model_data.detailed_termination_msg = None
             return model_data, separation_results
 
@@ -690,9 +704,13 @@ def ROSolver_iterative_solve(model_data, config):
             separation_results.violating_param_realization
         )
 
-        config.progress_logger.debug(
-            "Points added to master:\n",
-            "\n ".join(str(pt) for pt in separation_data.points_added_to_master)
+        toc_func(
+            "Points added to master:",
+            level=logging.DEBUG,
+        )
+        toc_func(
+            np.array([pt for pt in separation_data.points_added_to_master]),
+            level=logging.DEBUG,
         )
 
         for var, val in separation_results.violating_separation_variable_values.items():
@@ -700,7 +718,7 @@ def ROSolver_iterative_solve(model_data, config):
             master_var.set_value(val)
 
         k += 1
-        iter_log_record.log(model_data.tic_toc_log_func)
+        iter_log_record.log(toc_func)
 
         previous_master_fsv_vals = current_master_fsv_vals
         previous_master_dr_var_vals = current_master_dr_var_vals
