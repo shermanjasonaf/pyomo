@@ -977,10 +977,17 @@ class PyROS(object):
                 model_data, config
             )
 
+            if pyros_soln.detailed_termination_msg is not None:
+                log_func(pyros_soln.detailed_termination_msg)
+
             IterationLogRecord.log_header_rule(log_func, fillchar="-")
 
             return_soln = ROSolveResults()
-            if pyros_soln is not None and final_iter_separation_solns is not None:
+            found_soln = (
+                getattr(pyros_soln, "coeff_matching_success", True)
+                and final_iter_separation_solns is not None
+            )
+            if found_soln:
                 if config.load_solution and (
                     pyros_soln.pyros_termination_condition
                     is pyrosTerminationCondition.robust_optimal
@@ -1058,15 +1065,18 @@ class PyROS(object):
         log_func(f" {'Termination condition':<30s}: {return_soln.pyros_termination_condition}")
         log_func("=" * self._LOG_LINE_LENGTH)
 
-        from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
-        master_model = pyros_soln.master_soln.master_model
-        return_soln.final_decision_rule = DecisionRuleInterface(
-            model=master_model,
-            second_stage_vars=master_model.scenarios[0, 0].util.second_stage_variables,
-            uncertain_params=master_model.scenarios[0, 0].util.uncertain_params,
-            decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
-            decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
-        )
+        if found_soln:
+            from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
+            master_model = pyros_soln.master_soln.master_model
+            return_soln.final_decision_rule = DecisionRuleInterface(
+                model=master_model,
+                second_stage_vars=master_model.scenarios[0, 0].util.second_stage_variables,
+                uncertain_params=master_model.scenarios[0, 0].util.uncertain_params,
+                decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
+                decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
+            )
+        else:
+            return_soln.final_decision_rule = None
 
         return return_soln
 

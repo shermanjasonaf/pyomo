@@ -642,6 +642,7 @@ def solver_call_master(model_data, config, solver, solve_data):
     nlp_model = model_data.master_model
     master_soln = solve_data
     solver_term_cond_dict = {}
+    master_soln.solver_term_cond_dict = solver_term_cond_dict
 
     if config.solve_master_globally:
         backup_solvers = deepcopy(config.backup_global_solvers)
@@ -782,7 +783,7 @@ def solver_call_master(model_data, config, solver, solve_data):
                 master_soln.pyros_termination_condition = (
                     pyrosTerminationCondition.time_out
                 )
-                output_logger(config=config, time_out=True, elapsed=elapsed)
+                # output_logger(config=config, time_out=True, elapsed=elapsed)
 
         if not try_backup:
             return master_soln

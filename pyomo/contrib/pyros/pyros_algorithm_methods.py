@@ -83,15 +83,18 @@ def ROSolver_iterative_solve(model_data, config):
                 "and/or state variable(s)." % c.name
             )
         elif not coeff_matching_success and robust_infeasible:
-            config.progress_logger.info(
+            from pyomo.common.collections import Bunch
+            model_data = Bunch()
+            model_data.coeff_matching_success = False
+            model_data.detailed_termination_msg = (
                 "PyROS has determined that the model is robust infeasible. "
-                "One reason for this is that equality constraint \"%s\" cannot be satisfied "
+                f"One reason for this is that equality constraint {c.name!r} cannot be satisfied "
                 "against all realizations of uncertainty, "
                 "given the current partitioning between first-stage, second-stage and state variables. "
                 "You might consider editing this constraint to reference some (additional) second-stage "
-                "and/or state variable(s)." % c.name
+                "and/or state variable(s)."
             )
-            return None, None
+            return model_data, None
         else:
             pass
 
@@ -379,15 +382,27 @@ def ROSolver_iterative_solve(model_data, config):
         ):
             term_cond = pyrosTerminationCondition.robust_infeasible
             # output_logger(config=config, robust_infeasible=True)
+            detailed_termination_msg = None
         elif (
             master_soln.pyros_termination_condition
             is pyrosTerminationCondition.subsolver_error
         ):
+            # log subsolver error message
+            master_solve_mode = (
+                "global" if config.solve_master_globally else "local"
+            )
+            detailed_termination_msg = (
+                f"Could not successfully solve master problem of iteration {k} "
+                f"with provided subordinate {master_solve_mode} optimizers. "
+                f"(Termination statuses: "
+                f"{[term_cond for term_cond in master_soln.solver_term_cond_dict.values()]})"
+            )
             term_cond = pyrosTerminationCondition.subsolver_error
         elif (
             master_soln.pyros_termination_condition
             is pyrosTerminationCondition.time_out
         ):
+            detailed_termination_msg = None
             term_cond = pyrosTerminationCondition.time_out
         else:
             term_cond = None
@@ -405,6 +420,7 @@ def ROSolver_iterative_solve(model_data, config):
                 max_violation=None,
             )
             log_record.log(model_data.tic_toc_log_func)
+            model_data.detailed_termination_msg = detailed_termination_msg
             update_grcs_solve_data(
                 pyros_soln=model_data,
                 k=k,
@@ -470,6 +486,7 @@ def ROSolver_iterative_solve(model_data, config):
                     separation_data=separation_data,
                     master_soln=master_soln,
                 )
+                model_data.detailed_termination_msg = None
                 return model_data, []
 
         # get current first-stage and DR variable values
@@ -587,10 +604,40 @@ def ROSolver_iterative_solve(model_data, config):
                 master_soln=master_soln,
             )
             iter_log_record.log(model_data.tic_toc_log_func)
+            model_data.detailed_termination_msg = None
             return model_data, separation_results
 
         # terminate on separation subsolver error
         if separation_results.subsolver_error:
+            # log subsolver error message
+            mode_on_subsolver_error = (
+                "global" if separation_results.solved_globally else "local"
+            )
+            con_for_subsolver_err = [
+                con
+                for con, scall_res
+                in separation_results.main_loop_results.solver_call_results.items()
+                if scall_res.subsolver_error
+            ][0]
+            con_name_for_subsolver_error = (
+                separation_model.util.map_new_constraint_list_to_original_con.get(
+                    con_for_subsolver_err,
+                    con_for_subsolver_err,
+                )
+            ).name
+            res_list = (
+                separation_results
+                .main_loop_results
+                .solver_call_results[con_for_subsolver_err]
+                .results_list
+            )
+            term_conds = [str(res.solver.termination_condition) for res in res_list]
+            model_data.detailed_termination_msg = (
+                f"Could not successfully solve separation problem "
+                f"for performance constraint {con_name_for_subsolver_error!r} with "
+                f"provided subordinate {mode_on_subsolver_error} optimizers. "
+                f"(Termination statuses: {term_conds})"
+            )
             termination_condition = pyrosTerminationCondition.subsolver_error
             update_grcs_solve_data(
                 pyros_soln=model_data,
@@ -631,6 +678,7 @@ def ROSolver_iterative_solve(model_data, config):
                 master_soln=master_soln,
             )
             iter_log_record.log(model_data.tic_toc_log_func)
+            model_data.detailed_termination_msg = None
             return model_data, separation_results
 
         # === Add block to master at violation
@@ -668,4 +716,5 @@ def ROSolver_iterative_solve(model_data, config):
         separation_data=separation_data,
         master_soln=master_soln,
     )
+    model_data.detailed_termination_msg = None
     return model_data, separation_results
