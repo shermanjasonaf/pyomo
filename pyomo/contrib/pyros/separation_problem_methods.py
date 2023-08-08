@@ -1032,10 +1032,16 @@ def solver_call_separation(
             # account for possible external subsolver errors
             # (such as segmentation faults, function evaluation
             # errors, etc.)
+            con_name = (
+                nlp_model.util.map_new_constraint_list_to_original_con.get(
+                    perf_con_to_maximize, perf_con_to_maximize
+                )
+            ).name
+            adverb = "globally" if solve_globally else "locally"
             config.progress_logger.error(
-                f"Solver {repr(opt)} encountered exception attempting to "
-                "optimize separation problem in iteration "
-                f"{model_data.iteration}"
+                f"Optimizer {repr(opt)} encountered exception attempting to "
+                f"{adverb} solve separation problem for constraint {con_name!r} "
+                f"in iteration {model_data.iteration}."
             )
             raise
         else:
