@@ -1504,17 +1504,21 @@ class IterationLogRecord:
             self,
             iteration,
             objective,
+            first_stage_var_shift,
+            dr_var_shift,
+            dr_polishing_failed,
             num_violated_cons,
+            all_sep_problems_solved,
             max_violation,
-            first_stage_var_shift=None,
-            dr_var_shift=None,
             ):
         """Initialize self (see class docstring)."""
         self.iteration = iteration
         self.objective = objective
         self.first_stage_var_shift = first_stage_var_shift
         self.dr_var_shift = dr_var_shift
+        self.dr_polishing_failed = dr_polishing_failed
         self.num_violated_cons = num_violated_cons
+        self.all_sep_problems_solved = all_sep_problems_solved
         self.max_violation = max_violation
 
     def get_log_str(self):
@@ -1536,6 +1540,14 @@ class IterationLogRecord:
             fmt_str = f"<{self._ATTR_FORMAT_LENGTHS[attr_name]}s"
             return f"{'-':{fmt_str}}"
         else:
+            attr_val_fstrs = {
+                "iteration": "f'{attr_val:d}'",
+                "objective": "f'{attr_val:.4e}'",
+                "first_stage_var_shift": "f'{attr_val:.4e}'",
+                "dr_var_shift": "f'{attr_val:.4e}'",
+                "num_violated_cons": "f'{attr_val:d}'",
+                "max_violation": "f'{attr_val:.4e}'",
+            }
             attr_format_strs = {
                 "iteration": f"<{self._ATTR_FORMAT_LENGTHS['iteration']}d",
                 "objective": f"<{self._ATTR_FORMAT_LENGTHS['objective']}.4e",
@@ -1552,7 +1564,20 @@ class IterationLogRecord:
                     f"<{self._ATTR_FORMAT_LENGTHS['max_violation']}.4e"
                 ),
             }
-            return f"{attr_val:{attr_format_strs[attr_name]}}"
+
+            # qualifier for DR polishing and separation columns
+            if attr_name == "dr_var_shift":
+                qual = "*" if self.dr_polishing_failed else ""
+            elif attr_name == "num_violated_cons":
+                qual = "+" if not self.all_sep_problems_solved else ""
+            else:
+                qual = ""
+
+            attr_val_str = f"{eval(attr_val_fstrs[attr_name])}{qual}"
+
+            return (
+                f"{attr_val_str:{f'<{self._ATTR_FORMAT_LENGTHS[attr_name]}'}}"
+            )
 
     def log(self, log_func, **log_func_kwargs):
         """Log self."""

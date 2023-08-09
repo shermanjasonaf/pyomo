@@ -495,7 +495,7 @@ def minimize_dr_vars(model_data, config):
     acceptable = {tc.globallyOptimal, tc.optimal, tc.locallyOptimal, tc.feasible}
     if results.solver.termination_condition not in acceptable:
         # continue with "unpolished" master model solution
-        return results
+        return results, False
 
     # update master model second-stage, state, and decision rule
     # variables to polishing model solution
@@ -568,7 +568,7 @@ def minimize_dr_vars(model_data, config):
         delta=False,
     )
 
-    return results
+    return results, True
 
 
 def add_p_robust_constraint(model_data, config):

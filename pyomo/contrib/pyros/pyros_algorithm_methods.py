@@ -478,6 +478,8 @@ def ROSolver_iterative_solve(model_data, config):
                 dr_var_shift=None,
                 num_violated_cons=None,
                 max_violation=None,
+                dr_polishing_failed=None,
+                all_sep_problems_solved=None,
             )
             log_record.log(toc_func)
             model_data.detailed_termination_msg = detailed_termination_msg
@@ -504,6 +506,7 @@ def ROSolver_iterative_solve(model_data, config):
             nominal_data.nom_second_stage_cost = master_soln.second_stage_objective
             nominal_data.nom_obj = value(master_data.master_model.obj)
 
+        polishing_successful = True
         if (
             config.decision_rule_order != 0
             and len(config.second_stage_variables) > 0
@@ -518,8 +521,11 @@ def ROSolver_iterative_solve(model_data, config):
                     vals.append(dvar.value)
                 dr_var_lists_original.append(vals)
 
-            polishing_results = master_problem_methods.minimize_dr_vars(
-                model_data=master_data, config=config
+            polishing_results, polishing_successful = (
+                master_problem_methods.minimize_dr_vars(
+                    model_data=master_data,
+                    config=config,
+                )
             )
             timing_data.total_dr_polish_time += get_time_from_solver(polishing_results)
 
@@ -623,22 +629,33 @@ def ROSolver_iterative_solve(model_data, config):
             separation_results.violating_param_realization
         )
 
-        if separation_results.time_out or separation_results.subsolver_error:
-            max_sep_con_violation = None
-            num_violated_cons = None
+        # if separation_results.time_out or separation_results.subsolver_error:
+        #     max_sep_con_violation = None
+        #     num_violated_cons = len([
+        #         solve_call_res
+        #         for solve_call_res
+        #         in separation_results.main_loop_results.solver_call_results.values()
+        #         if solve_call_res.found_violation
+        #     ])
+        #     all_sep_problems_solved = None
+        # else:
+        scaled_violations = [
+            solve_call_res.scaled_violations[con]
+            for con, solve_call_res
+            in separation_results.main_loop_results.solver_call_results.items()
+            if solve_call_res.scaled_violations is not None
+        ]
+        if scaled_violations:
+            max_sep_con_violation = max(scaled_violations)
         else:
-            scaled_violations = [
-                solve_call_res.scaled_violations[con]
-                for con, solve_call_res
-                in separation_results.main_loop_results.solver_call_results.items()
-            ]
-            if scaled_violations:
-                max_sep_con_violation = max(scaled_violations)
-            else:
-                max_sep_con_violation = None
-            num_violated_cons = len(
-                separation_results.violated_performance_constraints
-            )
+            max_sep_con_violation = None
+        num_violated_cons = len(
+            separation_results.violated_performance_constraints
+        )
+        all_sep_problems_solved = (
+            len(scaled_violations)
+            == len(separation_model.util.performance_constraints)
+        )
 
         iter_log_record = IterationLogRecord(
             iteration=k,
@@ -647,6 +664,8 @@ def ROSolver_iterative_solve(model_data, config):
             dr_var_shift=dr_var_shift,
             num_violated_cons=num_violated_cons,
             max_violation=max_sep_con_violation,
+            dr_polishing_failed=not polishing_successful,
+            all_sep_problems_solved=all_sep_problems_solved,
         )
 
         # terminate on time limit
@@ -689,8 +708,8 @@ def ROSolver_iterative_solve(model_data, config):
                 con_name_repr = f"{con_for_subsolver_err.name!r}"
             else:
                 con_name_repr = (
-                    f"{con_for_subsolver_err!r} "
-                    f"(originally {orig_con_for_subsolver_err!r})"
+                    f"{con_for_subsolver_err.name!r} "
+                    f"(originally {orig_con_for_subsolver_err.name!r})"
                 )
             res_list = (
                 separation_results
