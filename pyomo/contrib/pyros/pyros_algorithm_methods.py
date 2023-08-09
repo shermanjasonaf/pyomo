@@ -18,8 +18,11 @@ from pyomo.contrib.pyros.util import (
     coefficient_matching,
 )
 from pyomo.core.base import value
-from pyomo.common.collections import ComponentSet
+from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.contrib.pyros.util import IterationLogRecord
+
+from itertools import chain
+from pyomo.core.base import _VarData as VarData
 import numpy as np
 
 
@@ -47,6 +50,39 @@ def update_grcs_solve_data(
     pyros_soln.master_soln = master_soln
 
     return
+
+
+def get_dr_var_to_scaled_expr_map(
+        decision_rule_eqns,
+        second_stage_vars,
+        uncertain_params,
+        decision_rule_vars,
+        ):
+    """
+    Generate mapping from decision rule variables
+    to their terms in a model's DR expression.
+    """
+    var_to_scaled_expr_map = ComponentMap()
+    dr_var_set = ComponentSet(chain(*tuple(
+        indexed_dr_var.values()
+        for indexed_dr_var in decision_rule_vars
+    )))
+    ssv_dr_eq_zip = zip(
+        second_stage_vars,
+        decision_rule_eqns,
+    )
+    for ssv_idx, (ssv, dr_eq) in enumerate(ssv_dr_eq_zip):
+        for term in dr_eq.body.args:
+            is_ssv_term = (
+                isinstance(term.args[0], int)
+                and term.args[0] == -1
+                and isinstance(term.args[1], VarData)
+            )
+            if not is_ssv_term:
+                dr_var = term.args[1]
+                var_to_scaled_expr_map[dr_var] = term
+
+    return var_to_scaled_expr_map
 
 
 def ROSolver_iterative_solve(model_data, config):
@@ -345,7 +381,6 @@ def ROSolver_iterative_solve(model_data, config):
     dr_var_lists_polished = []
 
     # set up first-stage variable and DR variable sets
-    from pyomo.common.collections import ComponentMap
     master_dr_var_set = ComponentSet(chain(*tuple(
         indexed_var.values()
         for indexed_var
@@ -360,6 +395,14 @@ def ROSolver_iterative_solve(model_data, config):
     )
     previous_master_dr_var_vals = ComponentMap(
         (var, None) for var in master_dr_var_set
+    )
+
+    nom_master_util_blk = master_data.master_model.scenarios[0, 0].util
+    dr_var_scaled_expr_map = get_dr_var_to_scaled_expr_map(
+        decision_rule_vars=nom_master_util_blk.decision_rule_vars,
+        decision_rule_eqns=nom_master_util_blk.decision_rule_eqns,
+        second_stage_vars=nom_master_util_blk.second_stage_variables,
+        uncertain_params=nom_master_util_blk.uncertain_params,
     )
 
     IterationLogRecord.log_header(toc_func)
@@ -513,7 +556,7 @@ def ROSolver_iterative_solve(model_data, config):
         )
         current_master_dr_var_vals = ComponentMap(
             (var, value(var))
-            for var in master_dr_var_set
+            for var, expr in dr_var_scaled_expr_map.items()
         )
         if k > 0:
             first_stage_var_shift = max(
