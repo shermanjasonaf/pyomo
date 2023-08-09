@@ -633,12 +633,19 @@ def ROSolver_iterative_solve(model_data, config):
                 in separation_results.main_loop_results.solver_call_results.items()
                 if scall_res.subsolver_error
             ][0]
-            con_name_for_subsolver_error = (
+            orig_con_for_subsolver_err = (
                 separation_model.util.map_new_constraint_list_to_original_con.get(
                     con_for_subsolver_err,
                     con_for_subsolver_err,
                 )
-            ).name
+            )
+            if con_for_subsolver_err is orig_con_for_subsolver_err:
+                con_name_repr = f"{con_for_subsolver_err.name!r}"
+            else:
+                con_name_repr = (
+                    f"{con_for_subsolver_err!r} "
+                    f"(originally {orig_con_for_subsolver_err!r})"
+                )
             res_list = (
                 separation_results
                 .main_loop_results
@@ -648,7 +655,7 @@ def ROSolver_iterative_solve(model_data, config):
             term_conds = [str(res.solver.termination_condition) for res in res_list]
             model_data.detailed_termination_msg = (
                 f"Could not successfully solve separation problem "
-                f"for performance constraint {con_name_for_subsolver_error!r} with "
+                f"for performance constraint {con_name_repr} with "
                 f"provided subordinate {mode_on_subsolver_error} optimizers. "
                 f"(Termination statuses: {term_conds})"
             )
