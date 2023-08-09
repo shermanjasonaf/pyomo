@@ -50,7 +50,7 @@ import logging
 __version__ = "1.2.7"
 
 
-def get_git_commit_hash():
+def _get_git_info():
     """
     Get Pyomo git commit hash.
     """
@@ -58,14 +58,27 @@ def get_git_commit_hash():
     import subprocess
 
     pyros_dir = os.path.join(*os.path.split(__file__)[:-1])
-    try:
-        hash = subprocess.check_output([
-            "git", "-C", f"{pyros_dir}", "rev-parse", "--short", "HEAD",
-        ]).decode("ascii").strip()
-    except subprocess.CalledProcessError:
-        hash = "unknown"
 
-    return hash
+    git_info_dict = {}
+    commands_dict = {
+        "branch": [
+            "git", "-C", f"{pyros_dir}", "rev-parse", "--abbrev-ref", "HEAD"
+        ],
+        "commit hash": [
+            "git", "-C", f"{pyros_dir}", "rev-parse", "--short", "HEAD"
+        ],
+    }
+    for field, command in commands_dict.items():
+        try:
+            field_val = (
+                subprocess.check_output(command).decode("ascii").strip()
+            )
+        except subprocess.CalledProcessError:
+            field_val = "unknown"
+
+        git_info_dict[field] = field_val
+
+    return git_info_dict
 
 
 def NonNegIntOrMinusOne(obj):
@@ -690,10 +703,15 @@ class PyROS(object):
         """
         tt_timer.toc("=" * self._LOG_LINE_LENGTH, **toc_kwargs)
         tt_timer.toc(
-            f"PyROS: The Pyomo Robust Optimization Solver, "
-            f"v{self.version()}, git hash {get_git_commit_hash()}",
+            "PyROS: The Pyomo Robust Optimization Solver.",
             **toc_kwargs,
         )
+        tt_timer.toc(
+            f"{' ' * len('PyROS:')} Version {self.version()} | "
+            f"Git {', '.join(f'{field}: {val}' for field, val in _get_git_info().items())}",
+            **toc_kwargs,
+        )
+        tt_timer.toc("", **toc_kwargs)
         tt_timer.toc(
             "Developed by: Natalie M. Isenberg (1), Jason A. F. Sherman (1),",
             **toc_kwargs,
