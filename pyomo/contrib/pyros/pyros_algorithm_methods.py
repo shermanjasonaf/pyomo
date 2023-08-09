@@ -172,11 +172,16 @@ def ROSolver_iterative_solve(model_data, config):
         var for var in model_data.working_model.util.first_stage_variables
         if var not in dr_var_set
     ]
+
+    # account for epigraph constraint
+    sep_model_epigraph_con = getattr(separation_model, "epigraph_constr", None)
+    has_epigraph_con = sep_model_epigraph_con is not None
+
     num_fsv = len(first_stage_vars)
     num_ssv = len(model_data.working_model.util.second_stage_variables)
     num_sv = len(model_data.working_model.util.state_vars)
     num_dr_vars = len(dr_var_set)
-    num_vars = num_fsv + num_ssv + num_sv + num_dr_vars
+    num_vars = int(has_epigraph_con) + num_fsv + num_ssv + num_sv + num_dr_vars
 
     eq_cons = [
         con for con in
@@ -206,8 +211,6 @@ def ROSolver_iterative_solve(model_data, config):
         for con in separation_model.util.performance_constraints
         if con is not None
     )
-    sep_model_epigraph_con = getattr(separation_model, "epigraph_constr", None)
-    has_epigraph_con = sep_model_epigraph_con is not None
     is_epigraph_con_first_stage = (
         has_epigraph_con
         and (
@@ -258,6 +261,7 @@ def ROSolver_iterative_solve(model_data, config):
     toc_func(
         f"{'  Number of variables':<60s}: {num_vars}"
     )
+    toc_func(f"{'    Epigraph variable':<60s}: {int(has_epigraph_con)}")
     toc_func(f"{'    First-stage variables':<60s}: {num_fsv}")
     toc_func(f"{'    Second-stage variables':<60s}: {num_ssv}")
     toc_func(f"{'    State variables':<60s}: {num_sv}")
@@ -348,9 +352,8 @@ def ROSolver_iterative_solve(model_data, config):
         in master_data.master_model.scenarios[0, 0].util.decision_rule_vars
     )))
     master_fsv_set = ComponentSet(
-        var for var in
-        master_data.master_model.scenarios[0, 0].util.first_stage_variables
-        if var not in master_dr_var_set
+        master_data.master_model.scenarios[0, 0].find_component(var)
+        for var in first_stage_vars
     )
     previous_master_fsv_vals = ComponentMap(
         (var, None) for var in master_fsv_set
