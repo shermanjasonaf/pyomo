@@ -453,15 +453,7 @@ def ROSolver_iterative_solve(model_data, config):
             is pyrosTerminationCondition.subsolver_error
         ):
             # log subsolver error message
-            master_solve_mode = (
-                "global" if config.solve_master_globally else "local"
-            )
-            detailed_termination_msg = (
-                f"Could not successfully solve master problem of iteration {k} "
-                f"with provided subordinate {master_solve_mode} optimizers. "
-                f"(Termination statuses: "
-                f"{[term_cond for term_cond in master_soln.solver_term_cond_dict.values()]})"
-            )
+            detailed_termination_msg = master_soln.message
             model_data.tic_toc_timer.toc(
                 detailed_termination_msg,
                 level=logging.INFO,
@@ -699,41 +691,13 @@ def ROSolver_iterative_solve(model_data, config):
         # terminate on separation subsolver error
         if separation_results.subsolver_error:
             # log subsolver error message
-            mode_on_subsolver_error = (
-                "global" if separation_results.solved_globally else "local"
-            )
-            con_for_subsolver_err = [
-                con
-                for con, scall_res
-                in separation_results.main_loop_results.solver_call_results.items()
+            res_with_subsolver_error = next(
+                scall_res
+                for scall_res
+                in separation_results.main_loop_results.solver_call_results.values()
                 if scall_res.subsolver_error
-            ][0]
-            orig_con_for_subsolver_err = (
-                separation_model.util.map_new_constraint_list_to_original_con.get(
-                    con_for_subsolver_err,
-                    con_for_subsolver_err,
-                )
             )
-            if con_for_subsolver_err is orig_con_for_subsolver_err:
-                con_name_repr = f"{con_for_subsolver_err.name!r}"
-            else:
-                con_name_repr = (
-                    f"{con_for_subsolver_err.name!r} "
-                    f"(originally {orig_con_for_subsolver_err.name!r})"
-                )
-            res_list = (
-                separation_results
-                .main_loop_results
-                .solver_call_results[con_for_subsolver_err]
-                .results_list
-            )
-            term_conds = [str(res.solver.termination_condition) for res in res_list]
-            model_data.detailed_termination_msg = (
-                f"Could not successfully solve separation problem "
-                f"for performance constraint {con_name_repr} with "
-                f"provided subordinate {mode_on_subsolver_error} optimizers. "
-                f"(Termination statuses: {term_conds})"
-            )
+            model_data.detailed_termination_msg = res_with_subsolver_error.message
             termination_condition = pyrosTerminationCondition.subsolver_error
             update_grcs_solve_data(
                 pyros_soln=model_data,

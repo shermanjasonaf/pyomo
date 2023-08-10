@@ -118,6 +118,7 @@ class SeparationSolveCallResults:
     time_out
     subsolver_error
     discrete_set_scenario_index
+    message
     """
 
     def __init__(
@@ -131,6 +132,7 @@ class SeparationSolveCallResults:
         time_out=None,
         subsolver_error=None,
         discrete_set_scenario_index=None,
+        message=None,
     ):
         """Initialize self (see class docstring)."""
         self.results_list = results_list
@@ -142,6 +144,7 @@ class SeparationSolveCallResults:
         self.time_out = time_out
         self.subsolver_error = subsolver_error
         self.discrete_set_scenario_index = discrete_set_scenario_index
+        self.message = message
 
     def termination_acceptable(self, acceptable_terminations):
         """

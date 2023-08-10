@@ -675,6 +675,7 @@ def solver_call_master(model_data, config, solver, solve_data):
     master_soln = solve_data
     solver_term_cond_dict = {}
     master_soln.solver_term_cond_dict = solver_term_cond_dict
+    master_soln.message = None
 
     if config.solve_master_globally:
         backup_solvers = deepcopy(config.backup_global_solvers)
@@ -840,8 +841,10 @@ def solver_call_master(model_data, config, solver, solve_data):
     # NOTE: subproblem is written with variables set to their
     #       initial values (not the final subsolver iterate)
     save_dir = config.subproblem_file_directory
+    output_problem_filename = None
+    serialization_msg = ""
     if save_dir and config.keepfiles:
-        name = os.path.join(
+        output_problem_filename = os.path.join(
             save_dir,
             (
                 config.uncertainty_set.type
@@ -852,15 +855,29 @@ def solver_call_master(model_data, config, solver, solve_data):
                 + ".bar"
             ),
         )
-        nlp_model.write(name, io_options={'symbolic_solver_labels': True})
-        output_logger(
-            config=config,
-            master_error=True,
-            status_dict=solver_term_cond_dict,
-            filename=name,
-            iteration=model_data.iteration,
+        nlp_model.write(output_problem_filename, io_options={'symbolic_solver_labels': True})
+        # output_logger(
+        #     config=config,
+        #     master_error=True,
+        #     status_dict=solver_term_cond_dict,
+        #     filename=output_problem_filename,
+        #     iteration=model_data.iteration,
+        # )
+        serialization_msg = (
+            f" Problem has been serialized to file {output_problem_filename!r}."
         )
+
     master_soln.pyros_termination_condition = pyrosTerminationCondition.subsolver_error
+
+    solve_mode = "global" if config.solve_master_globally else "local"
+    master_soln.message = (
+        f"Could not successfully solve master problem of iteration {model_data.iteration} "
+        f"with provided subordinate {solve_mode} optimizers. "
+        f"(Termination statuses: "
+        f"{[term_cond for term_cond in master_soln.solver_term_cond_dict.values()]}.)"
+        f"{serialization_msg}"
+    )
+
     return master_soln
 
 

@@ -1123,11 +1123,11 @@ def solver_call_separation(
     # termination condition. PyROS will terminate with subsolver
     # error. At this point, export model if desired
     solve_call_results.subsolver_error = True
-    save_dir = config.subproblem_file_directory
-    if save_dir and config.keepfiles:
+    output_problem_filename = None
+    if config.subproblem_file_directory is not None and config.keepfiles:
         objective = separation_obj.name
-        name = os.path.join(
-            save_dir,
+        output_problem_filename = os.path.join(
+            config.subproblem_file_directory,
             (
                 config.uncertainty_set.type
                 + "_"
@@ -1139,17 +1139,47 @@ def solver_call_separation(
                 + ".bar"
             ),
         )
-        nlp_model.write(name, io_options={'symbolic_solver_labels': True})
-        output_logger(
-            config=config,
-            separation_error=True,
-            filename=name,
-            iteration=model_data.iteration,
-            objective=objective,
-            status_dict=solver_status_dict,
-        )
+        nlp_model.write(output_problem_filename, io_options={'symbolic_solver_labels': True})
+        # output_logger(
+        #     config=config,
+        #     separation_error=True,
+        #     filename=output_problem_filename,
+        #     iteration=model_data.iteration,
+        #     objective=objective,
+        #     status_dict=solver_status_dict,
+        # )
 
     separation_obj.deactivate()
+
+    orig_con = (
+        nlp_model.util.map_new_constraint_list_to_original_con.get(
+            perf_con_to_maximize,
+            perf_con_to_maximize,
+        )
+    )
+    if orig_con is perf_con_to_maximize:
+        con_name_repr = f"{perf_con_to_maximize.name!r}"
+    else:
+        con_name_repr = (
+            f"{perf_con_to_maximize.name!r} "
+            f"(originally {orig_con.name!r})"
+        )
+    solve_mode = "global" if solve_globally else "local"
+
+    output_file_msg = ""
+    if output_problem_filename is not None:
+        output_file_msg = (
+            f" Problem has been serialized to file {output_problem_filename!r}."
+        )
+    solve_call_results.message = (
+        "Could not successfully solve separation problem of iteration "
+        f"{model_data.iteration} "
+        f"for performance constraint {con_name_repr} with "
+        f"provided subordinate {solve_mode} optimizers. "
+        f"(Termination statuses: "
+        f"{[str(term_cond) for term_cond in solver_status_dict.values()]}.)"
+        f"{output_file_msg}"
+    )
 
     return solve_call_results
 
