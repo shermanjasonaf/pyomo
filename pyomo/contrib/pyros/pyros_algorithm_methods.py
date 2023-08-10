@@ -25,6 +25,8 @@ from itertools import chain
 from pyomo.core.base import _VarData as VarData
 import numpy as np
 
+import logging
+
 
 def update_grcs_solve_data(
     pyros_soln, term_cond, nominal_data, timing_data, separation_data, master_soln, k
@@ -130,6 +132,11 @@ def ROSolver_iterative_solve(model_data, config):
                 "given the current partitioning between first-stage, second-stage and state variables. "
                 "You might consider editing this constraint to reference some (additional) second-stage "
                 "and/or state variable(s)."
+            )
+            model_data.tic_toc_timer.toc(
+                model_data.detailed_termination_msg,
+                level=logging.INFO,
+                delta=False,
             )
             return model_data, None
         else:
@@ -276,8 +283,6 @@ def ROSolver_iterative_solve(model_data, config):
         + has_epigraph_con
         + num_fsv_bounds
     )
-
-    import logging
 
     def toc_func(msg, delta=False, level=logging.INFO, **other_toc_kwargs):
         """
@@ -456,6 +461,11 @@ def ROSolver_iterative_solve(model_data, config):
                 f"with provided subordinate {master_solve_mode} optimizers. "
                 f"(Termination statuses: "
                 f"{[term_cond for term_cond in master_soln.solver_term_cond_dict.values()]})"
+            )
+            model_data.tic_toc_timer.toc(
+                detailed_termination_msg,
+                level=logging.INFO,
+                delta=False,
             )
             term_cond = pyrosTerminationCondition.subsolver_error
         elif (
@@ -733,6 +743,11 @@ def ROSolver_iterative_solve(model_data, config):
                 timing_data=timing_data,
                 separation_data=separation_data,
                 master_soln=master_soln,
+            )
+            model_data.tic_toc_timer.toc(
+                model_data.detailed_termination_msg,
+                level=logging.INFO,
+                delta=False,
             )
             iter_log_record.log(toc_func)
             return model_data, separation_results

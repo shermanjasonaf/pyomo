@@ -1010,9 +1010,6 @@ class PyROS(object):
                 model_data, config
             )
 
-            if pyros_soln.detailed_termination_msg is not None:
-                tt_timer.toc(pyros_soln.detailed_termination_msg, delta=False)
-
             IterationLogRecord.log_header_rule(
                 tt_timer.toc,
                 delta=False,
