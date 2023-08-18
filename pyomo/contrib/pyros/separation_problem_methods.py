@@ -1012,6 +1012,23 @@ def solver_call_separation(
     solver_status_dict = {}
     nlp_model = model_data.separation_model
 
+    # get name of constraint for loggers
+    orig_con = (
+        nlp_model.util.map_new_constraint_list_to_original_con.get(
+            perf_con_to_maximize,
+            perf_con_to_maximize,
+        )
+    )
+    if orig_con is perf_con_to_maximize:
+        con_name_repr = f"{perf_con_to_maximize.name!r}"
+    else:
+        con_name_repr = (
+            f"{perf_con_to_maximize.name!r} "
+            f"(originally {orig_con.name!r})"
+        )
+    solve_mode = "global" if solve_globally else "local"
+
+
     # === Initialize separation problem; fix first-stage variables
     initialize_separation(perf_con_to_maximize, model_data, config)
 
@@ -1041,17 +1058,12 @@ def solver_call_separation(
             # account for possible external subsolver errors
             # (such as segmentation faults, function evaluation
             # errors, etc.)
-            con_name = (
-                nlp_model.util.map_new_constraint_list_to_original_con.get(
-                    perf_con_to_maximize, perf_con_to_maximize
-                )
-            ).name
             adverb = "globally" if solve_globally else "locally"
             model_data.tic_toc_timer.toc(
                 msg=(
                     f"Optimizer {repr(opt)} encountered exception attempting to "
-                    f"{adverb} solve separation problem for constraint {con_name!r} "
-                    f"in iteration {model_data.iteration}.",
+                    f"{adverb} solve separation problem for constraint {con_name_repr} "
+                    f"in iteration {model_data.iteration}."
                 ),
                 delta=False,
                 level=logging.ERROR,
@@ -1109,7 +1121,7 @@ def solver_call_separation(
             return solve_call_results
         else:
             model_data.tic_toc_timer.toc(
-                f"Solver {opt} failed for {perf_con_to_maximize!r}",
+                f"Solver {opt} failed for {con_name_repr}",
                 level=logging.DEBUG,
                 delta=False,
             )
@@ -1150,21 +1162,6 @@ def solver_call_separation(
         # )
 
     separation_obj.deactivate()
-
-    orig_con = (
-        nlp_model.util.map_new_constraint_list_to_original_con.get(
-            perf_con_to_maximize,
-            perf_con_to_maximize,
-        )
-    )
-    if orig_con is perf_con_to_maximize:
-        con_name_repr = f"{perf_con_to_maximize.name!r}"
-    else:
-        con_name_repr = (
-            f"{perf_con_to_maximize.name!r} "
-            f"(originally {orig_con.name!r})"
-        )
-    solve_mode = "global" if solve_globally else "local"
 
     output_file_msg = ""
     if output_problem_filename is not None:
