@@ -44,6 +44,7 @@ from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
 from pyomo.contrib.pyros.uncertainty_sets import uncertainty_sets
 from pyomo.core.base import Constraint
 
+from datetime import datetime
 import logging
 
 
@@ -709,6 +710,10 @@ class PyROS(object):
         tt_timer.toc(
             f"{' ' * len('PyROS:')} Version {self.version()} | "
             f"Git {', '.join(f'{field}: {val}' for field, val in _get_git_info().items())}",
+            **toc_kwargs,
+        )
+        tt_timer.toc(
+            f"{' ' * len('PyROS:')} Invoked at UTC {datetime.utcnow().isoformat()}",
             **toc_kwargs,
         )
         tt_timer.toc("", **toc_kwargs)
