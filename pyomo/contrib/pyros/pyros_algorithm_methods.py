@@ -300,40 +300,40 @@ def ROSolver_iterative_solve(model_data, config):
         "Model statistics:"
     )
     toc_func(
-        f"{'  Number of variables':<60s}: {num_vars}"
+        f"{'  Number of variables'} : {num_vars}"
     )
-    toc_func(f"{'    Epigraph variable':<60s}: {int(has_epigraph_con)}")
-    toc_func(f"{'    First-stage variables':<60s}: {num_fsv}")
-    toc_func(f"{'    Second-stage variables':<60s}: {num_ssv}")
-    toc_func(f"{'    State variables':<60s}: {num_sv}")
-    toc_func(f"{'    Decision rule variables':<60s}: {num_dr_vars}")
+    toc_func(f"{'    Epigraph variable'} : {int(has_epigraph_con)}")
+    toc_func(f"{'    First-stage variables'} : {num_fsv}")
+    toc_func(f"{'    Second-stage variables'} : {num_ssv}")
+    toc_func(f"{'    State variables'} : {num_sv}")
+    toc_func(f"{'    Decision rule variables'} : {num_dr_vars}")
     toc_func(
-        f"{'  Number of constraints':<60s}: "
+        f"{'  Number of constraints'} : "
         f"{num_ineq_cons + num_eq_cons}"
     )
     toc_func(
-        f"{'    Equality constraints':<60s}: {num_eq_cons}"
+        f"{'    Equality constraints'} : {num_eq_cons}"
     )
     toc_func(
-        f"{'      Coefficient matching constraints':<60s}: "
+        f"{'      Coefficient matching constraints'} : "
         f"{num_coefficient_matching_cons}"
     )
     toc_func(
-        f"{'      Decision rule equations':<60s}: {num_dr_cons}"
+        f"{'      Decision rule equations'} : {num_dr_cons}"
     )
     toc_func(
-        f"{'      All other equality constraints':<60s}: "
+        f"{'      All other equality constraints'} : "
         f"{num_other_eq_cons}"
     )
     toc_func(
-        f"{'    Inequality constraints':<60s}: {num_ineq_cons}"
+        f"{'    Inequality constraints'} : {num_ineq_cons}"
     )
     toc_func(
-        f"{'      First-stage inequalities (incl. certain var bounds)':<60s}: "
+        f"{'      First-stage inequalities (incl. certain var bounds)'} : "
         f"{num_fsv_ineqs}"
     )
     toc_func(
-        f"{'      Performance constraints (incl. var bounds)':<60s}: {num_perf_cons}"
+        f"{'      Performance constraints (incl. var bounds)'} : {num_perf_cons}"
     )
 
     # === Create separation problem data container object and add information to catalog during solve
