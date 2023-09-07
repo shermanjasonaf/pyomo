@@ -43,6 +43,8 @@ from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
 from pyomo.contrib.pyros.uncertainty_sets import uncertainty_sets
 from pyomo.core.base import Constraint
+from pyomo.common.timing import TicTocTimer
+from pyomo.contrib.pyros.util import IterationLogRecord
 
 from datetime import datetime
 import logging
@@ -698,76 +700,89 @@ class PyROS(object):
     def __exit__(self, et, ev, tb):
         pass
 
-    def _log_intro(self, tt_timer, **toc_kwargs):
+    def _log_intro(self, logger, **log_kwargs):
         """
         Log introductory message.
         """
-        tt_timer.toc("=" * self._LOG_LINE_LENGTH, **toc_kwargs)
-        tt_timer.toc(
-            "PyROS: The Pyomo Robust Optimization Solver.",
-            **toc_kwargs,
+        logger.log(msg="=" * self._LOG_LINE_LENGTH, **log_kwargs)
+        logger.log(
+            msg="PyROS: The Pyomo Robust Optimization Solver.",
+            **log_kwargs,
         )
-        tt_timer.toc(
-            f"{' ' * len('PyROS:')} Version {self.version()} | "
-            f"Git {', '.join(f'{field}: {val}' for field, val in _get_git_info().items())}",
-            **toc_kwargs,
+        logger.log(
+            msg=(
+                f"{' ' * len('PyROS:')} Version {self.version()} | "
+                f"Git {', '.join(f'{field}: {val}' for field, val in _get_git_info().items())}"
+            ),
+            **log_kwargs,
         )
-        tt_timer.toc(
-            f"{' ' * len('PyROS:')} Invoked at UTC {datetime.utcnow().isoformat()}",
-            **toc_kwargs,
+        logger.log(
+            msg=(
+                f"{' ' * len('PyROS:')} "
+                f"Invoked at UTC {datetime.utcnow().isoformat()}"
+            ),
+            **log_kwargs,
         )
-        tt_timer.toc("", **toc_kwargs)
-        tt_timer.toc(
-            "Developed by: Natalie M. Isenberg (1), Jason A. F. Sherman (1),",
-            **toc_kwargs,
+        logger.log(msg="", **log_kwargs)
+        logger.log(
+            msg=("Developed by: Natalie M. Isenberg (1), Jason A. F. Sherman (1),"),
+            **log_kwargs,
         )
-        tt_timer.toc(
-            "              John D. Siirola (2), Chrysanthos E. Gounaris (1)",
-            **toc_kwargs,
+        logger.log(
+            msg="              John D. Siirola (2), Chrysanthos E. Gounaris (1)",
+            **log_kwargs,
         )
-        tt_timer.toc(
-            "(1) Carnegie Mellon University, "
-            "Department of Chemical Engineering",
-            **toc_kwargs,
+        logger.log(
+            msg=(
+                "(1) Carnegie Mellon University, "
+                "Department of Chemical Engineering"
+            ),
+            **log_kwargs,
         )
-        tt_timer.toc(
-            "(2) Sandia National Laboratories, Center for Computing Research",
-            **toc_kwargs,
+        logger.log(
+            msg="(2) Sandia National Laboratories, Center for Computing Research",
+            **log_kwargs,
         )
-        tt_timer.toc("", **toc_kwargs)
-        tt_timer.toc(
-            "The developers gratefully acknowledge support "
-            "from the U.S. Department",
-            **toc_kwargs,
+        logger.log(msg="", **log_kwargs)
+        logger.log(
+            msg=(
+                "The developers gratefully acknowledge support "
+                "from the U.S. Department"
+            ),
+            **log_kwargs,
         )
-        tt_timer.toc(
-            "of Energy's "
-            "Institute for the Design of Advanced Energy Systems (IDAES).",
-            **toc_kwargs,
+        logger.log(
+            msg=(
+                "of Energy's "
+                "Institute for the Design of Advanced Energy Systems (IDAES)."
+            ),
+            **log_kwargs,
         )
-        tt_timer.toc("=" * self._LOG_LINE_LENGTH, **toc_kwargs)
+        logger.log(msg="=" * self._LOG_LINE_LENGTH, **log_kwargs)
 
-    def _log_disclaimer(self, tt_timer, **toc_kwargs):
+    def _log_disclaimer(self, logger, **log_kwargs):
         """
         Log disclaimer message.
         """
         disclaimer_header = " DISCLAIMER ".center(self._LOG_LINE_LENGTH, "=")
 
-        tt_timer.toc(disclaimer_header, **toc_kwargs)
-        tt_timer.toc(
-            "PyROS is still under development. ",
-            **toc_kwargs,
+        logger.log(msg=disclaimer_header, **log_kwargs)
+        logger.log(
+            msg="PyROS is still under development. ",
+            **log_kwargs,
         )
-        tt_timer.toc(
-            "Please provide feedback and/or report any issues by creating "
-            "a ticket at",
-            **toc_kwargs,
+        logger.log(
+            msg=(
+                "Please provide feedback and/or report any issues by creating "
+                "a ticket at"
+            ),
+            **log_kwargs,
         )
-        tt_timer.toc(
-            "https://github.com/Pyomo/pyomo/issues/new/choose",
-            **toc_kwargs,
+        logger.log(
+            msg="https://github.com/Pyomo/pyomo/issues/new/choose",
+            **log_kwargs,
         )
-        tt_timer.toc("=" * self._LOG_LINE_LENGTH, **toc_kwargs)
+        logger.log(msg="=" * self._LOG_LINE_LENGTH, **log_kwargs)
 
     def _log_results(self, res, log_func):
         """
@@ -851,21 +866,24 @@ class PyROS(object):
 
         # === Create data containers
         model_data = ROSolveResults()
-        model_data.timing = Bunch()
 
         # === Set up logger for logging results
-        from pyomo.common.timing import TicTocTimer
-        from pyomo.contrib.pyros.util import IterationLogRecord, make_tic_toc_log_func
-
         tt_timer = TicTocTimer(logger=config.progress_logger)
         tt_timer.tic(msg=None)
+        model_data.timing = Bunch()
+        model_data.timing.tic_toc_timer = tt_timer
 
-        model_data.tic_toc_timer = tt_timer
         with time_code(model_data.timing, 'total', is_main_timer=True):
             # config.progress_logger.setLevel(logging.INFO)
 
-            self._log_intro(tt_timer, delta=False, level=logging.INFO)
-            self._log_disclaimer(tt_timer, delta=False, level=logging.INFO)
+            self._log_intro(
+                config.progress_logger,
+                level=logging.INFO,
+            )
+            self._log_disclaimer(
+                config.progress_logger,
+                level=logging.INFO,
+            )
 
             # log solver options
             excl_from_config_display = [
@@ -876,14 +894,15 @@ class PyROS(object):
                 "local_solver",
                 "global_solver",
             ]
-            tt_timer.toc("Solver options:", delta=False, level=logging.INFO)
+            config.progress_logger.info("Solver options:")
             for key, val in config.items():
                 if key not in excl_from_config_display:
-                    tt_timer.toc(
-                        f" {key}={val}", delta=False, level=logging.INFO
-                    )
-            tt_timer.toc("-" * self._LOG_LINE_LENGTH, delta=False, level=logging.INFO)
-            tt_timer.toc("Preprocessing...", delta=False, level=logging.INFO)
+                    config.progress_logger.info(f" {key}={val!r}")
+            config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
+
+            # begin preprocessing
+            config.progress_logger.info("Preprocessing...")
+            tt_timer.toc(msg=None)
 
             # === A block to hold list-type data to make cloning easy
             util = Block(concrete=True)
@@ -1016,9 +1035,7 @@ class PyROS(object):
             )
 
             IterationLogRecord.log_header_rule(
-                tt_timer.toc,
-                delta=False,
-                level=logging.INFO,
+                config.progress_logger.info,
                 fillchar="-",
             )
 
@@ -1096,14 +1113,26 @@ class PyROS(object):
                 "to an acceptable status."
             ),
         }
-        tt_timer.toc(termination_msg_dict[return_soln.pyros_termination_condition], delta=False)
-        tt_timer.toc("-" * self._LOG_LINE_LENGTH, delta=False)
-        tt_timer.toc("Termination stats:", delta=False)
-        tt_timer.toc(f" {'Iterations':<30s}: {return_soln.iterations}", delta=False)
-        tt_timer.toc(f" {'Solve time (wall s)':<30s}: {return_soln.time:.4f}", delta=False)
-        tt_timer.toc(f" {'Final objective value':<30s}: {return_soln.final_objective_value}", delta=False)
-        tt_timer.toc(f" {'Termination condition':<30s}: {return_soln.pyros_termination_condition}", delta=False)
-        tt_timer.toc("=" * self._LOG_LINE_LENGTH, delta=False)
+        config.progress_logger.info(
+            termination_msg_dict[return_soln.pyros_termination_condition]
+        )
+        config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
+        config.progress_logger.info("Termination stats:")
+        config.progress_logger.info(
+            f" {'Iterations':<22s}: {return_soln.iterations}"
+        )
+        config.progress_logger.info(
+            f" {'Solve time (wall s)':<22s}: {return_soln.time:.4f}"
+        )
+        config.progress_logger.info(
+            f" {'Final objective value':<22s}: "
+            f"{return_soln.final_objective_value}"
+        )
+        config.progress_logger.info(
+            f" {'Termination condition':<22s}: "
+            f"{return_soln.pyros_termination_condition}"
+        )
+        config.progress_logger.info("=" * self._LOG_LINE_LENGTH)
 
         if found_soln:
             from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface

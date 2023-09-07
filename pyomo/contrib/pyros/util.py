@@ -65,6 +65,8 @@ def time_code(timing_data_obj, code_block_name, is_main_timer=False):
     allowing calculation of total elapsed time 'on the fly' (e.g. to enforce
     a time limit) using `get_main_elapsed_time(timing_data_obj)`.
     """
+    timing_data_obj.tic_toc_timer.tic(msg=None)
+
     start_time = timeit.default_timer()
     if is_main_timer:
         timing_data_obj.main_timer_start_time = start_time
@@ -1484,20 +1486,22 @@ class IterationLogRecord:
 
     _LINE_LENGTH = 78
     _ATTR_FORMAT_LENGTHS = {
-        "iteration": 6,
+        "iteration": 5,
         "objective": 13,
-        "first_stage_var_shift": 15,
+        "first_stage_var_shift": 13,
         "dr_var_shift": 13,
-        "num_violated_cons": 15,
-        "max_violation": 13,
+        "num_violated_cons": 8,
+        "max_violation": 12,
+        "elapsed_time": 14,
     }
     _ATTR_HEADER_NAMES = {
-        "iteration": "Iter",
+        "iteration": "Itn",
         "objective": "Objective",
-        "first_stage_var_shift": "1st-Stg Shift",
+        "first_stage_var_shift": "1-Stg Shift",
         "dr_var_shift": "DR Shift",
-        "num_violated_cons": "Num Viol Cons",
+        "num_violated_cons": "#CViol",
         "max_violation": "Max Viol",
+        "elapsed_time": "Wall Time (s)",
     }
 
     def __init__(
@@ -1510,6 +1514,7 @@ class IterationLogRecord:
             num_violated_cons,
             all_sep_problems_solved,
             max_violation,
+            elapsed_time,
             ):
         """Initialize self (see class docstring)."""
         self.iteration = iteration
@@ -1520,6 +1525,7 @@ class IterationLogRecord:
         self.num_violated_cons = num_violated_cons
         self.all_sep_problems_solved = all_sep_problems_solved
         self.max_violation = max_violation
+        self.elapsed_time = elapsed_time
 
     def get_log_str(self):
         """Get iteration log string."""
@@ -1530,6 +1536,7 @@ class IterationLogRecord:
             "dr_var_shift",
             "num_violated_cons",
             "max_violation",
+            "elapsed_time",
         ]
         return "".join(self._format_record_attr(attr) for attr in attrs)
 
@@ -1542,27 +1549,12 @@ class IterationLogRecord:
         else:
             attr_val_fstrs = {
                 "iteration": "f'{attr_val:d}'",
-                "objective": "f'{attr_val:.4e}'",
+                "objective": "f'{attr_val: .4e}'",
                 "first_stage_var_shift": "f'{attr_val:.4e}'",
                 "dr_var_shift": "f'{attr_val:.4e}'",
                 "num_violated_cons": "f'{attr_val:d}'",
                 "max_violation": "f'{attr_val:.4e}'",
-            }
-            attr_format_strs = {
-                "iteration": f"<{self._ATTR_FORMAT_LENGTHS['iteration']}d",
-                "objective": f"<{self._ATTR_FORMAT_LENGTHS['objective']}.4e",
-                "first_stage_var_shift": (
-                    f"<{self._ATTR_FORMAT_LENGTHS['first_stage_var_shift']}.4e"
-                ),
-                "dr_var_shift": (
-                    f"<{self._ATTR_FORMAT_LENGTHS['dr_var_shift']}.4e"
-                ),
-                "num_violated_cons": (
-                    f"<{self._ATTR_FORMAT_LENGTHS['num_violated_cons']}d"
-                ),
-                "max_violation": (
-                    f"<{self._ATTR_FORMAT_LENGTHS['max_violation']}.4e"
-                ),
+                "elapsed_time": "f'{attr_val:.2f}'",
             }
 
             # qualifier for DR polishing and separation columns

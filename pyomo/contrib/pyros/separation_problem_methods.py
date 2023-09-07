@@ -682,13 +682,11 @@ def perform_separation_loop(model_data, config, solve_globally):
         for idx, perf_con in enumerate(perf_constraints):
             if idx % max(1, int(len(perf_constraints) / 10)) == 0:
                 solve_adverb = "Globally" if solve_globally else "Locally"
-                model_data.tic_toc_timer.toc(
+                config.progress_logger.debug(
                     f"{solve_adverb} separating constraint "
                     f"{get_orig_con_name(perf_con)} "
                     f"(group priority {priority}, "
-                    f"constraint {idx + 1} of {len(perf_constraints)})",
-                    delta=False,
-                    level=logging.DEBUG,
+                    f"constraint {idx + 1} of {len(perf_constraints)})"
                 )
 
             # solve separation problem for this performance constraint
@@ -745,26 +743,20 @@ def perform_separation_loop(model_data, config, solve_globally):
                 for con, res in all_solve_call_results.items()
                 if res.found_violation
             )
-            model_data.tic_toc_timer.toc(
-                f"Violated constraints:\n {violated_con_names} ",
-                delta=False,
-                level=logging.DEBUG,
+            config.progress_logger.debug(
+                f"Violated constraints:\n {violated_con_names} "
             )
-            model_data.tic_toc_timer.toc(
+            config.progress_logger.debug(
                 f"Worst-case constraint {get_orig_con_name(worst_case_perf_con)} "
                 "under realization "
                 f"{worst_case_res.violating_param_realization}",
-                delta=False,
-                level=logging.DEBUG,
             )
-            model_data.tic_toc_timer.toc(
+            config.progress_logger.debug(
                 f"Maximal scaled violation "
                 f"{worst_case_res.scaled_violations[worst_case_perf_con]} "
                 "from this constraint "
                 "exceeds the robust feasibility tolerance "
                 f"{config.robust_feasibility_tolerance}",
-                delta=False,
-                level=logging.DEBUG,
             )
 
             # violating separation problem solution now chosen.
@@ -1059,14 +1051,12 @@ def solver_call_separation(
             # (such as segmentation faults, function evaluation
             # errors, etc.)
             adverb = "globally" if solve_globally else "locally"
-            model_data.tic_toc_timer.toc(
+            config.progress_logger.error(
                 msg=(
                     f"Optimizer {repr(opt)} encountered exception attempting to "
                     f"{adverb} solve separation problem for constraint {con_name_repr} "
                     f"in iteration {model_data.iteration}."
                 ),
-                delta=False,
-                level=logging.ERROR,
             )
             raise
         else:
@@ -1120,16 +1110,10 @@ def solver_call_separation(
 
             return solve_call_results
         else:
-            model_data.tic_toc_timer.toc(
-                f"Solver {opt} failed for {con_name_repr}",
-                level=logging.DEBUG,
-                delta=False,
+            config.progress_logger.debug(
+                f"Solver {opt} failed for {con_name_repr}"
             )
-            model_data.tic_toc_timer.toc(
-                results.solver,
-                level=logging.DEBUG,
-                delta=False,
-            )
+            config.progress_logger.debug(results.solver)
 
     # All subordinate solvers failed to optimize model to appropriate
     # termination condition. PyROS will terminate with subsolver
