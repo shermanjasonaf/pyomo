@@ -19,6 +19,10 @@ class ROSolveResults(object):
         Final objective function value to report.
     pyros_termination_condition : pyrosTerminationCondition, optional
         PyROS-specific termination condition.
+    final_decision_rule : DecisionRuleInterface or None
+        Interface to the decision rule of master solution to
+        which PyROS converged. If no acceptable solution
+        found, then None is returned.
 
     Attributes
     ----------
@@ -41,6 +45,7 @@ class ROSolveResults(object):
         time=None,
         final_objective_value=None,
         pyros_termination_condition=None,
+        final_decision_rule=None,
     ):
         """Initialize self (see class docstring)."""
         self.config = config
@@ -48,6 +53,7 @@ class ROSolveResults(object):
         self.time = time
         self.final_objective_value = final_objective_value
         self.pyros_termination_condition = pyros_termination_condition
+        self.final_decision_rule = final_decision_rule
 
     def __str__(self):
         """

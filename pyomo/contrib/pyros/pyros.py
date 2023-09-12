@@ -45,6 +45,7 @@ from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
 from pyomo.contrib.pyros.uncertainty_sets import uncertainty_sets
 from pyomo.core.base import Constraint
+from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
 
 from datetime import datetime
 
@@ -1042,6 +1043,16 @@ class PyROS(object):
 
                 del pyros_soln.util_block
                 del pyros_soln.working_model
+
+                # add DR to results object
+                master_model = pyros_soln.master_soln.master_model
+                return_soln.final_decision_rule = DecisionRuleInterface(
+                    model=master_model,
+                    second_stage_vars=master_model.scenarios[0, 0].util.second_stage_variables,
+                    uncertain_params=master_model.scenarios[0, 0].util.uncertain_params,
+                    decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
+                    decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
+                )
             else:
                 return_soln.pyros_termination_condition = (
                     pyrosTerminationCondition.robust_infeasible
@@ -1049,19 +1060,7 @@ class PyROS(object):
                 return_soln.final_objective_value = None
                 return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
-
-        if found_soln:
-            from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
-            master_model = pyros_soln.master_soln.master_model
-            return_soln.final_decision_rule = DecisionRuleInterface(
-                model=master_model,
-                second_stage_vars=master_model.scenarios[0, 0].util.second_stage_variables,
-                uncertain_params=master_model.scenarios[0, 0].util.uncertain_params,
-                decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
-                decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
-            )
-        else:
-            return_soln.final_decision_rule = None
+                return_soln.final_decision_rule = None
 
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
