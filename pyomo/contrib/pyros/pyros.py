@@ -998,7 +998,11 @@ class PyROS(object):
             IterationLogRecord.log_header_rule(config.progress_logger.info)
 
             return_soln = ROSolveResults()
-            if pyros_soln is not None and final_iter_separation_solns is not None:
+            found_soln = (
+                getattr(pyros_soln, "coeff_matching_success", True)
+                and final_iter_separation_solns is not None
+            )
+            if found_soln:
                 if config.load_solution and (
                     pyros_soln.pyros_termination_condition
                     is pyrosTerminationCondition.robust_optimal
@@ -1045,6 +1049,19 @@ class PyROS(object):
                 return_soln.final_objective_value = None
                 return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
+
+        if found_soln:
+            from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
+            master_model = pyros_soln.master_soln.master_model
+            return_soln.final_decision_rule = DecisionRuleInterface(
+                model=master_model,
+                second_stage_vars=master_model.scenarios[0, 0].util.second_stage_variables,
+                uncertain_params=master_model.scenarios[0, 0].util.uncertain_params,
+                decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
+                decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
+            )
+        else:
+            return_soln.final_decision_rule = None
 
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
