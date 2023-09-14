@@ -1035,7 +1035,6 @@ class PyROS(object):
                     pyros_soln.pyros_termination_condition
                 )
 
-                return_soln.time = model_data.total_cpu_time
                 return_soln.iterations = iterations
 
                 # === Remove util block
@@ -1058,9 +1057,10 @@ class PyROS(object):
                     pyrosTerminationCondition.robust_infeasible
                 )
                 return_soln.final_objective_value = None
-                return_soln.time = get_main_elapsed_time(model_data.timing)
                 return_soln.iterations = 0
                 return_soln.final_decision_rule = None
+
+        return_soln.time = model_data.timing.get_total_time("main")
 
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
