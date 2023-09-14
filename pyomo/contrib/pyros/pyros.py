@@ -1010,7 +1010,12 @@ class PyROS(object):
                     or pyros_soln.pyros_termination_condition
                     is pyrosTerminationCondition.robust_feasible
                 ):
-                    load_final_solution(model_data, pyros_soln.master_soln, config)
+                    load_final_solution(
+                        model_data=model_data,
+                        master_soln=pyros_soln.master_soln,
+                        config=config,
+                        tmp_var_list_name=cname,
+                    )
 
                 # === Return time info
                 model_data.total_cpu_time = get_main_elapsed_time(model_data.timing)
@@ -1061,6 +1066,8 @@ class PyROS(object):
                 return_soln.final_decision_rule = None
 
         return_soln.time = model_data.timing.get_total_time("main")
+
+        delattr(model_data.original_model, cname)
 
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)

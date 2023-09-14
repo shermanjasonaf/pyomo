@@ -1464,7 +1464,7 @@ def identify_objective_functions(model, objective):
     model.second_stage_objective = Expression(expr=second_stage_cost_expr)
 
 
-def load_final_solution(model_data, master_soln, config):
+def load_final_solution(model_data, master_soln, config, tmp_var_list_name):
     '''
     load the final solution into the original model object
     :param model_data: model data container object
@@ -1486,14 +1486,12 @@ def load_final_solution(model_data, master_soln, config):
         )
         soln = master_soln.master_model.scenarios[k, 0]
 
-    src_vars = getattr(model, 'tmp_var_list')
-    local_vars = getattr(soln, 'tmp_var_list')
+    src_vars = getattr(model, tmp_var_list_name)
+    local_vars = getattr(soln, tmp_var_list_name)
     varMap = list(zip(src_vars, local_vars))
 
     for src, local in varMap:
         src.set_value(local.value, skip_validation=True)
-
-    return
 
 
 def process_termination_condition_master_problem(config, results):
