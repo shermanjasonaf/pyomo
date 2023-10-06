@@ -395,12 +395,14 @@ def create_dr_polishing_problem(model_data, config):
                 dr_eq_term / dr_eq_scale_factor <= polishing_var
             )
 
-        # scale the DR equation
-        dr_eq.set_value((
-            dr_eq.lower / dr_eq_scale_factor,
-            sum(arg / dr_eq_scale_factor for arg in dr_eq.body.args),
-            dr_eq.upper / dr_eq_scale_factor,
-        ))
+        # scale the DR equation (for all blocks)
+        for blk in polishing_model.scenarios.values():
+            blk_dr_eq = blk.util.decision_rule_eqns[idx]
+            blk_dr_eq.set_value((
+                blk_dr_eq.lower / dr_eq_scale_factor,
+                sum(arg / dr_eq_scale_factor for arg in blk_dr_eq.body.args),
+                blk_dr_eq.upper / dr_eq_scale_factor,
+            ))
 
         # add constraints to polishing model
         nominal_polishing_block.add_component(
