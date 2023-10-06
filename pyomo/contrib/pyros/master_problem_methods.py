@@ -37,6 +37,7 @@ from pyomo.common.modeling import unique_component_name
 
 from pyomo.common.timing import TicTocTimer
 from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR
+from pyomo.contrib.pyros.util import enforce_dr_degree
 
 
 def initial_construct_master(model_data):
@@ -310,19 +311,14 @@ def create_dr_polishing_problem(model_data, config):
         ss_var.unfix()
 
     # unfix decision rule variables, taking DR efficiencies into account
-    num_uncertain_params = len(nominal_polishing_block.util.uncertain_params)
-    decision_rule_vars = nominal_polishing_block.util.decision_rule_vars
-    for indexed_var in decision_rule_vars:
-        num_dr_vars = len(indexed_var)
-        indexed_var.unfix()
-        if polishing_model.const_efficiency_applied:
-            for i in range(1, num_dr_vars):
-                indexed_var[i].fix(0)
-        if polishing_model.linear_efficiency_applied:
-            for i in range(num_uncertain_params + 1, num_dr_vars):
-                indexed_var[i].fix(0)
+    enforce_dr_degree(
+        blk=polishing_model.scenarios[0, 0],
+        config=config,
+        degree=get_master_dr_degree(model_data, config),
+    )
 
     # declare auxiliary polishing variables
+    decision_rule_vars = nominal_polishing_block.util.decision_rule_vars
     polishing_vars = []
     for idx, indexed_dr_var in enumerate(decision_rule_vars):
         dr_var_index_set = indexed_dr_var.index_set()
@@ -339,10 +335,29 @@ def create_dr_polishing_problem(model_data, config):
         nominal_polishing_block.util.decision_rule_eqns,
         polishing_vars,
     )
+    # polishing_model.infinity_norm_var = Var(
+    #     initialize=0,
+    #     domain=NonNegativeReals,
+    # )
+
+    # fix all second-stage and state variables,
+    # deactivate all but the decision rule constraints
+    # for blk in polishing_model.scenarios.values():
+    #     for var in blk.util.second_stage_variables:
+    #         var.fix()
+    #     for var in blk.util.state_vars:
+    #         var.fix()
+    #     for con in blk.component_data_objects(Constraint, active=True):
+    #         con.deactivate()
+    #     for con in blk.util.decision_rule_eqns:
+    #         con.activate()
+
     for idx, (dr_eq, indexed_var) in enumerate(dr_eq_var_zip):
         # components for absolute value constraints
+        # polishing_infinity_norm_cons = ConstraintList(starting_index=0)
         polishing_absolute_value_lb_cons = ConstraintList(starting_index=0)
         polishing_absolute_value_ub_cons = ConstraintList(starting_index=0)
+        # polishing_infinity_norm_cons.construct()
         polishing_absolute_value_lb_cons.construct()
         polishing_absolute_value_ub_cons.construct()
 
@@ -352,6 +367,21 @@ def create_dr_polishing_problem(model_data, config):
         for dr_eq_term, polishing_var in zip(dr_expr_terms, indexed_var.values()):
             # initialize auxiliary variable
             polishing_var.set_value(abs(value(dr_eq_term)))
+
+            # if DR var is fixed, also fix the polishing variable
+            dr_var_in_term = dr_eq_term.args[-1]
+            if dr_var_in_term.fixed:
+                polishing_var.fix()
+
+            # add infinity norm constraint for non-static dr var
+            # is_nonstatic = (
+            #     nominal_polishing_block.util.dr_var_to_exponent_map[dr_var_in_term]
+            #     > 0
+            # )
+            # if is_nonstatic:
+            #     polishing_infinity_norm_cons.add(
+            #         polishing_var <= polishing_model.infinity_norm_var
+            #     )
 
             # declare absolute value constraints
             polishing_absolute_value_lb_cons.add(-polishing_var <= dr_eq_term)
@@ -372,9 +402,24 @@ def create_dr_polishing_problem(model_data, config):
             ),
             polishing_absolute_value_ub_cons,
         )
+        # nominal_polishing_block.add_component(
+        #     unique_component_name(
+        #         polishing_model,
+        #         f"polishing_absolute_value_infnorm_con_{idx}",
+        #     ),
+        #     polishing_infinity_norm_cons,
+        # )
+
+    # now initialize infinity norm var
+    # polishing_model.infinity_norm_var.set_value(max(
+    #     value(var)
+    #     for indexed_var in polishing_vars
+    #     for var in indexed_var.values()
+    # ))
 
     # declare polishing objective
     polishing_model.polishing_obj = Objective(
+        # expr=polishing_model.infinity_norm_var,
         expr=sum(
             sum(polishing_var.values())
             for polishing_var in polishing_vars
@@ -559,37 +604,30 @@ def add_scenario_to_master(model_data, violations):
     return
 
 
-def higher_order_decision_rule_efficiency(config, model_data):
+def get_master_dr_degree(model_data, config):
+    """
+    Determine DR order to enforce based on iteration
+    number and model data.
+    """
+    if model_data.iteration == 0:
+        return 0
+    elif model_data.iteration <= len(config.uncertain_params):
+        return max(1, config.decision_rule_order)
+    else:
+        return max(2, config.decision_rule_order)
+
+
+def higher_order_decision_rule_efficiency(model_data, config):
     # === Efficiencies for decision rules
     #  if iteration <= |q| then all d^n where n > 1 are fixed to 0
     #  if iteration == 0, all d^n, n > 0 are fixed to 0
     #  These efficiencies should be carried through as d* to polishing
-    nlp_model = model_data.master_model
-    if config.decision_rule_order != None and len(config.second_stage_variables) > 0:
-        #  Ensure all are unfixed unless next conditions are met...
-        for dr_var in nlp_model.scenarios[0, 0].util.decision_rule_vars:
-            dr_var.unfix()
-        num_dr_vars = len(
-            nlp_model.scenarios[0, 0].util.decision_rule_vars[0]
-        )  # there is at least one dr var
-        num_uncertain_params = len(config.uncertain_params)
-        nlp_model.const_efficiency_applied = False
-        nlp_model.linear_efficiency_applied = False
-        if model_data.iteration == 0:
-            nlp_model.const_efficiency_applied = True
-            for dr_var in nlp_model.scenarios[0, 0].util.decision_rule_vars:
-                for i in range(1, num_dr_vars):
-                    dr_var[i].fix(0)
-        elif (
-            model_data.iteration <= num_uncertain_params
-            and config.decision_rule_order > 1
-        ):
-            # Only applied in DR order > 1 case
-            for dr_var in nlp_model.scenarios[0, 0].util.decision_rule_vars:
-                for i in range(num_uncertain_params + 1, num_dr_vars):
-                    nlp_model.linear_efficiency_applied = True
-                    dr_var[i].fix(0)
-    return
+    order_to_enforce = get_master_dr_degree(model_data, config)
+    enforce_dr_degree(
+        blk=model_data.master_model.scenarios[0, 0],
+        config=config,
+        degree=order_to_enforce,
+    )
 
 
 def solver_call_master(model_data, config, solver, solve_data):
@@ -625,10 +663,10 @@ def solver_call_master(model_data, config, solver, solve_data):
     else:
         solvers = [solver] + config.backup_local_solvers
 
-    higher_order_decision_rule_efficiency(config, model_data)
-
     solve_mode = "global" if config.solve_master_globally else "local"
     config.progress_logger.debug("Solving master problem")
+
+    higher_order_decision_rule_efficiency(model_data, config)
 
     timer = TicTocTimer()
     for idx, opt in enumerate(solvers):

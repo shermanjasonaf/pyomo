@@ -12,7 +12,7 @@
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
 import logging
 from textwrap import indent, dedent, wrap
-from pyomo.common.collections import Bunch, ComponentSet
+from pyomo.common.collections import Bunch, ComponentSet, ComponentMap
 from pyomo.common.config import ConfigDict, ConfigValue, In, NonNegativeFloat
 from pyomo.core.base.block import Block
 from pyomo.core.expr import value
@@ -48,6 +48,7 @@ from pyomo.core.base import Constraint
 from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
 
 from datetime import datetime
+from itertools import chain
 
 
 __version__ = "1.2.7"
@@ -137,6 +138,35 @@ class InputDataStandardizer(object):
             ans.extend(self.__call__(item))
         for _ in ans:
             assert isinstance(_, self.cdatatype)
+        return ans
+
+
+class MultistageInputDataStandardizer(object):
+    """
+    Standardizer for modeling objects representing multi-stage
+    variables or uncertain parameters. Standard form is a
+    list of lists of `cdatatype` objects.
+    """
+    def __init__(self, ctype, cdatatype):
+        self.ctype = ctype
+        self.cdatatype = cdatatype
+
+    def __call__(self, obj):
+        if isinstance(obj, self.ctype):
+            return [list(obj.values())]
+        if isinstance(obj, self.cdatatype):
+            return [[obj]]
+        if isinstance(obj, (list, tuple)):
+            base_std = InputDataStandardizer(self.ctype, self.cdatatype)
+            if all(isinstance(itm, (list, tuple)) for itm in obj):
+                ans = list()
+                for item in obj:
+                    ans.append(base_std(item))
+            else:
+                ans = [base_std(obj)]
+        else:
+            raise TypeError("Not supported")
+
         return ans
 
 
@@ -661,6 +691,22 @@ def pyros_config():
             dtype_spec_str=None,
         ),
     )
+    CONFIG.declare("nested_second_stage_variables", PyROSConfigValue(
+        default=[], domain=MultistageInputDataStandardizer(Var, _VarData),
+        description=(
+            "A two-dimensional list for extending the second-stage "
+            "variables to multi-stage variables. Each list specifies "
+            "the variables adjusted in each stage."
+        )
+    ))
+    CONFIG.declare("nested_uncertain_params", PyROSConfigValue(
+        default=[], domain=MultistageInputDataStandardizer(Param, _ParamData),
+        description=(
+            "A two-dimensional list for extending the uncertain parameters "
+            "variables to multi-stage context. Each list specifies "
+            "the parameters realized by the corresponding stage."
+        )
+    ))
 
     return CONFIG
 
@@ -846,6 +892,9 @@ class PyROS(object):
         config.local_solver = local_solver
         config.global_solver = global_solver
 
+        config.nested_second_stage_variables = second_stage_variables
+        config.nested_uncertain_params = uncertain_params
+
         dev_options = kwds.pop('dev_options', {})
         config.set_value(kwds)
         config.set_value(dev_options)
@@ -895,6 +944,8 @@ class PyROS(object):
                 "uncertainty_set",
                 "local_solver",
                 "global_solver",
+                "nested_second_stage_variables",
+                "nested_uncertain_params",
             ]
             config.progress_logger.info("Solver options:")
             for key, val in config.items():
@@ -911,6 +962,8 @@ class PyROS(object):
             util.first_stage_variables = config.first_stage_variables
             util.second_stage_variables = config.second_stage_variables
             util.uncertain_params = config.uncertain_params
+            util.nested_second_stage_variables = config.nested_second_stage_variables
+            util.nested_uncertain_params = config.nested_uncertain_params
 
             model_data.util_block = unique_component_name(model, 'util')
             model.add_component(model_data.util_block, util)
@@ -921,11 +974,28 @@ class PyROS(object):
 
             # === Leads to a logger warning here for inactive obj when cloning
             model_data.original_model = model
+
             # === For keeping track of variables after cloning
             cname = unique_component_name(model_data.original_model, 'tmp_var_list')
             src_vars = list(model_data.original_model.component_data_objects(Var))
             setattr(model_data.original_model, cname, src_vars)
             model_data.working_model = model_data.original_model.clone()
+
+            # map adjustable variables and uncertain parameters
+            # to their stage numbers
+            model_data.working_model.util.var_to_stage_map = ComponentMap()
+            model_data.working_model.util.param_to_stage_map = ComponentMap()
+            ss_vars_param_zip = zip(
+                model_data.working_model.util.nested_second_stage_variables,
+                model_data.working_model.util.nested_uncertain_params,
+            )
+            for stage_idx, (varlist, paramlist) in enumerate(ss_vars_param_zip):
+                model_data.working_model.util.var_to_stage_map.update(
+                    (var, stage_idx) for var in varlist
+                )
+                model_data.working_model.util.param_to_stage_map.update(
+                    (param, stage_idx) for param in paramlist
+                )
 
             # identify active objective function
             # (there should only be one at this point)
