@@ -334,6 +334,7 @@ def create_dr_polishing_problem(model_data, config):
     dr_eq_var_zip = zip(
         nominal_polishing_block.util.decision_rule_eqns,
         polishing_vars,
+        nominal_polishing_block.util.second_stage_variables,
     )
     # polishing_model.infinity_norm_var = Var(
     #     initialize=0,
@@ -352,7 +353,7 @@ def create_dr_polishing_problem(model_data, config):
     #     for con in blk.util.decision_rule_eqns:
     #         con.activate()
 
-    for idx, (dr_eq, indexed_var) in enumerate(dr_eq_var_zip):
+    for idx, (dr_eq, indexed_var, ss_var) in enumerate(dr_eq_var_zip):
         # components for absolute value constraints
         # polishing_infinity_norm_cons = ConstraintList(starting_index=0)
         polishing_absolute_value_lb_cons = ConstraintList(starting_index=0)
@@ -360,6 +361,9 @@ def create_dr_polishing_problem(model_data, config):
         # polishing_infinity_norm_cons.construct()
         polishing_absolute_value_lb_cons.construct()
         polishing_absolute_value_ub_cons.construct()
+
+        # scale the DR equations by value of second-stage variable
+        dr_eq_scale_factor = max(1, abs(ss_var.value))
 
         # ensure second-stage variable term excluded
         dr_expr_terms = dr_eq.body.args[:-1]
@@ -384,8 +388,19 @@ def create_dr_polishing_problem(model_data, config):
             #     )
 
             # declare absolute value constraints
-            polishing_absolute_value_lb_cons.add(-polishing_var <= dr_eq_term)
-            polishing_absolute_value_ub_cons.add(dr_eq_term <= polishing_var)
+            polishing_absolute_value_lb_cons.add(
+                -polishing_var <= dr_eq_term / dr_eq_scale_factor
+            )
+            polishing_absolute_value_ub_cons.add(
+                dr_eq_term / dr_eq_scale_factor <= polishing_var
+            )
+
+        # scale the DR equation
+        dr_eq.set_value((
+            dr_eq.lower / dr_eq_scale_factor,
+            sum(arg / dr_eq_scale_factor for arg in dr_eq.body.args),
+            dr_eq.upper / dr_eq_scale_factor,
+        ))
 
         # add constraints to polishing model
         nominal_polishing_block.add_component(
