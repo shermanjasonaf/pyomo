@@ -415,13 +415,6 @@ def create_dr_polishing_problem(model_data, config):
             # get corresponding polishing variable
             polishing_var = indexed_polishing_var[dr_var_in_term_idx]
 
-            # initialize auxiliary polishing variable
-            polishing_var.set_value(abs(value(dr_eq_term)))
-
-            # if DR var is fixed, also fix the polishing variable
-            if dr_var_in_term.fixed:
-                polishing_var.fix()
-
             # add polishing constraints
             polishing_absolute_value_lb_cons[dr_var_in_term_idx] = (
                 -polishing_var - dr_eq_term <= 0
@@ -433,6 +426,16 @@ def create_dr_polishing_problem(model_data, config):
             polishing_infinity_norm_cons[dr_var_in_term_idx] = (
                 polishing_var - polishing_model.infinity_norm_var <= 0
             )
+
+            # if DR var is fixed, then fix polishing variable as well.
+            # also, deactivate coresponding polishing constraints
+            if dr_var_in_term.fixed:
+                polishing_var.fix()
+                polishing_absolute_value_lb_cons[dr_var_in_term_idx].deactivate()
+                polishing_absolute_value_ub_cons[dr_var_in_term_idx].deactivate()
+
+            # initialize auxiliary polishing variable
+            polishing_var.set_value(abs(value(dr_eq_term)))
 
     # now initialize infinity norm var
     polishing_model.infinity_norm_var.set_value(max(
@@ -452,6 +455,25 @@ def create_dr_polishing_problem(model_data, config):
         #     for polishing_var in polishing_vars
         # )
     )
+
+    # unused_vars = [
+    #     var for var in polishing_model.component_data_objects(Var)
+    #     if not var.fixed and all(
+    #         var not in ComponentSet(identify_variables(con.body))
+    #         for con in polishing_model.component_data_objects(Constraint, active=True)
+    #     )
+    # ]
+    # for var in unused_vars:
+    #     print(var.name)
+    # unused_cons = [
+    #     con
+    #     for con in polishing_model.component_data_objects(Constraint, active=True)
+    #     if all(var.fixed for var in ComponentSet(identify_variables(con.body)))
+    # ]
+    # for con in unused_cons:
+    #     print(con.name)
+    # import pdb
+    # pdb.set_trace()
 
     return polishing_model
 
@@ -669,9 +691,9 @@ def get_master_dr_degree(model_data, config):
     if model_data.iteration == 0:
         return 0
     elif model_data.iteration <= len(config.uncertain_params):
-        return max(1, config.decision_rule_order)
+        return min(1, config.decision_rule_order)
     else:
-        return max(2, config.decision_rule_order)
+        return min(2, config.decision_rule_order)
 
 
 def higher_order_decision_rule_efficiency(model_data, config):
