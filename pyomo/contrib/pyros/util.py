@@ -1494,6 +1494,7 @@ def load_final_solution(model_data, master_soln, config, tmp_var_list_name):
     if config.objective_focus == ObjectiveType.nominal:
         model = model_data.original_model
         soln = master_soln.nominal_block
+        worst_case_realization = None
     elif config.objective_focus == ObjectiveType.worst_case:
         model = model_data.original_model
         indices = range(len(master_soln.master_model.scenarios))
@@ -1506,12 +1507,19 @@ def load_final_solution(model_data, master_soln, config, tmp_var_list_name):
         )
         soln = master_soln.master_model.scenarios[k, 0]
 
+        worst_case_realization = ComponentMap(
+            (param, soln.find_component(param).value)
+            for param in config.uncertain_params
+        )
+
     src_vars = getattr(model, tmp_var_list_name)
     local_vars = getattr(soln, tmp_var_list_name)
     varMap = list(zip(src_vars, local_vars))
 
     for src, local in varMap:
         src.set_value(local.value, skip_validation=True)
+
+    return worst_case_realization
 
 
 def process_termination_condition_master_problem(config, results):

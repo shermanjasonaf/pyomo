@@ -1080,7 +1080,7 @@ class PyROS(object):
                     or pyros_soln.pyros_termination_condition
                     is pyrosTerminationCondition.robust_feasible
                 ):
-                    load_final_solution(
+                    return_soln.worst_case_realization = load_final_solution(
                         model_data=model_data,
                         master_soln=pyros_soln.master_soln,
                         config=config,

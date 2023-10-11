@@ -46,6 +46,7 @@ class ROSolveResults(object):
         final_objective_value=None,
         pyros_termination_condition=None,
         final_decision_rule=None,
+        worst_case_realization=None,
     ):
         """Initialize self (see class docstring)."""
         self.config = config
@@ -54,6 +55,7 @@ class ROSolveResults(object):
         self.final_objective_value = final_objective_value
         self.pyros_termination_condition = pyros_termination_condition
         self.final_decision_rule = final_decision_rule
+        self.worst_case_realization = worst_case_realization
 
     def __str__(self):
         """
@@ -66,6 +68,7 @@ class ROSolveResults(object):
             "time": ("Solve time (wall s)", "f'{val:.3f}'"),
             "final_objective_value": ("Final objective value", "f'{val:.4e}'"),
             "pyros_termination_condition": ("Termination condition", "f'{val}'"),
+            "worst_case_realization": ("Worst case realization", "f'{val}'")
         }
         attr_desc_pad_length = 1 + max(
             len(desc) for desc, _ in attr_name_format_dict.values()
