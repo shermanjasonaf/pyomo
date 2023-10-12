@@ -775,10 +775,13 @@ def minimize_dr_vars(model_data, config):
     """
     polishing_model = create_dr_polishing_problem(model_data, config)
 
+    from pyomo.contrib.pyros.util import SolverWithBackup
+
     if config.solve_master_globally:
-        solver = config.global_solver
+        solvers = [config.global_solver] + config.backup_global_solvers
     else:
-        solver = config.local_solver
+        solvers = [config.local_solver] + config.backup_local_solvers
+    solver = SolverWithBackup(*solvers, logger=config.progress_logger)
 
     config.progress_logger.debug("Solving DR polishing problem")
 

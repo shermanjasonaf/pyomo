@@ -44,7 +44,8 @@ import math
 from pyomo.common.timing import HierarchicalTimer
 from itertools import combinations_with_replacement
 from pyomo.environ import prod
-
+from pyomo.opt import check_optimal_termination
+from pyomo.common.errors import ApplicationError
 
 
 # Tolerances used in the code
@@ -1768,3 +1769,65 @@ class IterationLogRecord:
     def log_header_rule(log_func, fillchar="-", **log_func_kwargs):
         """Log header rule."""
         log_func(fillchar * IterationLogRecord._LINE_LENGTH, **log_func_kwargs)
+
+
+class SolverWithBackup:
+    """
+    Solver with backups.
+    """
+
+    def __init__(self, *solvers, logger=None):
+        """Initialize self (see class docstring).
+
+        """
+        self.solvers = list(solvers)
+        if logger is None:
+            self.logger = logging.getLogger(DEFAULT_LOGGER_NAME)
+        else:
+            self.logger = logger
+
+    def solve(self, model, acceptable_terminations=None, **kwargs):
+        """
+        Solve model.
+        """
+        load_solutions = kwargs.pop("load_solutions", False)
+        if acceptable_terminations is None:
+            acceptable_terminations = {
+                tc.optimal,
+                tc.locallyOptimal,
+                tc.globallyOptimal,
+            }
+
+        for idx, solver in enumerate(self.solvers):
+            if idx > 0:
+                self.logger.warning(
+                    f"Invoking backup solver {solver}"
+                )
+
+            # solve model
+            try:
+                res = solver.solve(model, **kwargs, load_solutions=False)
+            except (ApplicationError, ValueError, RuntimeError):
+                if idx < len(self.solvers) - 1:
+                    continue
+                else:
+                    raise
+
+            # check termination status
+            if res.solver.termination_condition in acceptable_terminations:
+                self.logger.debug(
+                    "Solved succcessfully."
+                    f"Solver Termination stats: {res.solver}"
+                )
+                break
+            else:
+                self.logger.warning(
+                    "Could not solve model to acceptable level."
+                    f"Solver Termination stats: {res.solver}"
+                )
+                # self.last_unsolved_model = model.clone()
+
+        if load_solutions:
+            model.solutions.load_from(res)
+
+        return res
