@@ -55,6 +55,7 @@ COEFF_MATCH_REL_TOL = 1e-6
 COEFF_MATCH_ABS_TOL = 0
 ABS_CON_CHECK_FEAS_TOL = 1e-5
 TIC_TOC_SOLVE_TIME_ATTR = "pyros_tic_toc_time"
+DEFAULT_SEPARATION_PRIORITY = 0
 DEFAULT_LOGGER_NAME = "pyomo.contrib.pyros"
 
 
@@ -497,6 +498,11 @@ def turn_bounds_to_constraints(variable, model, config=None):
     :param config: solver config
     :return: the list of inequality constraints that are the bounds
     '''
+    separation_priority = model.pyros_separation_priority.get(
+        variable,
+        (DEFAULT_SEPARATION_PRIORITY,) * 2,
+    )
+
     lb, ub = variable.lower, variable.upper
     if variable.domain is not Reals:
         variable.domain = Reals
@@ -517,7 +523,12 @@ def turn_bounds_to_constraints(variable, model, config=None):
             name = unique_component_name(
                 model, variable.name + f"_lower_bound_con_{count}"
             )
-            model.add_component(name, Constraint(expr=arg - variable <= 0))
+            new_con = Constraint(expr=arg - variable <= 0)
+            model.add_component(name, new_con)
+            model.pyros_separation_priority[new_con] = (
+                None,
+                separation_priority[0],
+            )
             count += 1
             variable.setlb(None)
 
@@ -527,7 +538,12 @@ def turn_bounds_to_constraints(variable, model, config=None):
             name = unique_component_name(
                 model, variable.name + f"_upper_bound_con_{count}"
             )
-            model.add_component(name, Constraint(expr=variable - arg <= 0))
+            new_con = Constraint(expr=variable - arg <= 0)
+            model.add_component(name, new_con)
+            model.pyros_separation_priority[new_con] = (
+                None,
+                separation_priority[1],
+            )
             count += 1
             variable.setub(None)
 
@@ -697,6 +713,11 @@ def transform_to_standard_form(model):
             has_lb = con.lower is not None
             has_ub = con.upper is not None
 
+            separation_priority = model.pyros_separation_priority.get(
+                con,
+                (DEFAULT_SEPARATION_PRIORITY,) * 2,
+            )
+
             if has_lb and has_ub:
                 if con.lower is con.upper:
                     # recast as equality Constraint
@@ -704,16 +725,28 @@ def transform_to_standard_form(model):
                 else:
                     # range inequality; split into two Constraints.
                     uniq_name = unique_component_name(model, con.name + '_lb')
-                    model.add_component(
-                        uniq_name, Constraint(expr=con.lower - con.body <= 0)
+                    new_con = Constraint(expr=con.lower - con.body <= 0)
+                    model.add_component(uniq_name, new_con)
+                    model.pyros_separation_priority[new_con] = (
+                        None,
+                        separation_priority[0],
                     )
                     con.set_value(con.body - con.upper <= 0)
+                    model.pyros_separation_priority[con] = (
+                        None,
+                        separation_priority[1],
+                    )
             elif has_lb:
                 # not in standard form; recast.
                 con.set_value(con.lower - con.body <= 0)
+                model.pyros_separation_priority[con] = (
+                    None,
+                    separation_priority[0],
+                )
             elif has_ub:
                 # move upper bound to body.
                 con.set_value(con.body - con.upper <= 0)
+                model.pyros_separation_priority[con] = separation_priority
             else:
                 # unbounded constraint: deactivate
                 con.deactivate()
@@ -761,6 +794,10 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
     vars_in_obj = ComponentSet(get_vars_from_component(model, Objective))
 
     for v in vars_in_cons | vars_in_obj:
+        separation_priority = model.pyros_separation_priority.get(
+            v,
+            (DEFAULT_SEPARATION_PRIORITY,) * 2,
+        )
         # get mutable parameters in variable bounds expressions
         ub = v.upper
         mutable_params_ub = ComponentSet(identify_mutable_parameters(ub))
@@ -775,6 +812,13 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
                 upper_bounds = (ub,)
             for u_bnd in upper_bounds:
                 uncertain_var_bound_constrs.add(v - u_bnd <= 0)
+                model.pyros_separation_priority.set_value(
+                    uncertain_var_bound_constrs[
+                        len(uncertain_var_bound_constrs)
+                    ],
+                    (None, separation_priority[1]),
+                    expand=True,
+                )
             v.setub(None)
         if mutable_params_lb & uncertain_param_set:
             if type(ub) is NPV_MaxExpression:
@@ -783,6 +827,13 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
                 lower_bounds = (lb,)
             for l_bnd in lower_bounds:
                 uncertain_var_bound_constrs.add(l_bnd - v <= 0)
+                model.pyros_separation_priority.set_value(
+                    uncertain_var_bound_constrs[
+                        len(uncertain_var_bound_constrs)
+                    ],
+                    (None, separation_priority[0]),
+                    expand=True,
+                )
             v.setlb(None)
 
 
@@ -1483,6 +1534,13 @@ def identify_objective_functions(model, objective):
 
     model.first_stage_objective = Expression(expr=first_stage_cost_expr)
     model.second_stage_objective = Expression(expr=second_stage_cost_expr)
+
+    model.pyros_separation_priority[model.first_stage_objective] = (
+        model.pyros_separation_priority.get(
+            objective,
+            DEFAULT_SEPARATION_PRIORITY,
+        )
+    )
 
 
 def load_final_solution(model_data, master_soln, config, tmp_var_list_name):
