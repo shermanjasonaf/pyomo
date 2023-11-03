@@ -781,7 +781,7 @@ def minimize_dr_vars(model_data, config):
         solvers = [config.global_solver] + config.backup_global_solvers
     else:
         solvers = [config.local_solver] + config.backup_local_solvers
-    solver = SolverWithBackup(*solvers, logger=config.progress_logger)
+    solver = solvers[0]
 
     config.progress_logger.debug("Solving DR polishing problem")
 
