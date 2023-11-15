@@ -682,7 +682,7 @@ class PyROS(object):
     '''
 
     CONFIG = pyros_config()
-    _LOG_LINE_LENGTH = 78
+    _LOG_LINE_LENGTH = IterationLogRecord._LINE_LENGTH
 
     def available(self, exception_flag=True):
         """Check if solver is available."""
