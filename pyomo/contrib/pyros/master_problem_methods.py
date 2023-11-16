@@ -752,7 +752,7 @@ def create_dr_polishing_lp_problem(model_data, config):
     return polishing_model
 
 
-def minimize_dr_vars(model_data, config):
+def minimize_dr_vars_nlp(model_data, config):
     """
     Polish the PyROS decision rule determined for the most
     recently solved master problem by minimizing the collective
@@ -925,6 +925,10 @@ def minimize_dr_vars(model_data, config):
     config.progress_logger.debug(f" Objective {polished_master_obj}")
 
     return results, True
+
+
+def minimize_dr_vars(model_data, config):
+    return minimize_dr_vars_nlp(model_data, config)
 
 
 def add_p_robust_constraint(model_data, config):
