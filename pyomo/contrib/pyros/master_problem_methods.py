@@ -29,14 +29,13 @@ from pyomo.core.expr.visitor import replace_expressions, identify_variables
 from pyomo.common.collections import ComponentMap, ComponentSet
 from pyomo.repn.standard_repn import generate_standard_repn
 from pyomo.core import TransformationFactory
-import itertools as it
 import os
-from copy import deepcopy
 from pyomo.common.errors import ApplicationError
 from pyomo.common.modeling import unique_component_name
+from pyomo.core.util import prod
 
 from pyomo.common.timing import TicTocTimer
-from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR
+from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR, enforce_dr_degree
 
 
 def initial_construct_master(model_data):
@@ -285,6 +284,209 @@ def solve_master_feasibility_problem(model_data, config):
     return results
 
 
+def create_dr_polishing_problem(model_data, config):
+    """
+    Create decision rule polishing problem instance.
+
+    Parameters
+    ----------
+    model_data : MasterProblemData
+        Master problem data.
+    config : ConfigDict
+        PyROS solver settings.
+
+    Returns
+    -------
+    polishing_model : ConcreteModel
+        Polishing model.
+    """
+    # clone master problem
+    master_model = model_data.master_model
+    polishing_model = master_model.clone()
+    nominal_polishing_block = polishing_model.scenarios[0, 0]
+
+    # fix first-stage variables (including epigraph, where applicable)
+    first_stage_vars = nominal_polishing_block.util.first_stage_variables
+    for var in first_stage_vars:
+        var.fix()
+
+    # enforce DR effiencies according to iteration number
+    # TODO: shouldn't have to do this here, ensure this is called before
+    #       master problem is solved
+    enforce_dr_degree(
+        blk=polishing_model.scenarios[0, 0],
+        config=config,
+        degree=get_master_dr_degree(model_data, config),
+    )
+
+    decision_rule_vars = nominal_polishing_block.util.decision_rule_vars
+    nominal_polishing_block.util.polishing_vars = polishing_vars = []
+    for idx, indexed_dr_var in enumerate(decision_rule_vars):
+        # compile nonstatic DR variables into iterable object
+        nonstatic_dr_var_map = {}
+        for dr_var_idx, dr_var in indexed_dr_var.items():
+            if nominal_polishing_block.util.dr_var_to_exponent_map[dr_var] > 0:
+                nonstatic_dr_var_map[dr_var_idx] = dr_var
+
+        # declare DR polishing auxiliary variables
+        # (for representing abs values of DR variables)
+        indexed_polishing_var = Var(
+            list(nonstatic_dr_var_map.keys()),
+            domain=NonNegativeReals,
+        )
+        nominal_polishing_block.add_component(
+            unique_component_name(nominal_polishing_block, f"dr_polishing_var_{idx}"),
+            indexed_polishing_var,
+        )
+        polishing_vars.append(indexed_polishing_var)
+
+    # declare variable for representing infinity norm of polishing variables
+    polishing_model.infinity_norm_var = Var(domain=NonNegativeReals)
+
+    # ensure master optimality constraint enforced
+    if config.objective_focus == ObjectiveType.worst_case:
+        polishing_model.zeta.fix()
+    else:
+        optimal_master_obj_value = value(polishing_model.obj)
+        polishing_model.nominal_optimality_con = Constraint(
+            expr=(
+                nominal_polishing_block.first_stage_objective
+                + nominal_polishing_block.second_stage_objective
+                <= optimal_master_obj_value
+            ),
+        )
+
+    dr_eq_var_zip = zip(
+        nominal_polishing_block.util.decision_rule_eqns,
+        polishing_vars,
+        nominal_polishing_block.util.second_stage_variables,
+    )
+    nominal_polishing_block.util.polishing_vars = all_polishing_vars = []
+    nominal_polishing_block.util.polishing_abs_val_lb_cons = all_lb_cons = []
+    nominal_polishing_block.util.polishing_abs_val_ub_cons = all_ub_cons = []
+    nominal_polishing_block.util.polishing_inf_norm_cons = all_infnorm_cons = []
+    for idx, (dr_eq, indexed_polishing_var, ss_var) in enumerate(dr_eq_var_zip):
+        all_polishing_vars.append(indexed_polishing_var)
+
+        # scale the DR equation? (for all blocks)
+        # dr_eq_scale_factor = max(1, abs(ss_var.value))
+        # for blk in polishing_model.scenarios.values():
+        #     blk_dr_eq = blk.util.decision_rule_eqns[idx]
+        #     blk_dr_eq.set_value((
+        #         blk_dr_eq.lower / dr_eq_scale_factor,
+        #         sum(arg / dr_eq_scale_factor for arg in blk_dr_eq.body.args),
+        #         blk_dr_eq.upper / dr_eq_scale_factor,
+        #     ))
+
+        # components for absolute value and infinity norm constraints
+        polishing_infinity_norm_cons = Constraint(
+            indexed_polishing_var.index_set(),
+        )
+        polishing_absolute_value_lb_cons = Constraint(
+            indexed_polishing_var.index_set(),
+        )
+        polishing_absolute_value_ub_cons = Constraint(
+            indexed_polishing_var.index_set(),
+        )
+
+        # add constraints to polishing model
+        nominal_polishing_block.add_component(
+            unique_component_name(
+                polishing_model,
+                f"polishing_abs_val_lb_con_{idx}",
+            ),
+            polishing_absolute_value_lb_cons,
+        )
+        nominal_polishing_block.add_component(
+            unique_component_name(
+                polishing_model,
+                f"polishing_abs_val_ub_con_{idx}",
+            ),
+            polishing_absolute_value_ub_cons,
+        )
+        nominal_polishing_block.add_component(
+            unique_component_name(
+                polishing_model,
+                f"polishing_infinity_norm_con_{idx}",
+            ),
+            polishing_infinity_norm_cons,
+        )
+
+        all_infnorm_cons.append(polishing_infinity_norm_cons)
+        all_lb_cons.append(polishing_absolute_value_lb_cons)
+        all_ub_cons.append(polishing_absolute_value_ub_cons)
+
+        # ensure second-stage variable term excluded
+        dr_expr_terms = dr_eq.body.args[:-1]
+
+        # from pyomo.environ import prod
+        for term_idx, dr_eq_term in enumerate(dr_expr_terms):
+            # extract DR var in term
+            dr_var_in_term = dr_eq_term.args[-1]
+
+            # Fix DR variable if:
+            # (1) it has already been fixed from master due to
+            #     DR efficiencies (already done)
+            # (2) coefficient of term in DR expression is 0
+            #     across all master blocks
+            dr_term_copies = [
+                scenario_blk.util.decision_rule_eqns[idx].body.args[term_idx]
+                for scenario_blk in master_model.scenarios.values()
+            ]
+            all_copy_coeffs_zero = all(
+                value(prod(term.args[:-1])) == 0
+                for term in dr_term_copies
+            )
+            if all_copy_coeffs_zero:
+                dr_var_in_term.fix()
+
+            dr_var_in_term_idx = dr_var_in_term.index()
+            if dr_var_in_term_idx not in indexed_polishing_var.index_set():
+                continue
+
+            # get corresponding polishing variable
+            polishing_var = indexed_polishing_var[dr_var_in_term_idx]
+
+            # add polishing constraints
+            polishing_absolute_value_lb_cons[dr_var_in_term_idx] = (
+                -polishing_var - dr_eq_term <= 0
+            )
+            polishing_absolute_value_ub_cons[dr_var_in_term_idx] = (
+                dr_eq_term - polishing_var <= 0
+            )
+            # add infinity norm constraint
+            polishing_infinity_norm_cons[dr_var_in_term_idx] = (
+                polishing_var - polishing_model.infinity_norm_var <= 0
+            )
+
+            # if DR var is fixed, then fix polishing variable as well.
+            # also, deactivate coresponding polishing constraints
+            if dr_var_in_term.fixed:
+                polishing_var.fix()
+                polishing_absolute_value_lb_cons[dr_var_in_term_idx].deactivate()
+                polishing_absolute_value_ub_cons[dr_var_in_term_idx].deactivate()
+
+            # initialize auxiliary polishing variable
+            polishing_var.set_value(abs(value(dr_eq_term)))
+
+    # now initialize infinity norm var
+    polishing_model.infinity_norm_var.set_value(max(
+        value(var)
+        for indexedvar in all_polishing_vars
+        for var in indexedvar.values()
+    ))
+
+    # deactivate objective
+    polishing_model.obj.deactivate()
+
+    # declare polishing objective
+    polishing_model.polishing_obj = Objective(
+        expr=polishing_model.infinity_norm_var,
+    )
+
+    return polishing_model
+
+
 def minimize_dr_vars(model_data, config):
     """
     Polish the PyROS decision rule determined for the most
@@ -306,173 +508,13 @@ def minimize_dr_vars(model_data, config):
         True if polishing model was solved to acceptable level,
         False otherwise.
     """
-    # config.progress_logger.info("Executing decision rule variable polishing solve.")
-    model = model_data.master_model
-    polishing_model = model.clone()
-
-    first_stage_variables = polishing_model.scenarios[0, 0].util.first_stage_variables
-    decision_rule_vars = polishing_model.scenarios[0, 0].util.decision_rule_vars
-
-    polishing_model.obj.deactivate()
-    index_set = decision_rule_vars[0].index_set()
-    polishing_model.tau_vars = []
-    # ==========
-    for idx in range(len(decision_rule_vars)):
-        polishing_model.scenarios[0, 0].add_component(
-            "polishing_var_" + str(idx),
-            Var(index_set, initialize=1e6, domain=NonNegativeReals),
-        )
-        polishing_model.tau_vars.append(
-            getattr(polishing_model.scenarios[0, 0], "polishing_var_" + str(idx))
-        )
-    # ==========
-    this_iter = polishing_model.scenarios[max(polishing_model.scenarios.keys())[0], 0]
-    nom_block = polishing_model.scenarios[0, 0]
-    if config.objective_focus == ObjectiveType.nominal:
-        obj_val = value(
-            this_iter.second_stage_objective + this_iter.first_stage_objective
-        )
-        polishing_model.scenarios[0, 0].polishing_constraint = Constraint(
-            expr=obj_val
-            >= nom_block.second_stage_objective + nom_block.first_stage_objective
-        )
-    elif config.objective_focus == ObjectiveType.worst_case:
-        polishing_model.zeta.fix()  # Searching equivalent optimal solutions given optimal zeta
-
-    # === Make absolute value constraints on polishing_vars
-    polishing_model.scenarios[
-        0, 0
-    ].util.absolute_var_constraints = cons = ConstraintList()
-    uncertain_params = nom_block.util.uncertain_params
-    if config.decision_rule_order == 1:
-        for i, tau in enumerate(polishing_model.tau_vars):
-            for j in range(len(this_iter.util.decision_rule_vars[i])):
-                if j == 0:
-                    cons.add(-tau[j] <= this_iter.util.decision_rule_vars[i][j])
-                    cons.add(this_iter.util.decision_rule_vars[i][j] <= tau[j])
-                else:
-                    cons.add(
-                        -tau[j]
-                        <= this_iter.util.decision_rule_vars[i][j]
-                        * uncertain_params[j - 1]
-                    )
-                    cons.add(
-                        this_iter.util.decision_rule_vars[i][j]
-                        * uncertain_params[j - 1]
-                        <= tau[j]
-                    )
-    elif config.decision_rule_order == 2:
-        l = list(range(len(uncertain_params)))
-        index_pairs = list(it.combinations(l, 2))
-        for i, tau in enumerate(polishing_model.tau_vars):
-            Z = this_iter.util.decision_rule_vars[i]
-            indices = list(k for k in range(len(Z)))
-            for r in indices:
-                if r == 0:
-                    cons.add(-tau[r] <= Z[r])
-                    cons.add(Z[r] <= tau[r])
-                elif r <= len(uncertain_params) and r > 0:
-                    cons.add(-tau[r] <= Z[r] * uncertain_params[r - 1])
-                    cons.add(Z[r] * uncertain_params[r - 1] <= tau[r])
-                elif r <= len(indices) - len(uncertain_params) - 1 and r > len(
-                    uncertain_params
-                ):
-                    cons.add(
-                        -tau[r]
-                        <= Z[r]
-                        * uncertain_params[
-                            index_pairs[r - len(uncertain_params) - 1][0]
-                        ]
-                        * uncertain_params[
-                            index_pairs[r - len(uncertain_params) - 1][1]
-                        ]
-                    )
-                    cons.add(
-                        Z[r]
-                        * uncertain_params[
-                            index_pairs[r - len(uncertain_params) - 1][0]
-                        ]
-                        * uncertain_params[
-                            index_pairs[r - len(uncertain_params) - 1][1]
-                        ]
-                        <= tau[r]
-                    )
-                elif r > len(indices) - len(uncertain_params) - 1:
-                    cons.add(
-                        -tau[r]
-                        <= Z[r]
-                        * uncertain_params[
-                            r - len(index_pairs) - len(uncertain_params) - 1
-                        ]
-                        ** 2
-                    )
-                    cons.add(
-                        Z[r]
-                        * uncertain_params[
-                            r - len(index_pairs) - len(uncertain_params) - 1
-                        ]
-                        ** 2
-                        <= tau[r]
-                    )
-    else:
-        raise NotImplementedError(
-            "Decision rule variable polishing has not been generalized to decision_rule_order "
-            + str(config.decision_rule_order)
-            + "."
-        )
-
-    polishing_model.scenarios[0, 0].polishing_obj = Objective(
-        expr=sum(
-            sum(tau[j] for j in tau.index_set()) for tau in polishing_model.tau_vars
-        )
-    )
-
-    # === Fix design
-    for d in first_stage_variables:
-        d.fix()
-
-    # === Unfix DR vars
-    num_dr_vars = len(
-        model.scenarios[0, 0].util.decision_rule_vars[0]
-    )  # there is at least one dr var
-    num_uncertain_params = len(config.uncertain_params)
-
-    if model.const_efficiency_applied:
-        for d in decision_rule_vars:
-            for i in range(1, num_dr_vars):
-                d[i].fix(0)
-                d[0].unfix()
-    elif model.linear_efficiency_applied:
-        for d in decision_rule_vars:
-            d.unfix()
-            for i in range(num_uncertain_params + 1, num_dr_vars):
-                d[i].fix(0)
-    else:
-        for d in decision_rule_vars:
-            d.unfix()
-
-    # === Unfix all control var values
-    for block in polishing_model.scenarios.values():
-        for c in block.util.second_stage_variables:
-            c.unfix()
-        if model.const_efficiency_applied:
-            for d in block.util.decision_rule_vars:
-                for i in range(1, num_dr_vars):
-                    d[i].fix(0)
-                    d[0].unfix()
-        elif model.linear_efficiency_applied:
-            for d in block.util.decision_rule_vars:
-                d.unfix()
-                for i in range(num_uncertain_params + 1, num_dr_vars):
-                    d[i].fix(0)
-        else:
-            for d in block.util.decision_rule_vars:
-                d.unfix()
+    polishing_model = create_dr_polishing_problem(model_data, config)
 
     if config.solve_master_globally:
-        solver = config.global_solver
+        solvers = [config.global_solver] + config.backup_global_solvers
     else:
-        solver = config.local_solver
+        solvers = [config.local_solver] + config.backup_local_solvers
+    solver = solvers[0]
 
     config.progress_logger.debug("Solving DR polishing problem")
 
@@ -480,7 +522,7 @@ def minimize_dr_vars(model_data, config):
     #       to the current initialization scheme for the auxiliary
     #       variables. new initialization will be implemented in the
     #       near future.
-    polishing_obj = polishing_model.scenarios[0, 0].polishing_obj
+    polishing_obj = polishing_model.polishing_obj
     config.progress_logger.debug(f" Initial DR norm: {value(polishing_obj)}")
 
     # === Solve the polishing model
@@ -518,22 +560,15 @@ def minimize_dr_vars(model_data, config):
     )
 
     # === Process solution by termination condition
-    acceptable = {tc.globallyOptimal, tc.optimal, tc.locallyOptimal, tc.feasible}
+    acceptable = {tc.globallyOptimal, tc.optimal, tc.locallyOptimal}
     if results.solver.termination_condition not in acceptable:
         # continue with "unpolished" master model solution
-        config.progress_logger.warning(
-            "Could not successfully solve DR polishing problem "
-            f"of iteration {model_data.iteration} with primary subordinate "
-            f"{'global' if config.solve_master_globally else 'local'} solver "
-            "to acceptable level. "
-            f"Termination stats:\n{results.solver}\n"
-            "Maintaining unpolished master problem solution."
-        )
         return results, False
 
     # update master model second-stage, state, and decision rule
     # variables to polishing model solution
     polishing_model.solutions.load_from(results)
+
     for idx, blk in model_data.master_model.scenarios.items():
         ssv_zip = zip(
             blk.util.second_stage_variables,
@@ -557,7 +592,7 @@ def minimize_dr_vars(model_data, config):
                 mvar.set_value(value(pvar), skip_validation=True)
 
     config.progress_logger.debug(f" Optimized DR norm: {value(polishing_obj)}")
-    config.progress_logger.debug(" Polished Master objective:")
+    config.progress_logger.debug("Polished Master objective:")
 
     # print master solution
     if config.objective_focus == ObjectiveType.worst_case:
@@ -573,15 +608,15 @@ def minimize_dr_vars(model_data, config):
     # debugging: summarize objective breakdown
     worst_master_blk = model_data.master_model.scenarios[worst_blk_idx]
     config.progress_logger.debug(
-        "  First-stage objective: " f"{value(worst_master_blk.first_stage_objective)}"
+        " First-stage objective " f"{value(worst_master_blk.first_stage_objective)}"
     )
     config.progress_logger.debug(
-        "  Second-stage objective: " f"{value(worst_master_blk.second_stage_objective)}"
+        " Second-stage objective " f"{value(worst_master_blk.second_stage_objective)}"
     )
     polished_master_obj = value(
         worst_master_blk.first_stage_objective + worst_master_blk.second_stage_objective
     )
-    config.progress_logger.debug(f"  Objective: {polished_master_obj}")
+    config.progress_logger.debug(f" Objective {polished_master_obj}")
 
     return results, True
 
@@ -629,37 +664,38 @@ def add_scenario_to_master(model_data, violations):
     return
 
 
-def higher_order_decision_rule_efficiency(config, model_data):
-    # === Efficiencies for decision rules
-    #  if iteration <= |q| then all d^n where n > 1 are fixed to 0
-    #  if iteration == 0, all d^n, n > 0 are fixed to 0
-    #  These efficiencies should be carried through as d* to polishing
-    nlp_model = model_data.master_model
-    if config.decision_rule_order != None and len(config.second_stage_variables) > 0:
-        #  Ensure all are unfixed unless next conditions are met...
-        for dr_var in nlp_model.scenarios[0, 0].util.decision_rule_vars:
-            dr_var.unfix()
-        num_dr_vars = len(
-            nlp_model.scenarios[0, 0].util.decision_rule_vars[0]
-        )  # there is at least one dr var
-        num_uncertain_params = len(config.uncertain_params)
-        nlp_model.const_efficiency_applied = False
-        nlp_model.linear_efficiency_applied = False
-        if model_data.iteration == 0:
-            nlp_model.const_efficiency_applied = True
-            for dr_var in nlp_model.scenarios[0, 0].util.decision_rule_vars:
-                for i in range(1, num_dr_vars):
-                    dr_var[i].fix(0)
-        elif (
-            model_data.iteration <= num_uncertain_params
-            and config.decision_rule_order > 1
-        ):
-            # Only applied in DR order > 1 case
-            for dr_var in nlp_model.scenarios[0, 0].util.decision_rule_vars:
-                for i in range(num_uncertain_params + 1, num_dr_vars):
-                    nlp_model.linear_efficiency_applied = True
-                    dr_var[i].fix(0)
-    return
+def get_master_dr_degree(model_data, config):
+    """
+    Determine DR order to enforce based on iteration
+    number and model data.
+    """
+    if model_data.iteration == 0:
+        return 0
+    elif model_data.iteration <= len(config.uncertain_params):
+        return min(1, config.decision_rule_order)
+    else:
+        return min(2, config.decision_rule_order)
+
+
+def higher_order_decision_rule_efficiency(model_data, config):
+    """
+    Apply higher-order decision rule effiency by fixing some
+    of the decision rule variables.
+
+    Notes
+    -----
+    1. If ``model_data.iteration`` is 0, then static DR enforced.
+    2. Otherwise, if ``model_data.iteration`` is 0, then affine
+       DR are allowed (provided user-specified DR order exceeds 0).
+    3. Otherwise, quadratic DR are allowed
+       (provided user-specified DR order exceeds 1).
+    """
+    order_to_enforce = get_master_dr_degree(model_data, config)
+    enforce_dr_degree(
+        blk=model_data.master_model.scenarios[0, 0],
+        config=config,
+        degree=order_to_enforce,
+    )
 
 
 def solver_call_master(model_data, config, solver, solve_data):
@@ -695,7 +731,7 @@ def solver_call_master(model_data, config, solver, solve_data):
     else:
         solvers = [solver] + config.backup_local_solvers
 
-    higher_order_decision_rule_efficiency(config, model_data)
+    higher_order_decision_rule_efficiency(model_data, config)
 
     solve_mode = "global" if config.solve_master_globally else "local"
     config.progress_logger.debug("Solving master problem")
