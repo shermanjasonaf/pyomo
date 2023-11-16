@@ -1083,7 +1083,13 @@ class PyROS(object):
         config.progress_logger.info("All done. Exiting PyROS.")
         config.progress_logger.info("=" * self._LOG_LINE_LENGTH)
 
-        return return_soln
+        # set up for more verbose output
+        pyros_soln.config = return_soln.config
+        pyros_soln.iterations = return_soln.iterations
+        pyros_soln.time = return_soln.time
+        pyros_soln.final_objective_value = return_soln.final_objective_value
+
+        return pyros_soln
 
 
 def _generate_filtered_docstring():
