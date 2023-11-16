@@ -928,7 +928,7 @@ def minimize_dr_vars_nlp(model_data, config):
 
 
 def minimize_dr_vars(model_data, config):
-    return minimize_dr_vars_nlp(model_data, config)
+    return minimize_dr_vars_lps(model_data, config)
 
 
 def add_p_robust_constraint(model_data, config):
