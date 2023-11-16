@@ -856,7 +856,7 @@ def evaluate_performance_constraint_violations(
     return (violating_param_realization, scaled_violations, constraint_violated)
 
 
-def initialize_separation(perf_con_to_maximize, model_data, config):
+def initialize_separation(perf_con, model_data, config):
     """
     Initialize separation problem variables, and fix all first-stage
     variables to their corresponding values from most recent
@@ -864,7 +864,7 @@ def initialize_separation(perf_con_to_maximize, model_data, config):
 
     Parameters
     ----------
-    perf_con_to_maximize : ConstraintData
+    perf_con : ConstraintData
         Performance constraint whose violation is to be maximized
         for the separation problem of interest.
     model_data : SeparationProblemData
@@ -883,12 +883,32 @@ def initialize_separation(perf_con_to_maximize, model_data, config):
     to any of the remaining discrete scenarios against which we
     separate).
     """
-    # initialize to values from nominal block if nominal objective.
-    # else, initialize to values from latest block added to master
-    if config.objective_focus == ObjectiveType.nominal:
-        block_num = 0
-    else:
-        block_num = model_data.iteration
+    def eval_master_violation(block_idx):
+        new_con_map = (
+            model_data
+            .separation_model
+            .util
+            .map_new_constraint_list_to_original_con
+        )
+        in_new_cons = perf_con in new_con_map
+        if in_new_cons:
+            sep_con = new_con_map[perf_con]
+        else:
+            sep_con = perf_con
+        master_con = (
+            model_data.master_model.scenarios[block_idx, 0].find_component(
+                    sep_con,
+            )
+        )
+        return value(master_con)
+
+    # initialize from master block with max violation of the
+    # performance constraint of interest. This gives the best known
+    # feasible solution (for case of non-discrete uncertainty sets).
+    block_num = max(
+        range(model_data.iteration + 1),
+        key=eval_master_violation,
+    )
 
     master_blk = model_data.master_model.scenarios[block_num, 0]
     master_blks = list(model_data.master_model.scenarios.values())
@@ -954,7 +974,7 @@ def initialize_separation(perf_con_to_maximize, model_data, config):
     tol = ABS_CON_CHECK_FEAS_TOL
     perf_con_name_repr = get_con_name_repr(
         separation_model=model_data.separation_model,
-        con=perf_con_to_maximize,
+        con=perf_con,
         with_orig_name=True,
         with_obj_name=True,
     )
