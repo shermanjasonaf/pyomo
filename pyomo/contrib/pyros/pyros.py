@@ -1135,6 +1135,15 @@ class PyROS(object):
                     tmp_var_list_name=cname,
                 )
                 return_soln.solution.insert(final_sol)
+
+                robust_optimal_termination = (
+                    pyros_soln.pyros_termination_condition
+                    is pyrosTerminationCondition.robust_optimal
+                )
+                if not robust_optimal_termination:
+                    worst_case_obj = None
+                    worst_case_realization = None
+
                 if nom_obj is not None:
                     return_soln.nominal_objective_value = (
                         nom_obj * active_obj_original_sense

@@ -64,7 +64,7 @@ class PyROSSolverResults(SolverResults):
             "worst_case_objective_value": ("Worst-case objective value", "f'{val:.4e}'"),
             "final_objective_value": ("Final objective value", "f'{val:.4e}'"),
             "pyros_termination_condition": ("Termination condition", "f'{val}'"),
-            "worst_case_param_realization": ("Worst-case realization", "f'{val}'")
+            "worst_case_param_realization": ("Worst-case realization", "f'{val}'"),
         }
         attr_desc_pad_length = 1 + max(
             len(desc) for desc, _ in attr_name_format_dict.values()

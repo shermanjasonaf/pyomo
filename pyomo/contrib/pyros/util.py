@@ -1578,10 +1578,10 @@ def load_final_solution(
             key=lambda blk_idx: master_blk_objective_values[blk_idx],
         )
         worst_case_blk = master_soln.master_model.scenarios[worst_case_blk_idx]
-        worst_case_realization = ComponentMap(
-            (param, worst_case_blk.find_component(param).value)
+        worst_case_realization = [
+            worst_case_blk.find_component(param).value
             for param in config.uncertain_params
-        )
+        ]
         worst_case_obj_value = master_blk_objective_values[
             worst_case_blk_idx
         ]
