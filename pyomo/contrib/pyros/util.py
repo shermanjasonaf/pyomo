@@ -1543,42 +1543,58 @@ def identify_objective_functions(model, objective):
     )
 
 
-def load_final_solution(model_data, master_soln, config, tmp_var_list_name):
+def load_final_solution(
+        model_data,
+        master_soln,
+        config,
+        tmp_var_list_name,
+        ):
     '''
     load the final solution into the original model object
     :param model_data: model data container object
     :param master_soln: results data container object returned to user
     :return:
     '''
-    if config.objective_focus == ObjectiveType.nominal:
-        model = model_data.original_model
-        soln = master_soln.nominal_block
-        worst_case_realization = None
-    elif config.objective_focus == ObjectiveType.worst_case:
-        model = model_data.original_model
-        indices = range(len(master_soln.master_model.scenarios))
-        k = max(
-            indices,
-            key=lambda i: value(
-                master_soln.master_model.scenarios[i, 0].first_stage_objective
-                + master_soln.master_model.scenarios[i, 0].second_stage_objective
-            ),
-        )
-        soln = master_soln.master_model.scenarios[k, 0]
+    from pyomo.opt.results import Solution
 
+    nominal_master_block = master_soln.nominal_block
+
+    master_blk_objective_values = {
+        blk_idx: value(
+            blk.first_stage_objective + blk.second_stage_objective
+        )
+        for blk_idx, blk in master_soln.master_model.scenarios.items()
+    }
+
+    nominal_obj_value = master_blk_objective_values[
+        nominal_master_block.index()
+    ]
+    if config.objective_focus == ObjectiveType.nominal:
+        worst_case_realization = None
+        worst_case_obj_value = None
+    else:
+        worst_case_blk_idx = max(
+            master_blk_objective_values,
+            key=lambda blk_idx: master_blk_objective_values[blk_idx],
+        )
+        worst_case_blk = master_soln.master_model.scenarios[worst_case_blk_idx]
         worst_case_realization = ComponentMap(
-            (param, soln.find_component(param).value)
+            (param, worst_case_blk.find_component(param).value)
             for param in config.uncertain_params
         )
+        worst_case_obj_value = master_blk_objective_values[
+            worst_case_blk_idx
+        ]
 
-    src_vars = getattr(model, tmp_var_list_name)
-    local_vars = getattr(soln, tmp_var_list_name)
-    varMap = list(zip(src_vars, local_vars))
+    # now assemble solution
+    final_sol = Solution()
+    final_sol._cuid = False
+    orig_vars = getattr(model_data.original_model, tmp_var_list_name)
+    master_vars = getattr(nominal_master_block, tmp_var_list_name)
+    for orig_var, master_var in zip(orig_vars, master_vars):
+        final_sol.variable[orig_var.name] = {"Value": master_var.value}
 
-    for src, local in varMap:
-        src.set_value(local.value, skip_validation=True)
-
-    return worst_case_realization
+    return final_sol, nominal_obj_value, worst_case_obj_value, worst_case_realization
 
 
 def process_termination_condition_master_problem(config, results):

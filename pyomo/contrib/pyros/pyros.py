@@ -41,7 +41,7 @@ from pyomo.contrib.pyros.util import (
     DEFAULT_LOGGER_NAME,
     TimingData,
 )
-from pyomo.contrib.pyros.solve_data import ROSolveResults
+from pyomo.contrib.pyros.solve_data import ROSolveResults, PyROSSolverResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
 from pyomo.contrib.pyros.uncertainty_sets import uncertainty_sets
 from pyomo.core.base import Constraint
@@ -926,7 +926,6 @@ class PyROS(object):
 
         # === Create data containers
         model_data = ROSolveResults()
-        model_data.timing = Bunch()
 
         # === Start timer, run the algorithm
         model_data.timing = TimingData()
@@ -1055,6 +1054,7 @@ class PyROS(object):
             )
             assert len(active_objs) == 1
             active_obj = active_objs[0]
+            active_obj_original_sense = active_obj.sense
             recast_to_min_obj(model_data.working_model, active_obj)
 
             # === Determine first and second-stage objectives
@@ -1116,55 +1116,39 @@ class PyROS(object):
             )
             IterationLogRecord.log_header_rule(config.progress_logger.info)
 
-            return_soln = ROSolveResults()
+            return_soln = PyROSSolverResults()
             found_soln = (
                 getattr(pyros_soln, "coeff_matching_success", True)
                 and final_iter_separation_solns is not None
             )
             if found_soln:
-                if config.load_solution and (
-                    pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_optimal
-                    or pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_feasible
-                ):
-                    return_soln.worst_case_realization = load_final_solution(
-                        model_data=model_data,
-                        master_soln=pyros_soln.master_soln,
-                        config=config,
-                        tmp_var_list_name=cname,
-                    )
-
-                # === Return time info
-                model_data.total_cpu_time = get_main_elapsed_time(model_data.timing)
-                iterations = pyros_soln.total_iters + 1
-
-                # === Return config to user
-                return_soln.config = config
-                # Report the negative of the objective value if it was originally maximize, since we use the minimize form in the algorithm
-                if next(model.component_data_objects(Objective)).sense == maximize:
-                    negation = -1
-                else:
-                    negation = 1
-                if config.objective_focus == ObjectiveType.nominal:
-                    return_soln.final_objective_value = negation * value(
-                        pyros_soln.master_soln.master_model.obj
-                    )
-                elif config.objective_focus == ObjectiveType.worst_case:
-                    return_soln.final_objective_value = negation * value(
-                        pyros_soln.master_soln.master_model.zeta
-                    )
-                return_soln.pyros_termination_condition = (
-                    pyros_soln.pyros_termination_condition
+                # get solution from master
+                (
+                    final_sol,
+                    nom_obj,
+                    worst_case_obj,
+                    worst_case_realization,
+                ) = load_final_solution(
+                    model_data=model_data,
+                    master_soln=pyros_soln.master_soln,
+                    config=config,
+                    tmp_var_list_name=cname,
                 )
-
-                return_soln.iterations = iterations
-
-                # === Remove util block
-                model.del_component(model_data.util_block)
-
-                del pyros_soln.util_block
-                del pyros_soln.working_model
+                return_soln.solution.insert(final_sol)
+                if nom_obj is not None:
+                    return_soln.nominal_objective_value = (
+                        nom_obj * active_obj_original_sense
+                    )
+                if worst_case_obj is not None:
+                    return_soln.worst_case_objective_value = (
+                        worst_case_obj * active_obj_original_sense
+                    )
+                return_soln.final_objective_value = (
+                    return_soln.nominal_objective_value
+                    if config.objective_focus == ObjectiveType.nominal
+                    else return_soln.worst_case_objective_value
+                )
+                return_soln.worst_case_param_realization = worst_case_realization
 
                 # add DR to results object
                 master_model = pyros_soln.master_soln.master_model
@@ -1175,24 +1159,36 @@ class PyROS(object):
                     decision_rule_vars=master_model.scenarios[0, 0].util.decision_rule_vars,
                     decision_rule_eqns=master_model.scenarios[0, 0].util.decision_rule_eqns,
                 )
+
+                # remove working model and util block
+                model.del_component(model_data.util_block)
+                del pyros_soln.util_block
+                del pyros_soln.working_model
+
+                return_soln.pyros_termination_condition = (
+                    pyros_soln.pyros_termination_condition
+                )
+                return_soln.iterations = pyros_soln.total_iters + 1
             else:
                 return_soln.pyros_termination_condition = (
                     pyrosTerminationCondition.robust_infeasible
                 )
-                return_soln.final_objective_value = None
                 return_soln.iterations = 0
-                return_soln.final_decision_rule = None
 
         return_soln.time = model_data.timing.get_total_time("main")
+        return_soln.config = config
 
         delattr(model_data.original_model, cname)
+
+        if config.load_solution:
+            model_data.original_model.solutions.load_from(return_soln)
 
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
         config.progress_logger.info(f"Timing breakdown:\n\n{model_data.timing}")
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
-        config.progress_logger.info(return_soln)
+        config.progress_logger.info(return_soln.get_summary_str())
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
         config.progress_logger.info("All done. Exiting PyROS.")
         config.progress_logger.info("=" * self._LOG_LINE_LENGTH)

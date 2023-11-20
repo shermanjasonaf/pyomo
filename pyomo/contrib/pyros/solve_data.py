@@ -3,6 +3,80 @@ Objects to contain all model data and solve results for the ROSolver
 """
 
 
+from pyomo.opt import SolverResults
+
+
+class PyROSSolverResults(SolverResults):
+    """
+    PyROS solver results object.
+    """
+
+    pyros_attrs = [
+        "config",
+        "iterations",
+        "time",
+        "nominal_objective_value",
+        "worst_case_objective_value",
+        "final_objective_value",
+        "pyros_termination_condition",
+        "final_decision_rule",
+        "worst_case_param_realization",
+    ]
+
+    def __init__(self, **kwargs):
+        """Initialize self (see class docstring).
+
+        """
+        # initialize superclass
+        super(PyROSSolverResults, self).__init__()
+
+        # add PyROS-specific attributes
+        for attr_name in self.pyros_attrs:
+            setattr(self, attr_name, kwargs.pop(attr_name, None))
+
+    def __getattr__(self, name):
+        """Get attribute."""
+        if name in self.pyros_attrs:
+            val = getattr(self.solver, name)
+        else:
+            val = super(PyROSSolverResults, self).__getattr__(name)
+
+        return val
+
+    def __setattr__(self, name, val):
+        """Set attribute."""
+        if name in self.pyros_attrs:
+            setattr(self.solver, name, val)
+        else:
+            super(PyROSSolverResults, self).__setattr__(name, val)
+
+        return val
+
+    def get_summary_str(self):
+        """
+        Get printout of select PyROS-related attributes.
+        """
+        lines = ["Termination stats:"]
+        attr_name_format_dict = {
+            "iterations": ("Iterations", "f'{val}'"),
+            "time": ("Solve time (wall s)", "f'{val:.3f}'"),
+            "nominal_objective_value": ("Nominal objective value", "f'{val:.4e}'"),
+            "worst_case_objective_value": ("Worst-case objective value", "f'{val:.4e}'"),
+            "final_objective_value": ("Final objective value", "f'{val:.4e}'"),
+            "pyros_termination_condition": ("Termination condition", "f'{val}'"),
+            "worst_case_param_realization": ("Worst-case realization", "f'{val}'")
+        }
+        attr_desc_pad_length = 1 + max(
+            len(desc) for desc, _ in attr_name_format_dict.values()
+        )
+        for attr_name, (attr_desc, fmt_str) in attr_name_format_dict.items():
+            val = getattr(self, attr_name)
+            val_str = eval(fmt_str) if val is not None else str(val)
+            lines.append(f" {attr_desc:<{attr_desc_pad_length}s} : {val_str}")
+
+        return "\n".join(lines)
+
+
 class ROSolveResults(object):
     """
     PyROS solver results object.
@@ -15,8 +89,10 @@ class ROSolveResults(object):
         Number of iterations required.
     time : float, optional
         Total elapsed time (or wall time), in seconds.
-    final_objective_value : float, optional
-        Final objective function value to report.
+    nominal_objective_value : float, optional
+        Final nominal objective function value to report.
+    worst_case_objective_value : float, optional
+        Final worst-case objective function value to report.
     pyros_termination_condition : pyrosTerminationCondition, optional
         PyROS-specific termination condition.
     final_decision_rule : DecisionRuleInterface or None
