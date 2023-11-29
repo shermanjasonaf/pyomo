@@ -1073,6 +1073,13 @@ class PyROS(object):
         return_soln.config = config
         return_soln.time = model_data.timing.get_total_time("main")
 
+        # more verbose solver log
+        pyros_soln.config = return_soln.config
+        pyros_soln.time = return_soln.time
+        pyros_soln.iterations = return_soln.iterations
+        pyros_soln.final_objective_value = return_soln.final_objective_value
+        pyros_soln.pyros_termination_condition = return_soln.pyros_termination_condition
+
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
@@ -1083,7 +1090,7 @@ class PyROS(object):
         config.progress_logger.info("All done. Exiting PyROS.")
         config.progress_logger.info("=" * self._LOG_LINE_LENGTH)
 
-        return return_soln
+        return pyros_soln
 
 
 def _generate_filtered_docstring():
