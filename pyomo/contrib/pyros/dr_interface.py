@@ -174,8 +174,12 @@ class DecisionRuleInterface:
         """
         int : Polynomial degree of decision rule contained in self.
         """
-        quadratic_coeffs_all_zero = np.all(self.quadratic_dr_coeffs == 0)
-        affine_coeffs_all_zero = np.all(self.affine_dr_coeffs == 0)
+        # TODO: update how tolerance is implemented.
+        #       perhaps some kind of relative tolerance
+        #       passed to this method, or set as instance attribute?
+        tol = 1e-8
+        quadratic_coeffs_all_zero = np.all(abs(self.quadratic_dr_coeffs) < tol)
+        affine_coeffs_all_zero = np.all(abs(self.affine_dr_coeffs) < tol)
 
         if not quadratic_coeffs_all_zero:
             degree = 2
