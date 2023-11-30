@@ -261,7 +261,7 @@ def solve_master_feasibility_problem(model_data, config):
     return results
 
 
-def create_dr_polishing_problem(model_data, config):
+def create_dr_polishing_nlp(model_data, config):
     """
     Create decision rule polishing problem instance.
 
@@ -773,9 +773,9 @@ def minimize_dr_vars_nlp(model_data, config):
         True if polishing model was solved to acceptable level,
         False otherwise.
     """
-    polishing_model = create_dr_polishing_problem(model_data, config)
+    polishing_model = create_dr_polishing_nlp(model_data, config)
 
-    from pyomo.contrib.pyros.util import SolverWithBackup
+    # from pyomo.contrib.pyros.util import SolverWithBackup
 
     if config.solve_master_globally:
         solvers = [config.global_solver] + config.backup_global_solvers
