@@ -318,7 +318,12 @@ def create_dr_polishing_nlp(model_data, config):
         polishing_vars.append(indexed_polishing_var)
 
     # declare variable for representing infinity norm of polishing variables
-    polishing_model.infinity_norm_var = Var(domain=NonNegativeReals)
+    # polishing_model.infinity_norm_var = Var(domain=NonNegativeReals)
+
+    polishing_model.indexed_inf_norm_var = Var(
+        range(len(decision_rule_vars)),
+        domain=NonNegativeReals,
+    )
 
     # ensure master optimality constraint enforced
     if config.objective_focus == ObjectiveType.worst_case:
@@ -337,12 +342,13 @@ def create_dr_polishing_nlp(model_data, config):
         nominal_polishing_block.util.decision_rule_eqns,
         polishing_vars,
         nominal_polishing_block.util.second_stage_variables,
+        polishing_model.indexed_inf_norm_var.values(),
     )
     nominal_polishing_block.util.polishing_vars = all_polishing_vars = []
     nominal_polishing_block.util.polishing_abs_val_lb_cons = all_lb_cons = []
     nominal_polishing_block.util.polishing_abs_val_ub_cons = all_ub_cons = []
     nominal_polishing_block.util.polishing_inf_norm_cons = all_infnorm_cons = []
-    for idx, (dr_eq, indexed_polishing_var, ss_var) in enumerate(dr_eq_var_zip):
+    for idx, (dr_eq, indexed_polishing_var, ss_var, inf_norm_var) in enumerate(dr_eq_var_zip):
         all_polishing_vars.append(indexed_polishing_var)
 
         # scale the DR equation? (for all blocks)
@@ -424,7 +430,7 @@ def create_dr_polishing_nlp(model_data, config):
             )
             # add infinity norm constraint
             polishing_infinity_norm_cons[dr_var_in_term_idx] = (
-                polishing_var - polishing_model.infinity_norm_var <= 0
+                polishing_var - inf_norm_var <= 0
             )
 
             # if DR var is fixed, then fix polishing variable as well.
@@ -437,19 +443,25 @@ def create_dr_polishing_nlp(model_data, config):
             # initialize auxiliary polishing variable
             polishing_var.set_value(abs(value(dr_eq_term)))
 
+        # initialize infinity norm variable
+        inf_norm_var.set_value(
+            max(value(pol_var) for pol_var in indexed_polishing_var.values())
+        )
+
     # now initialize infinity norm var
-    polishing_model.infinity_norm_var.set_value(max(
-        value(var)
-        for indexedvar in all_polishing_vars
-        for var in indexedvar.values()
-    ))
+    # polishing_model.infinity_norm_var.set_value(max(
+    #     value(var)
+    #     for indexedvar in all_polishing_vars
+    #     for var in indexedvar.values()
+    # ))
 
     # deactivate objective
     polishing_model.obj.deactivate()
 
     # declare polishing objective
     polishing_model.polishing_obj = Objective(
-        expr=polishing_model.infinity_norm_var,
+        expr=sum(polishing_model.indexed_inf_norm_var.values()),
+        # expr=polishing_model.infinity_norm_var,
         # expr=sum(
         #     sum(polishing_var.values())
         #     for polishing_var in polishing_vars
