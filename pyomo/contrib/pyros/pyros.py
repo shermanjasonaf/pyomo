@@ -713,6 +713,18 @@ def pyros_config():
         )
     ))
 
+    from pyomo.contrib.pyros.master_problem_methods import (
+        get_default_dr_polishing_options,
+        standardize_dr_polishing_options,
+    )
+    CONFIG.declare("dr_polishing_options", PyROSConfigValue(
+        default=get_default_dr_polishing_options(),
+        domain=standardize_dr_polishing_options,
+        description=(
+            "Options for decision rule polishing."
+        )
+    ))
+
     return CONFIG
 
 
