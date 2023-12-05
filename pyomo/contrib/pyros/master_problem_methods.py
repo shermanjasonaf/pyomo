@@ -408,6 +408,17 @@ def add_1_norm_polishing_components(polishing_model, config):
         )
         polishing_vars.append(indexed_polishing_var)
 
+    # set up scaling factors for polishing objective per
+    # second-stage variable
+    by_z_for_scaling = {
+        "z_nom": True,
+        "none": False,
+    }
+    second_stage_scaling_factors = get_second_stage_scaling_factors(
+        second_stage_variables=nominal_polishing_block.util.second_stage_variables,
+        by_z=by_z_for_scaling[config.dr_polishing_options["polishing_norm_scaling"]],
+    )
+
     # add polishing constraints
     dr_eq_var_zip = zip(
         nominal_polishing_block.util.decision_rule_eqns,
@@ -460,11 +471,12 @@ def add_1_norm_polishing_components(polishing_model, config):
             polishing_var = indexed_polishing_var[idx_of_dr_var_in_term]
 
             # add polishing constraints
+            scale_factor = second_stage_scaling_factors[ss_var]
             polishing_absolute_value_lb_cons[idx_of_dr_var_in_term] = (
-                -polishing_var - dr_monomial <= 0
+                -polishing_var - scale_factor * dr_monomial <= 0
             )
             polishing_absolute_value_ub_cons[idx_of_dr_var_in_term] = (
-                dr_monomial - polishing_var <= 0
+                scale_factor * dr_monomial - polishing_var <= 0
             )
 
             # if DR var is fixed, then fix polishing variable as well.
@@ -475,7 +487,7 @@ def add_1_norm_polishing_components(polishing_model, config):
                 polishing_absolute_value_ub_cons[idx_of_dr_var_in_term].deactivate()
 
             # initialize auxiliary polishing variable
-            polishing_var.set_value(abs(value(dr_monomial)))
+            polishing_var.set_value(abs(value(scale_factor * dr_monomial)))
 
     # finally, declare polishing objective
     polishing_model.polishing_obj = Objective(
@@ -491,6 +503,8 @@ def add_inf_norm_polishing_components(polishing_model, config):
     Add DR polishing components for minimization of infinity-norm
     of the DR polynomial terms.
     """
+    nominal_polishing_block = polishing_model.scenarios[0, 0]
+
     # for each second-stage variable, get DR variables to be considered
     # in polishing objective
     norm_idx_to_dr_var_maps = get_dr_vars_for_norm(polishing_model, config)
@@ -501,8 +515,18 @@ def add_inf_norm_polishing_components(polishing_model, config):
         domain=NonNegativeReals,
     )
 
+    # set up scaling factors for polishing objective per
+    # second-stage variable
+    by_z_for_scaling = {
+        "z_nom": True,
+        "none": False,
+    }
+    second_stage_scaling_factors = get_second_stage_scaling_factors(
+        second_stage_variables=nominal_polishing_block.util.second_stage_variables,
+        by_z=by_z_for_scaling[config.dr_polishing_options["polishing_norm_scaling"]],
+    )
+
     # now add polishing constraints
-    nominal_polishing_block = polishing_model.scenarios[0, 0]
     dr_eq_var_zip = zip(
         nominal_polishing_block.util.decision_rule_eqns,
         nominal_polishing_block.util.second_stage_variables,
@@ -546,19 +570,21 @@ def add_inf_norm_polishing_components(polishing_model, config):
                 continue
 
             # add polishing constraints
+            scale_factor = second_stage_scaling_factors[ss_var]
             polishing_absolute_value_lb_cons[idx_of_dr_var_in_term] = (
-                -inf_norm_var - dr_eq_term <= 0
+                -inf_norm_var - scale_factor * dr_eq_term <= 0
             )
             polishing_absolute_value_ub_cons[idx_of_dr_var_in_term] = (
-                dr_eq_term - inf_norm_var <= 0
+                scale_factor * dr_eq_term - inf_norm_var <= 0
             )
 
             # initialize/update value of infinity norm variable,
             # such that initial value is equal to initial infinity
             # norm of nonstatic DR terms
-            inf_norm_var.set_value(
-                max(value(inf_norm_var), abs(value(dr_eq_term)))
-            )
+            inf_norm_var.set_value(max(
+                value(inf_norm_var),
+                abs(value(scale_factor * dr_eq_term)),
+            ))
 
     # declare polishing objective
     polishing_model.polishing_obj = Objective(expr=inf_norm_var)
@@ -583,6 +609,17 @@ def add_sum_inf_norm_polishing_components(polishing_model, config):
         range(len(decision_rule_vars)),
         initialize=0,  # will be updated later
         domain=NonNegativeReals,
+    )
+
+    # set up scaling factors for polishing objective per
+    # second-stage variable
+    by_z_for_scaling = {
+        "z_nom": True,
+        "none": False,
+    }
+    second_stage_scaling_factors = get_second_stage_scaling_factors(
+        second_stage_variables=nominal_polishing_block.util.second_stage_variables,
+        by_z=by_z_for_scaling[config.dr_polishing_options["polishing_norm_scaling"]],
     )
 
     dr_eq_var_zip = zip(
@@ -633,19 +670,21 @@ def add_sum_inf_norm_polishing_components(polishing_model, config):
                 continue
 
             # add polishing constraints
+            scale_factor = second_stage_scaling_factors[ss_var]
             polishing_absolute_value_lb_cons[idx_of_dr_var] = (
-                -inf_norm_var - dr_monomial <= 0
+                -inf_norm_var - scale_factor * dr_monomial <= 0
             )
             polishing_absolute_value_ub_cons[idx_of_dr_var] = (
-                dr_monomial - inf_norm_var <= 0
+                scale_factor * dr_monomial - inf_norm_var <= 0
             )
 
             # update initial value of infinity norm var, so
             # that it is set to infinity norm of initial DR
             # monomial values
-            inf_norm_var.set_value(
-                max(abs(value(dr_monomial)), value(inf_norm_var)),
-            )
+            inf_norm_var.set_value(max(
+                abs(value(scale_factor * dr_monomial)),
+                value(inf_norm_var),
+            ))
 
     # declare polishing objective
     polishing_model.polishing_obj = Objective(
@@ -659,8 +698,17 @@ def scale_decision_rule_eqns(polishing_model, config):
     """
     nominal_polishing_block = polishing_model.scenarios[0, 0]
 
+    # get scaling factors based on nominal second-stage variable values
+    by_z_map = {
+        "none": False,
+        "z_nom": True,
+    }
+    second_stage_scaling_factors = get_second_stage_scaling_factors(
+        nominal_polishing_block.util.second_stage_variables,
+        by_z=by_z_map[config.dr_polishing_options["dr_eq_scaling"]],
+    )
+
     # scale decision rule equations as desired
-    dr_eq_scaling = config.dr_polishing_options["dr_eq_scaling"]
     from itertools import chain
     dr_eq_scaling_zip = zip(
         nominal_polishing_block.util.second_stage_variables,
@@ -670,10 +718,7 @@ def scale_decision_rule_eqns(polishing_model, config):
         ])),
     )
     for nom_ss_var, *dr_eq_copies in dr_eq_scaling_zip:
-        dr_eq_scale_factor = (
-            1 / max(1, abs(nom_ss_var.value)) if dr_eq_scaling == "z_nom"
-            else 1
-        )
+        dr_eq_scale_factor = second_stage_scaling_factors[nom_ss_var]
         for dr_eq_copy in dr_eq_copies:
             dr_eq_copy.set_value((
                 dr_eq_scale_factor * dr_eq_copy.lower,
@@ -741,8 +786,6 @@ def create_dr_polishing_nlp(model_data, config):
     if include_extra_dr_efficiency:
         enforce_dr_polishing_efficiencies(polishing_model, config)
 
-    scale_decision_rule_eqns(polishing_model, config)
-
     # add polishing-specific components
     # TODO: make whether or not norm should consider static
     #       term an optional argument to each of these
@@ -755,6 +798,9 @@ def create_dr_polishing_nlp(model_data, config):
     }
     polishing_component_func = polishing_component_func_map[polishing_norm]
     polishing_component_func(polishing_model, config)
+
+    # scale DR equations as desired
+    scale_decision_rule_eqns(polishing_model, config)
 
     # DEBUGGING CHECKS
     # unused_vars = [
@@ -916,6 +962,19 @@ def minimize_dr_vars_nlp(model_data, config):
     config.progress_logger.debug(f" Objective {polished_master_obj}")
 
     return results, True
+
+
+def get_second_stage_scaling_factors(second_stage_variables, by_z):
+    """
+    Get second-stage scaling factors.
+    """
+    if by_z:
+        return ComponentMap(
+            (var, 1 / max(1, abs(value(var))))
+            for var in second_stage_variables
+        )
+    else:
+        return ComponentMap((var, 1) for var in second_stage_variables)
 
 
 def add_1_norm_lps_polishing_components(polishing_model, config):
@@ -1473,9 +1532,10 @@ def get_default_dr_polishing_options():
     Return dict of default PyROS DR polishing options.
     """
     return dict(
-        formulation="LPs",
-        polishing_norm="1_norm",
-        dr_eq_scaling="z_nom",
+        formulation="single_NLP",
+        polishing_norm="inf_norm",
+        polishing_norm_scaling="z_nom",
+        dr_eq_scaling="none",
         include_extra_dr_efficiency=True,
         include_static_term_in_norm=False,
     )
