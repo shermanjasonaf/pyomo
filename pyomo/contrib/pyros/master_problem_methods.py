@@ -1820,17 +1820,23 @@ def solver_call_master(model_data, config, solver, solve_data):
             )
 
             # debugging: log breakdown of master objective
-            config.progress_logger.debug("Master objective")
+            config.progress_logger.debug(" Optimized master objective breakdown:")
             config.progress_logger.debug(
-                f" First-stage objective {master_soln.first_stage_objective}"
+                f"  First-stage objective {master_soln.first_stage_objective}"
             )
             config.progress_logger.debug(
-                f" Second-stage objective {master_soln.second_stage_objective}"
+                f"  Second-stage objective {master_soln.second_stage_objective}"
             )
             master_obj = (
                 master_soln.first_stage_objective + master_soln.second_stage_objective
             )
-            config.progress_logger.debug(f" Objective {master_obj}")
+            config.progress_logger.debug(f"  Objective {master_obj}")
+            config.progress_logger.debug(
+                f" Termination condition: {results.solver.termination_condition}"
+            )
+            config.progress_logger.debug(
+                f" Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)}s"
+            )
 
             master_soln.nominal_block = nlp_model.scenarios[0, 0]
             master_soln.results = results
