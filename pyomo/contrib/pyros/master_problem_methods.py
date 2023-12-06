@@ -921,10 +921,10 @@ def minimize_dr_vars_nlp(model_data, config):
     # purposes
     config.progress_logger.debug(" Done solving DR polishing problem")
     config.progress_logger.debug(
-        f"  Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)} s"
+        f"  Termination condition: {results.solver.termination_condition} "
     )
     config.progress_logger.debug(
-        f"  Termination status: {results.solver.termination_condition} "
+        f"  Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)} s"
     )
 
     # === Process solution by termination condition
@@ -959,7 +959,7 @@ def minimize_dr_vars_nlp(model_data, config):
                 mvar.set_value(value(pvar), skip_validation=True)
 
     config.progress_logger.debug(f" Optimized DR norm: {value(polishing_obj)}")
-    config.progress_logger.debug("Polished Master objective:")
+    config.progress_logger.debug(" Polished master objective:")
 
     # print master solution
     if config.objective_focus == ObjectiveType.worst_case:
@@ -975,15 +975,15 @@ def minimize_dr_vars_nlp(model_data, config):
     # debugging: summarize objective breakdown
     worst_master_blk = model_data.master_model.scenarios[worst_blk_idx]
     config.progress_logger.debug(
-        " First-stage objective " f"{value(worst_master_blk.first_stage_objective)}"
+        "  First-stage objective " f"{value(worst_master_blk.first_stage_objective)}"
     )
     config.progress_logger.debug(
-        " Second-stage objective " f"{value(worst_master_blk.second_stage_objective)}"
+        "  Second-stage objective " f"{value(worst_master_blk.second_stage_objective)}"
     )
     polished_master_obj = value(
         worst_master_blk.first_stage_objective + worst_master_blk.second_stage_objective
     )
-    config.progress_logger.debug(f" Objective {polished_master_obj}")
+    config.progress_logger.debug(f"  Objective {polished_master_obj}")
 
     return results, True
 
