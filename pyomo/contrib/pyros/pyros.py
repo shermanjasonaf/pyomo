@@ -665,6 +665,13 @@ def pyros_config():
             dtype_spec_str=None,
         ),
     )
+    CONFIG.declare("bypass_master_feasibility", PyROSConfigValue(
+        default=True,
+        domain=bool,
+        description=(
+            "True to bypass master feasibility problems, false otherwise."
+        ),
+    ))
 
     return CONFIG
 
