@@ -1919,7 +1919,11 @@ def solve_master(model_data, config):
 
     # no master feas problem for iteration 0
     if model_data.iteration > 0:
-        results = solve_master_feasibility_problem(model_data, config)
+        if not config.bypass_master_feasibility:
+            results = solve_master_feasibility_problem(model_data, config)
+        else:
+            results = SolverResults()
+            setattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR, 0)
         master_soln.feasibility_problem_results = results
 
         # if pyros time limit reached, load time out status

@@ -724,6 +724,13 @@ def pyros_config():
             "Options for decision rule polishing."
         )
     ))
+    CONFIG.declare("bypass_master_feasibility", PyROSConfigValue(
+        default=False,
+        domain=bool,
+        description=(
+            "True to bypass master feasibility problems, false otherwise."
+        ),
+    ))
 
     return CONFIG
 
