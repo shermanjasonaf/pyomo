@@ -698,6 +698,23 @@ def perform_separation_loop(model_data, config, solve_globally):
     all_solve_call_results = ComponentMap()
     priority_groups_enum = enumerate(sorted_priority_groups.items())
     for group_idx, (priority, perf_constraints) in priority_groups_enum:
+        if priority < 0:
+            priority_group_con_names = "\n ".join(
+                get_con_name_repr(model_data.separation_model, perf_con)
+                for perf_con in perf_constraints
+            )
+            config.progress_logger.debug(
+                f"Skipping separation for group with priority {priority} "
+                f"(group {group_idx + 1} of {len(sorted_priority_groups)}) "
+                "as the priority value is a negative number.\n"
+                f"Constraints:\n {priority_group_con_names}\n"
+                "will not be separated."
+                f"Ignoring all {len(perf_constraints)} performance constraints "
+                "in the group."
+            )
+            worst_case_perf_con = None
+            continue
+
         priority_group_solve_call_results = ComponentMap()
         for idx, perf_con in enumerate(perf_constraints):
             solve_adverb = "Globally" if solve_globally else "Locally"
