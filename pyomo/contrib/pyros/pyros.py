@@ -1155,11 +1155,14 @@ class PyROS(object):
                 )
                 return_soln.solution.insert(final_sol)
 
-                robust_optimal_termination = (
+                acceptable_termination = (
                     pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_optimal
+                    in {
+                        pyrosTerminationCondition.robust_optimal,
+                        pyrosTerminationCondition.robust_feasible,
+                    }
                 )
-                if not robust_optimal_termination:
+                if not acceptable_termination:
                     worst_case_obj = None
                     worst_case_realization = None
 
