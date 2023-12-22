@@ -48,7 +48,9 @@ from pyomo.contrib.pyros.uncertainty_sets import (
     Geometry,
 )
 from pyomo.contrib.pyros.pyros import (
+    NotSolverResolvable,
     SolverResolvable,
+    SolverIterable,
     InputDataStandardizer,
 )
 from pyomo.contrib.pyros.master_problem_methods import (
@@ -6361,14 +6363,34 @@ class testSolverResolvable(unittest.TestCase):
             ),
         )
 
-    def test_solver_resolvable_valid_list(self):
+    def test_solver_resolvable_invalid_type(self):
+        """
+        Test solver resolvable object raises expected
+        exception when invalid entry is provided.
+        """
+        invalid_object = 2
+        standardizer_func = SolverResolvable()
+
+        exc_str = r"Cannot cast `obj` to a Pyomo solver.*"
+        with self.assertRaisesRegex(NotSolverResolvable, exc_str):
+            standardizer_func(invalid_object)
+
+
+class testSolverIterable(unittest.TestCase):
+    """
+    Test standardizer method for iterable of solvers,
+    used to validate `backup_local_solvers` and `backup_global_solvers`
+    arguments.
+    """
+
+    def test_solver_iterable_valid_list(self):
         """
         Test solver type standardizer works for list of valid
         objects castable to solver.
         """
         solver_list = ["ipopt", SolverFactory("ipopt")]
         expected_solver_types = [type(SolverFactory("ipopt"))] * 2
-        standardizer_func = SolverResolvable()
+        standardizer_func = SolverIterable()
 
         standardized_solver_list = standardizer_func(solver_list)
 
@@ -6397,41 +6419,27 @@ class testSolverResolvable(unittest.TestCase):
             ),
         )
 
-    def test_solver_resolvable_invalid_type(self):
+    def test_solver_iterable_invalid_str(self):
         """
-        Test solver resolvable object raises expected
-        exception when invalid entry is provided.
+        Test SolverIterable raises exception when str passed.
         """
-        invalid_object = 2
-        standardizer_func = SolverResolvable()
+        invalid_object = "abcd"
+        standardizer_func = SolverIterable()
 
-        exc_str = r"Expected a Pyomo solver or string object, but received.*"
+        exc_str = r"Object should be an iterable not of type str.*"
         with self.assertRaisesRegex(TypeError, exc_str):
             standardizer_func(invalid_object)
 
-    def test_solver_resolvable_invalid_iterable_type(self):
+    def test_solver_iterable_invalid_list(self):
         """
-        Test solver resolvable object raises expected
-        exception when non-list iterable is provided.
+        Test SolverIterable raises exception if iterable contains
+        at least one invalid object.
         """
-        invalid_object = ("ipopt", SolverFactory("ipopt"))
-        standardizer_func = SolverResolvable()
+        invalid_object = ["ipopt", 2]
+        standardizer_func = SolverIterable()
 
-        exc_str = r"Expected a Pyomo solver or string object, but received.*"
-        with self.assertRaisesRegex(TypeError, exc_str):
-            standardizer_func(invalid_object)
-
-    def test_solver_resolvable_invalid_list(self):
-        """
-        Test solver resolvable object raises expected
-        exception when nested list is provided (even if lowest
-        level contains solver types or strs).
-        """
-        invalid_object = [["ipopt", SolverFactory("ipopt")]]
-        standardizer_func = SolverResolvable()
-
-        exc_str = r"Expected a Pyomo solver or string object, but received.*"
-        with self.assertRaisesRegex(TypeError, exc_str):
+        exc_str = r"Cannot cast object with repr.* to a list of solvers.*"
+        with self.assertRaisesRegex(ValueError, exc_str):
             standardizer_func(invalid_object)
 
 

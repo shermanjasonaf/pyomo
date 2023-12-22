@@ -110,19 +110,24 @@ def PositiveIntOrMinusOne(obj):
     return ans
 
 
+class NotSolverResolvable(Exception):
+    """
+    Exception type for failure to cast an object to a Pyomo solver.
+    """
+
+
 class SolverResolvable(object):
     """
     Standardizer for objects castable to a Pyomo solver type.
     """
-    def __call__(self, obj, allow_list=True):
+
+    def __call__(self, obj):
         """
         Cast object to a Pyomo solver type or sequence thereof.
 
         If `obj` is a string, then ``SolverFactory(obj.lower())``
         is returned. If `obj` is a Pyomo solver type, then
-        return `obj`. Otherwise, if `obj` is a list,
-        then cast each entry of `obj` to a solver type by calling
-        this method recursively and return a list of the results.
+        return `obj`.
 
         Note that `obj` is considered to be a Pyomo solver type
         if `obj` has a callable attribute named 'solve'.
@@ -134,29 +139,73 @@ class SolverResolvable(object):
 
         Returns
         -------
-        Pyomo solver type
-            If `obj` is a string or Pyomo solver type.
-        list of Pyomo solver type
-            If `obj` is a list of objects castable to a
-            Pyomo solver type.
+        Solver
+            Solver object.
 
         Raises
         ------
-        TypeError
-            If `obj` is neither a string, Pyomo solver type,
-            or a list.
+        NotSolverResolvable
+            If `obj` cannot be cast to a Pyomo solver because
+            it is neither a str nor a Pyomo solver type.
         """
         if isinstance(obj, str):
             return SolverFactory(obj.lower())
         elif callable(getattr(obj, "solve", None)):
             return obj
-        elif isinstance(obj, list) and allow_list:
-            return [self(o, allow_list=False) for o in obj]
         else:
-            raise TypeError(
-                "Expected a Pyomo solver or string object, "
-                f"but received object of type {obj.__class__.__name__}."
+            raise NotSolverResolvable(
+                "Cannot cast `obj` to a Pyomo solver, as it is neither "
+                "a str nor a Pyomo solver "
+                f"(`obj` is of type {type(obj).__name__})"
             )
+
+
+class SolverIterable(object):
+    """
+    Object which standardizes iterable of solver-resolvable
+    objects to a list of Pyomo solver objects.
+    """
+
+    def __call__(self, obj):
+        """
+        Resolve object to a list of Pyomo solver objects.
+
+        Parameters
+        ----------
+        obj : Iterable
+            Object of interest. Should not be of type `str`.
+
+        Returns
+        -------
+        solvers : list of Solver
+            List of solver objects to which obj is cast.
+
+        Raises
+        ------
+        ValueError
+            If an entry of `obj` could not be cast to Pyomo
+            solver type.
+        TypeError
+            If `obj` is a str.
+        """
+        solver_resolve_func = SolverResolvable()
+
+        if isinstance(obj, str):
+            # as str is iterable, check explicitly that str not passed,
+            # otherwise this method would attempt to resolve each
+            # character
+            raise TypeError("Object should be an iterable not of type str.")
+
+        try:
+            solvers = [solver_resolve_func(val) for val in obj]
+        except NotSolverResolvable:
+            raise ValueError(
+                f"Cannot cast object with repr {obj!r} to a list "
+                "of solvers, as it contains at least one object which "
+                "cannot be cast to a Pyomo solver."
+            )
+
+        return solvers
 
 
 class InputDataStandardizer(object):
@@ -618,7 +667,7 @@ def pyros_config():
         "backup_local_solvers",
         PyROSConfigValue(
             default=[],
-            domain=SolverResolvable(),
+            domain=SolverIterable(),
             doc=(
                 """
                 Additional subordinate local NLP optimizers to invoke
@@ -628,14 +677,14 @@ def pyros_config():
             ),
             is_optional=True,
             document_default=True,
-            dtype_spec_str="list of Solver",
+            dtype_spec_str="Iterable of Solver",
         ),
     )
     CONFIG.declare(
         "backup_global_solvers",
         PyROSConfigValue(
             default=[],
-            domain=SolverResolvable(),
+            domain=SolverIterable(),
             doc=(
                 """
                 Additional subordinate global NLP optimizers to invoke
@@ -645,7 +694,7 @@ def pyros_config():
             ),
             is_optional=True,
             document_default=True,
-            dtype_spec_str="list of Solver",
+            dtype_spec_str="Iterable of Solver",
         ),
     )
     CONFIG.declare(
