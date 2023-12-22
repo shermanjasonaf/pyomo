@@ -72,6 +72,7 @@ from pyomo.opt import (
     Solution,
 )
 from pyomo.core.base.var import _VarData
+from pyomo.core.base.param import _ParamData
 from pyomo.environ import (
     Reals,
     Set,
@@ -6585,6 +6586,31 @@ class testInputDataStandardizer(unittest.TestCase):
         exc_str = r"Input object .*entry of iterable.*is not of valid component type.*"
         with self.assertRaisesRegex(TypeError, exc_str):
             standardizer_func([mdl.v, 2])
+
+    def test_standardizer_invalid_str_passed(self):
+        """
+        Test standardizer raises exception as expected
+        when input is of invalid type str.
+        """
+        standardizer_func = InputDataStandardizer(Var, _VarData)
+
+        exc_str = r"Input object .*is not of valid component type.*"
+        with self.assertRaisesRegex(TypeError, exc_str):
+            standardizer_func("abcd")
+
+    def test_standardizer_invalid_unintialized_params(self):
+        """
+        Test standardizer raises exception when Param with
+        uninitialized entries passed.
+        """
+        standardizer_func = InputDataStandardizer(Param, _ParamData)
+
+        mdl = ConcreteModel()
+        mdl.p = Param([0, 1])
+
+        exc_str = r"Length of .*does not match that of.*index set"
+        with self.assertRaisesRegex(ValueError, exc_str):
+            standardizer_func(mdl.p)
 
 
 if __name__ == "__main__":

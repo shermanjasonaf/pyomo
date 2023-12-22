@@ -250,10 +250,19 @@ class InputDataStandardizer(object):
             are not of type ``self.cdatatype``.
         """
         if isinstance(obj, self.ctype):
+            if len(obj) != len(obj.index_set()):
+                raise ValueError(
+                    f"Length of {self.ctype.__name__} component object with "
+                    f"name {obj.name!r} is {len(obj)}, "
+                    "and does not match that of its index set, "
+                    f"which is of length {len(obj.index_set())}. "
+                    "Check that all entries of the component object "
+                    "have been initialized."
+                )
             return list(obj.values())
         if isinstance(obj, self.cdatatype):
             return [obj]
-        elif isinstance(obj, Iterable):
+        elif isinstance(obj, Iterable) and not isinstance(obj, str):
             ans = []
             for item in obj:
                 ans.extend(self.__call__(item, from_iterable=obj))
@@ -263,10 +272,10 @@ class InputDataStandardizer(object):
                 if from_iterable is not None else ""
             )
             raise TypeError(
-                f"Input object {obj}{from_iterable_qual} "
+                f"Input object {obj!r}{from_iterable_qual} "
                 "is not of valid component type "
                 f"{self.ctype.__name__} or component data type "
-                f"{self.cdatatype.__name__}"
+                f"{self.cdatatype.__name__}."
             )
         return ans
 
