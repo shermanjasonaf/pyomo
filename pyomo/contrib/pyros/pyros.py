@@ -464,7 +464,7 @@ def pyros_config():
             domain=SolverResolvable(),
             description="Subordinate local NLP solver.",
             is_optional=False,
-            dtype_spec_str="Solver",
+            dtype_spec_str="str or Solver",
         ),
     )
     CONFIG.declare(
@@ -474,7 +474,7 @@ def pyros_config():
             domain=SolverResolvable(),
             description="Subordinate global NLP solver.",
             is_optional=False,
-            dtype_spec_str="Solver",
+            dtype_spec_str="str or Solver",
         ),
     )
     # ================================================
@@ -677,7 +677,7 @@ def pyros_config():
             ),
             is_optional=True,
             document_default=True,
-            dtype_spec_str="Iterable of Solver",
+            dtype_spec_str="Iterable of str or Solver",
         ),
     )
     CONFIG.declare(
@@ -694,7 +694,7 @@ def pyros_config():
             ),
             is_optional=True,
             document_default=True,
-            dtype_spec_str="Iterable of Solver",
+            dtype_spec_str="Iterable of str or Solver",
         ),
     )
     CONFIG.declare(
@@ -988,10 +988,14 @@ class PyROS(object):
         uncertainty_set: UncertaintySet
             Uncertainty set against which the solution(s) returned
             will be confirmed to be robust.
-        local_solver: Solver
+        local_solver: str or Solver
             Subordinate local NLP solver.
-        global_solver: Solver
+            If a str is passed, then the str is cast to
+            ``SolverFactory(local_solver)``.
+        global_solver: str or Solver
             Subordinate global NLP solver.
+            If a str is passed, then the str is cast to
+            ``SolverFactory(global_solver)``.
 
         Returns
         -------
