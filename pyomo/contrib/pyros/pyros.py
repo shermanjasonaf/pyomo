@@ -10,6 +10,7 @@
 #  ___________________________________________________________________________
 
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
+from collections.abc import Iterable
 import logging
 from textwrap import indent, dedent, wrap
 from pyomo.common.collections import Bunch, ComponentSet
@@ -159,20 +160,65 @@ class SolverResolvable(object):
 
 
 class InputDataStandardizer(object):
+    """
+    Standardizer for objects castable to a list of Pyomo
+    component types.
+
+    Parameters
+    ----------
+    ctype : type
+        Pyomo component type, such as Component, Var or Param.
+    cdatatype : type
+        Corresponding Pyomo component data type, such as
+        _ComponentData, _VarData, or _ParamData.
+
+    Attributes
+    ----------
+    ctype
+    cdatatype
+    """
     def __init__(self, ctype, cdatatype):
+        """Initialize self (see class docstring).
+
+        """
         self.ctype = ctype
         self.cdatatype = cdatatype
 
-    def __call__(self, obj):
+    def __call__(self, obj, from_iterable=None):
+        """
+        Cast object to a flat list of Pyomo component data type
+        entries.
+
+        Parameters
+        ----------
+        obj : object
+            Object to be cast.
+
+        Raises
+        ------
+        TypeError
+            If all entries in the resulting list
+            are not of type ``self.cdatatype``.
+        """
         if isinstance(obj, self.ctype):
             return list(obj.values())
         if isinstance(obj, self.cdatatype):
             return [obj]
-        ans = []
-        for item in obj:
-            ans.extend(self.__call__(item))
-        for _ in ans:
-            assert isinstance(_, self.cdatatype)
+        elif isinstance(obj, Iterable):
+            ans = []
+            for item in obj:
+                ans.extend(self.__call__(item, from_iterable=obj))
+        else:
+            from_iterable_qual = (
+                f" (entry of iterable {from_iterable})"
+                if from_iterable is not None else ""
+            )
+            raise TypeError(
+                f"Input object {obj}{from_iterable_qual} "
+                "is not of valid component type "
+                f"{self.ctype.__name__} or component data type "
+                f"{self.cdatatype.__name__}"
+            )
         return ans
 
 
@@ -317,7 +363,7 @@ def pyros_config():
             domain=InputDataStandardizer(Var, _VarData),
             description="First-stage (or design) variables.",
             is_optional=False,
-            dtype_spec_str="list of Var",
+            dtype_spec_str="VarData, Var, or list of VarData/Var",
         ),
     )
     CONFIG.declare(
@@ -327,7 +373,7 @@ def pyros_config():
             domain=InputDataStandardizer(Var, _VarData),
             description="Second-stage (or control) variables.",
             is_optional=False,
-            dtype_spec_str="list of Var",
+            dtype_spec_str="VarData, Var, or list of VarData/Var",
         ),
     )
     CONFIG.declare(
@@ -343,7 +389,7 @@ def pyros_config():
                 """
             ),
             is_optional=False,
-            dtype_spec_str="list of Param",
+            dtype_spec_str="ParamData, Param, or list of ParamData/Param",
         ),
     )
     CONFIG.declare(
@@ -882,14 +928,14 @@ class PyROS(object):
         ----------
         model: ConcreteModel
             The deterministic model.
-        first_stage_variables: list of Var
+        first_stage_variables: VarData, Var, or iterable of VarData/Var
             First-stage model variables (or design variables).
-        second_stage_variables: list of Var
+        second_stage_variables: VarData, Var, or iterable of VarData/Var
             Second-stage model variables (or control variables).
-        uncertain_params: list of Param
+        uncertain_params: ParamData, Param, or iterable of ParamData/Param
             Uncertain model parameters.
             The `mutable` attribute for every uncertain parameter
-            objects must be set to True.
+            object must be set to True.
         uncertainty_set: UncertaintySet
             Uncertainty set against which the solution(s) returned
             will be confirmed to be robust.
