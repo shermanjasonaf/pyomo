@@ -52,6 +52,8 @@ from pyomo.contrib.pyros.pyros import (
     SolverResolvable,
     SolverIterable,
     InputDataStandardizer,
+    ImmutableParamError,
+    mutable_param_validator,
 )
 from pyomo.contrib.pyros.master_problem_methods import (
     add_scenario_to_master,
@@ -6603,7 +6605,11 @@ class testInputDataStandardizer(unittest.TestCase):
         Test standardizer raises exception when Param with
         uninitialized entries passed.
         """
-        standardizer_func = InputDataStandardizer(Param, _ParamData)
+        standardizer_func = InputDataStandardizer(
+            ctype=Param,
+            cdatatype=_ParamData,
+            ctype_validator=mutable_param_validator,
+        )
 
         mdl = ConcreteModel()
         mdl.p = Param([0, 1])
@@ -6611,6 +6617,69 @@ class testInputDataStandardizer(unittest.TestCase):
         exc_str = r"Length of .*does not match that of.*index set"
         with self.assertRaisesRegex(ValueError, exc_str):
             standardizer_func(mdl.p)
+
+    def test_standardizer_invalid_immutable_params(self):
+        """
+        Test standardizer raises exception when immutable
+        Param object(s) passed.
+        """
+        standardizer_func = InputDataStandardizer(
+            ctype=Param,
+            cdatatype=_ParamData,
+            ctype_validator=mutable_param_validator,
+        )
+
+        mdl = ConcreteModel()
+        mdl.p = Param([0, 1], initialize=1)
+
+        exc_str = r"Param object with name .*immutable"
+        with self.assertRaisesRegex(ImmutableParamError, exc_str):
+            standardizer_func(mdl.p)
+
+    def test_standardizer_valid_mutable_params(self):
+        """
+        Test Param-like standardizer works as expected for sequence
+        of valid mutable Param objects.
+        """
+        mdl = ConcreteModel()
+        mdl.p1 = Param([0, 1], initialize=0, mutable=True)
+        mdl.p2 = Param(["a", "b"], initialize=1, mutable=True)
+
+        standardizer_func = InputDataStandardizer(
+            ctype=Param,
+            cdatatype=_ParamData,
+            ctype_validator=mutable_param_validator,
+        )
+
+        standardizer_input = [mdl.p1[0], mdl.p2]
+        standardizer_output = standardizer_func(standardizer_input)
+        expected_standardizer_output = [mdl.p1[0], mdl.p2["a"], mdl.p2["b"]]
+
+        self.assertIsInstance(
+            standardizer_output,
+            list,
+            msg=(
+                "Standardized output should be of type list, "
+                f"but is of type {standardizer_output.__class__.__name__}."
+            )
+        )
+        self.assertEqual(
+            len(standardizer_output),
+            len(expected_standardizer_output),
+            msg="Length of standardizer output is not as expected.",
+        )
+        enum_zip = enumerate(zip(expected_standardizer_output, standardizer_output))
+        for idx, (input, output) in enum_zip:
+            self.assertIs(
+                input,
+                output,
+                msg=(
+                    f"Entry {input} (id {id(input)}) "
+                    "is not identical to "
+                    f"input component data object {output} "
+                    f"(id {id(output)})"
+                ),
+            )
 
 
 if __name__ == "__main__":

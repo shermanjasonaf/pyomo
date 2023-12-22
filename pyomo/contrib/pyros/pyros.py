@@ -208,6 +208,47 @@ class SolverIterable(object):
         return solvers
 
 
+class ImmutableParamError(Exception):
+    """
+    Exception raised whenever a Param or ParamData
+    object for which we expect ``mutable=True``
+    is immutable.
+    """
+
+
+def mutable_param_validator(param_obj):
+    """
+    Check that Param-like object has attribute `mutable=True`.
+
+    Parameters
+    ----------
+    param_obj : Param or _ParamData
+        Param-like object of interest.
+
+    Raises
+    ------
+    ValueError
+        If lengths of the param object and the accompanying
+        index set do not match. This may occur if some entry
+        of the Param is not initialized.
+    ImmutableParamError
+        If attribute `mutable` is of value False.
+    """
+    if len(param_obj) != len(param_obj.index_set()):
+        raise ValueError(
+            f"Length of Param component object with "
+            f"name {param_obj.name!r} is {len(param_obj)}, "
+            "and does not match that of its index set, "
+            f"which is of length {len(param_obj.index_set())}. "
+            "Check that all entries of the component object "
+            "have been initialized."
+        )
+    if not param_obj.mutable:
+        raise ImmutableParamError(
+            f"Param object with name {param_obj.name!r} is immutable."
+        )
+
+
 class InputDataStandardizer(object):
     """
     Standardizer for objects castable to a list of Pyomo
@@ -226,12 +267,32 @@ class InputDataStandardizer(object):
     ctype
     cdatatype
     """
-    def __init__(self, ctype, cdatatype):
+    def __init__(self, ctype, cdatatype, ctype_validator=None, cdatatype_validator=None):
         """Initialize self (see class docstring).
 
         """
         self.ctype = ctype
         self.cdatatype = cdatatype
+        self.ctype_validator = ctype_validator
+        self.cdatatype_validator = cdatatype_validator
+
+    def standardize_ctype_obj(self, obj):
+        """
+        Standardize object of type ``self.ctype`` to list
+        of objects of type ``self.cdatatype``.
+        """
+        if self.ctype_validator is not None:
+            self.ctype_validator(obj)
+        return list(obj.values())
+
+    def standardize_cdatatype_obj(self, obj):
+        """
+        Standarize object of type ``self.cdatatype`` to
+        ``[obj]``.
+        """
+        if self.cdatatype_validator is not None:
+            self.cdatatype_validator(obj)
+        return [obj]
 
     def __call__(self, obj, from_iterable=None):
         """
@@ -250,18 +311,9 @@ class InputDataStandardizer(object):
             are not of type ``self.cdatatype``.
         """
         if isinstance(obj, self.ctype):
-            if len(obj) != len(obj.index_set()):
-                raise ValueError(
-                    f"Length of {self.ctype.__name__} component object with "
-                    f"name {obj.name!r} is {len(obj)}, "
-                    "and does not match that of its index set, "
-                    f"which is of length {len(obj.index_set())}. "
-                    "Check that all entries of the component object "
-                    "have been initialized."
-                )
-            return list(obj.values())
+            return self.standardize_ctype_obj(obj)
         if isinstance(obj, self.cdatatype):
-            return [obj]
+            return self.standardize_cdatatype_obj(obj)
         elif isinstance(obj, Iterable) and not isinstance(obj, str):
             ans = []
             for item in obj:
@@ -438,12 +490,16 @@ def pyros_config():
         "uncertain_params",
         PyROSConfigValue(
             default=[],
-            domain=InputDataStandardizer(Param, _ParamData),
+            domain=InputDataStandardizer(
+                ctype=Param,
+                cdatatype=_ParamData,
+                ctype_validator=mutable_param_validator,
+            ),
             description=(
                 """
                 Uncertain model parameters.
-                The `mutable` attribute for all uncertain parameter
-                objects should be set to True.
+                The `mutable` attribute for all
+                Param objects should be set to True.
                 """
             ),
             is_optional=False,
@@ -992,8 +1048,8 @@ class PyROS(object):
             Second-stage model variables (or control variables).
         uncertain_params: ParamData, Param, or iterable of ParamData/Param
             Uncertain model parameters.
-            The `mutable` attribute for every uncertain parameter
-            object must be set to True.
+            The `mutable` attribute for all `Param` objects
+            must be set to True.
         uncertainty_set: UncertaintySet
             Uncertainty set against which the solution(s) returned
             will be confirmed to be robust.
