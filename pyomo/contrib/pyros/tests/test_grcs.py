@@ -6397,7 +6397,7 @@ class testSolverResolvable(unittest.TestCase):
             ),
         )
 
-    def testSolverResolvableInvalidType(self):
+    def test_solver_resolvable_invalid_type(self):
         """
         Test solver resolvable object raises expected
         exception when invalid entry is provided.
@@ -6409,7 +6409,7 @@ class testSolverResolvable(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, exc_str):
             standardizer_func(invalid_object)
 
-    def testSolverResolvableInvalidIterableType(self):
+    def test_solver_resolvable_invalid_iterable_type(self):
         """
         Test solver resolvable object raises expected
         exception when non-list iterable is provided.
@@ -6421,7 +6421,7 @@ class testSolverResolvable(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, exc_str):
             standardizer_func(invalid_object)
 
-    def testSolverResolvableInvalidList(self):
+    def test_solver_resolvable_invalid_list(self):
         """
         Test solver resolvable object raises expected
         exception when nested list is provided (even if lowest
