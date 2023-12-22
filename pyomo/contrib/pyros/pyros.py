@@ -964,8 +964,6 @@ class PyROS(object):
         config.set_value(kwds)
         config.set_value(dev_options)
 
-        model = model
-
         # === Validate kwarg inputs
         validate_kwarg_inputs(model, config)
 
