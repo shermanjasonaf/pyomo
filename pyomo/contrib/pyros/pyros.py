@@ -110,22 +110,51 @@ def PositiveIntOrMinusOne(obj):
 
 
 class SolverResolvable(object):
-    def __call__(self, obj):
-        '''
-        if obj is a string, return the Solver object for that solver name
-        if obj is a Solver object, return a copy of the Solver
-        if obj is a list, and each element of list is solver resolvable, return list of solvers
-        '''
+    """
+    Standardizer for objects castable to a Pyomo solver type.
+    """
+    def __call__(self, obj, allow_list=True):
+        """
+        Cast object to a Pyomo solver type or sequence thereof.
+
+        If `obj` is a string, then ``SolverFactory(obj.lower())``
+        is returned. If `obj` is a Pyomo solver type, then
+        return `obj`. Otherwise, if `obj` is a list,
+        then cast each entry of `obj` to a solver type by calling
+        this method recursively and return a list of the results.
+
+        Note that `obj` is considered to be a Pyomo solver type
+        if `obj` has a callable attribute named 'solve'.
+
+        Parameters
+        ----------
+        obj : object
+            Object to be cast to Pyomo solver type.
+
+        Returns
+        -------
+        Pyomo solver type
+            If `obj` is a string or Pyomo solver type.
+        list of Pyomo solver type
+            If `obj` is a list of objects castable to a
+            Pyomo solver type.
+
+        Raises
+        ------
+        TypeError
+            If `obj` is neither a string, Pyomo solver type,
+            or a list.
+        """
         if isinstance(obj, str):
             return SolverFactory(obj.lower())
         elif callable(getattr(obj, "solve", None)):
             return obj
-        elif isinstance(obj, list):
-            return [self(o) for o in obj]
+        elif isinstance(obj, list) and allow_list:
+            return [self(o, allow_list=False) for o in obj]
         else:
-            raise ValueError(
+            raise TypeError(
                 "Expected a Pyomo solver or string object, "
-                "instead received {1}".format(obj.__class__.__name__)
+                f"but received object of type {obj.__class__.__name__}."
             )
 
 
