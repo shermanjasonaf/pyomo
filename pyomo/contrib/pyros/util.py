@@ -1777,15 +1777,18 @@ def resolve_keyword_arguments(prioritized_kwargs_dicts, func=None):
         in descending order of priority.
     func : callable or None, optional
         Callable to which the keyword arguments are/were passed;
-        only the `__name__` attribute is used for issuing
-        warnings. If `None` is passed, then the warnings
-        issued are slightly less informative.
+        only the `__name__` attribute is used for logging
+        warnings. If `None` is passed, then warning messages
+        logged are slightly less informative.
 
     Parameters
     ----------
     resolved_kwargs : dict
         Resolved keyword arguments.
     """
+    # warnings are issued through logger object
+    default_logger = setup_pyros_logger()
+
     # used for warning messages
     func_desc = f"passed to {func.__name__}()" if func is not None else "passed"
 
@@ -1825,13 +1828,13 @@ def resolve_keyword_arguments(prioritized_kwargs_dicts, func=None):
             if kw not in overlapping_args_set
         })
 
-        # if there are overlaps, issue warnings accordingly
+        # if there are overlaps, log warnings accordingly
         # per priority level
         for overlap_desc, args_set in overlapping_args.items():
             new_overlapping_args_str = ", ".join(
                 f"{arg!r}" for arg in args_set
             )
-            warnings.warn(
+            default_logger.warning(
                 f"Arguments [{new_overlapping_args_str}] passed {curr_desc} "
                 f"already {func_desc} {overlap_desc}, "
                 "and will not be overwritten. "
