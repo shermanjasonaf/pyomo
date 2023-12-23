@@ -20,7 +20,11 @@ from pyomo.core.expr import value
 from pyomo.core.base.var import Var, _VarData
 from pyomo.core.base.param import Param, _ParamData
 from pyomo.core.base.objective import Objective, maximize
-from pyomo.contrib.pyros.util import a_logger, time_code, get_main_elapsed_time
+from pyomo.contrib.pyros.util import (
+    a_logger,
+    time_code,
+    resolve_keyword_arguments,
+)
 from pyomo.common.modeling import unique_component_name
 from pyomo.opt import SolverFactory
 from pyomo.contrib.pyros.util import (
@@ -1068,24 +1072,37 @@ class PyROS(object):
             Summary of PyROS termination outcome.
 
         """
+        # PyROS options can be passed:
+        # - as explicit arguments (strongly encouraged)
+        # - implicitly through the keyword argument 'options'
+        # - implicitly through the keyword argument 'dev_options'.
+        # in the event there is overlap, order of precedence is
+        # (explicit args) > ('options' args) > ('dev_options' args)
+        options_dict = kwds.pop("options", {})
+        dev_options_dict = kwds.pop("dev_options", {})
+        explicit_args_dict = dict(
+            first_stage_variables=first_stage_variables,
+            second_stage_variables=second_stage_variables,
+            uncertain_params=uncertain_params,
+            uncertainty_set=uncertainty_set,
+            local_solver=local_solver,
+            global_solver=global_solver,
+            **kwds,
+        )
+        resolved_options = resolve_keyword_arguments(
+            prioritized_kwargs_dicts={
+                "explicitly": explicit_args_dict,
+                "implicitly through argument 'options'": options_dict,
+                "implicitly through argument 'dev_options'": dev_options_dict,
+            },
+            func=PyROS.solve,
+        )
 
-        # === Add the explicit arguments to the config
-        config = self.CONFIG(kwds.pop('options', {}))
-        config.first_stage_variables = first_stage_variables
-        config.second_stage_variables = second_stage_variables
-        config.uncertain_params = uncertain_params
-        config.uncertainty_set = uncertainty_set
-        config.local_solver = local_solver
-        config.global_solver = global_solver
-
-        dev_options = kwds.pop('dev_options', {})
-        config.set_value(kwds)
-        config.set_value(dev_options)
-
-        # === Validate kwarg inputs
+        # cast arguments to ConfigDict; validate
+        config = self.CONFIG(resolved_options)
         validate_kwarg_inputs(model, config)
 
-        # === Validate ability of grcs RO solver to handle this model
+        # validate model and other argument
         if not model_is_valid(model):
             raise AttributeError(
                 "This model structure is not currently handled by the ROSolver."

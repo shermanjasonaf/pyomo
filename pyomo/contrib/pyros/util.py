@@ -40,6 +40,7 @@ import timeit
 from contextlib import contextmanager
 import logging
 import math
+import warnings
 from pyomo.common.timing import HierarchicalTimer
 from pyomo.common.log import Preformatted
 
@@ -1762,3 +1763,82 @@ class IterationLogRecord:
     def log_header_rule(log_func, fillchar="-", **log_func_kwargs):
         """Log header rule."""
         log_func(fillchar * IterationLogRecord._LINE_LENGTH, **log_func_kwargs)
+
+
+def resolve_keyword_arguments(prioritized_kwargs_dicts, func=None):
+    """
+    Resolve keyword arguments.
+
+    Parameters
+    ----------
+    prioritized_kwargs_dicts : dict
+        Each entry maps a str to a dict of keyword arguments
+        described by the str. Entries are taken to be provided
+        in descending order of priority.
+    func : callable or None, optional
+        Callable to which the keyword arguments are/were passed;
+        only the `__name__` attribute is used for issuing
+        warnings. If `None` is passed, then the warnings
+        issued are slightly less informative.
+
+    Parameters
+    ----------
+    resolved_kwargs : dict
+        Resolved keyword arguments.
+    """
+    # used for warning messages
+    func_desc = f"passed to {func.__name__}()" if func is not None else "passed"
+
+    # we will loop through the priority dict. initialize:
+    # - resolved keyword arguments, taking into account the
+    #   priority order and overlap
+    # - kwarg dicts already processed
+    # - sequence of kwarg dicts yet to be processed
+    resolved_kwargs = dict()
+    prev_prioritized_kwargs_dicts = dict()
+    remaining_kwargs_dicts = prioritized_kwargs_dicts.copy()
+    for curr_desc, curr_kwargs in remaining_kwargs_dicts.items():
+        overlapping_args = dict()
+        overlapping_args_set = set()
+
+        for prev_desc, prev_kwargs in prev_prioritized_kwargs_dicts.items():
+            # determine overlap between currrent and previous
+            # set of kwargs, and remove overlap of current
+            # and higher priority sets from the result
+            curr_prev_overlapping_args = (
+                (set(curr_kwargs.keys()) & set(prev_kwargs.keys()))
+                - overlapping_args_set
+            )
+            if curr_prev_overlapping_args:
+                # if there is overlap, prepare overlapping args
+                # for when warning is to be issued
+                overlapping_args[prev_desc] = curr_prev_overlapping_args
+
+            # update set of args overlapping with higher priority dicts
+            overlapping_args_set |= curr_prev_overlapping_args
+
+        # ensure kwargs specified in higher priority
+        # dicts are not overwritten in resolved kwargs
+        resolved_kwargs.update({
+            kw: val
+            for kw, val in curr_kwargs.items()
+            if kw not in overlapping_args_set
+        })
+
+        # if there are overlaps, issue warnings accordingly
+        # per priority level
+        for overlap_desc, args_set in overlapping_args.items():
+            new_overlapping_args_str = ", ".join(
+                f"{arg!r}" for arg in args_set
+            )
+            warnings.warn(
+                f"Arguments [{new_overlapping_args_str}] passed {curr_desc} "
+                f"already {func_desc} {overlap_desc}, "
+                "and will not be overwritten. "
+                "Consider modifying your arguments to remove the overlap."
+            )
+
+        # increment sequence of kwarg dicts already processed
+        prev_prioritized_kwargs_dicts[curr_desc] = curr_kwargs
+
+    return resolved_kwargs

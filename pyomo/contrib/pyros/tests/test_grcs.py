@@ -4778,10 +4778,7 @@ class RegressionTest(unittest.TestCase):
             global_solver=global_subsolver,
             solve_master_globally=False,
             bypass_local_separation=True,
-            options={
-                "objective_focus": ObjectiveType.nominal,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.nominal,
         )
         # check for robust feasible termination
         self.assertEqual(
