@@ -1590,10 +1590,8 @@ class testAxisAlignedEllipsoidalUncertaintySetClass(unittest.TestCase):
             uncertainty_set=ellipsoid,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         # check successful termination
@@ -3014,10 +3012,8 @@ class testDiscreteUncertaintySetClass(unittest.TestCase):
             uncertainty_set=discrete_set,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         # check successful termination
@@ -3975,7 +3971,7 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=box_set,
             local_solver=solver,
             global_solver=solver,
-            options={"objective_focus": ObjectiveType.nominal},
+            objective_focus=ObjectiveType.nominal,
         )
         self.assertTrue(
             results.pyros_termination_condition,
@@ -4013,10 +4009,8 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=box_set,
             local_solver=solver,
             global_solver=solver,
-            options={
-                "objective_focus": ObjectiveType.nominal,
-                "decision_rule_order": 1,
-            },
+            objective_focus=ObjectiveType.nominal,
+            decision_rule_order=1,
         )
         self.assertTrue(
             results.pyros_termination_condition,
@@ -4054,10 +4048,8 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=box_set,
             local_solver=solver,
             global_solver=solver,
-            options={
-                "objective_focus": ObjectiveType.nominal,
-                "decision_rule_order": 2,
-            },
+            objective_focus=ObjectiveType.nominal,
+            decision_rule_order=2,
         )
         self.assertTrue(
             results.pyros_termination_condition,
@@ -4158,10 +4150,8 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         self.assertEqual(
@@ -4213,12 +4203,10 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-                "max_iter": 1,
-                "decision_rule_order": 2,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
+            max_iter=1,
+            decision_rule_order=2,
         )
 
         self.assertEqual(
@@ -4822,10 +4810,8 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=discrete_scenarios,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         self.assertEqual(
@@ -4871,11 +4857,9 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-                "decision_rule_order": 2,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
+            decision_rule_order=2,
         )
 
         self.assertEqual(
@@ -4922,10 +4906,8 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         self.assertEqual(
@@ -5163,10 +5145,8 @@ class RegressionTest(unittest.TestCase):
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         self.assertEqual(
@@ -5215,11 +5195,9 @@ class RegressionTest(unittest.TestCase):
                 uncertainty_set=interval,
                 local_solver=local_subsolver,
                 global_solver=global_subsolver,
-                options={
-                    "objective_focus": ObjectiveType.worst_case,
-                    "solve_master_globally": True,
-                    "decision_rule_order": 1,
-                },
+                objective_focus=ObjectiveType.worst_case,
+                solve_master_globally=True,
+                decision_rule_order=1,
             )
 
 
@@ -5261,12 +5239,10 @@ class testBypassingSeparation(unittest.TestCase):
                 uncertainty_set=interval,
                 local_solver=local_subsolver,
                 global_solver=global_subsolver,
-                options={
-                    "objective_focus": ObjectiveType.worst_case,
-                    "solve_master_globally": True,
-                    "decision_rule_order": 0,
-                    "bypass_global_separation": True,
-                },
+                objective_focus=ObjectiveType.worst_case,
+                solve_master_globally=True,
+                decision_rule_order=0,
+                bypass_global_separation=True,
             )
 
         # check termination robust optimal
@@ -5416,11 +5392,9 @@ class testModelMultipleObjectives(unittest.TestCase):
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-                "decision_rule_order": 0,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
+            decision_rule_order=0,
         )
 
         # check validation error raised due to multiple objectives
@@ -5690,10 +5664,8 @@ class testMasterFeasibilityUnitConsistency(unittest.TestCase):
             uncertainty_set=ellipsoid,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         # check successful termination
@@ -5881,10 +5853,8 @@ class TestSubsolverTiming(unittest.TestCase):
             uncertainty_set=iset,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
-            options={
-                "objective_focus": ObjectiveType.worst_case,
-                "solve_master_globally": True,
-            },
+            objective_focus=ObjectiveType.worst_case,
+            solve_master_globally=True,
         )
 
         # check successful termination
