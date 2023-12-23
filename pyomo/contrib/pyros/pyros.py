@@ -598,7 +598,7 @@ def pyros_config():
             ),
             is_optional=True,
             document_default=True,
-            dtype_spec_str="list of float",
+            dtype_spec_str="iterable of float",
         ),
     )
     CONFIG.declare(
