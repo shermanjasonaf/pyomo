@@ -19,32 +19,30 @@ from pyomo.core.base.block import Block
 from pyomo.core.expr import value
 from pyomo.core.base.var import Var, _VarData
 from pyomo.core.base.param import Param, _ParamData
-from pyomo.core.base.objective import Objective, maximize
-from pyomo.contrib.pyros.util import (
-    a_logger,
-    time_code,
-    resolve_keyword_arguments,
-    validate_model,
-)
+from pyomo.core.base.objective import Objective
 from pyomo.common.modeling import unique_component_name
 from pyomo.opt import SolverFactory
 from pyomo.contrib.pyros.util import (
-    recast_to_min_obj,
+    a_logger,
     add_decision_rule_constraints,
     add_decision_rule_variables,
-    load_final_solution,
-    pyrosTerminationCondition,
-    ValidEnum,
-    ObjectiveType,
-    validate_uncertainty_set,
     identify_objective_functions,
-    validate_kwarg_inputs,
+    IterationLogRecord,
+    load_final_solution,
+    ObjectiveType,
+    pyrosTerminationCondition,
+    recast_to_min_obj,
+    replace_uncertain_bounds_with_constraints,
+    resolve_keyword_arguments,
+    setup_pyros_logger,
+    time_code,
+    TimingData,
     transform_to_standard_form,
     turn_bounds_to_constraints,
-    replace_uncertain_bounds_with_constraints,
-    IterationLogRecord,
-    setup_pyros_logger,
-    TimingData,
+    validate_model,
+    validate_uncertainty_set,
+    validate_kwarg_inputs,
+    ValidEnum,
 )
 from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
