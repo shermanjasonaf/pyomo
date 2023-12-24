@@ -24,11 +24,11 @@ from pyomo.contrib.pyros.util import (
     a_logger,
     time_code,
     resolve_keyword_arguments,
+    validate_model,
 )
 from pyomo.common.modeling import unique_component_name
 from pyomo.opt import SolverFactory
 from pyomo.contrib.pyros.util import (
-    model_is_valid,
     recast_to_min_obj,
     add_decision_rule_constraints,
     add_decision_rule_variables,
@@ -1098,15 +1098,13 @@ class PyROS(object):
             func=PyROS.solve,
         )
 
-        # cast arguments to ConfigDict; validate
+        # cast arguments to ConfigDict.
+        # some basic validation is performed here
         config = self.CONFIG(resolved_options)
-        validate_kwarg_inputs(model, config)
 
-        # validate model and other argument
-        if not model_is_valid(model):
-            raise AttributeError(
-                "This model structure is not currently handled by the ROSolver."
-            )
+        # validate model and config
+        validate_model(model, config)
+        validate_kwarg_inputs(model, config)
 
         # === Define nominal point if not specified
         if len(config.nominal_uncertain_param_vals) == 0:

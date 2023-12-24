@@ -18,7 +18,6 @@ from pyomo.contrib.pyros.util import (
     selective_clone,
     add_decision_rule_variables,
     add_decision_rule_constraints,
-    model_is_valid,
     turn_bounds_to_constraints,
     transform_to_standard_form,
     ObjectiveType,
@@ -27,6 +26,7 @@ from pyomo.contrib.pyros.util import (
     TimingData,
     IterationLogRecord,
     resolve_keyword_arguments,
+    validate_model,
 )
 from pyomo.contrib.pyros.util import replace_uncertain_bounds_with_constraints
 from pyomo.contrib.pyros.util import get_vars_from_component
@@ -55,6 +55,7 @@ from pyomo.contrib.pyros.pyros import (
     InputDataStandardizer,
     ImmutableParamError,
     mutable_param_validator,
+    default_pyros_solver_logger,
 )
 from pyomo.contrib.pyros.master_problem_methods import (
     add_scenario_to_master,
@@ -619,21 +620,6 @@ class testAddDecisionRuleConstraints(unittest.TestCase):
                         f"is not the DR variable {dr_var.name!r}."
                     ),
                 )
-
-
-class testModelIsValid(unittest.TestCase):
-    def test_model_is_valid_via_possible_inputs(self):
-        m = ConcreteModel()
-        m.x = Var()
-        m.obj1 = Objective(expr=m.x**2)
-        self.assertTrue(model_is_valid(m))
-        m.obj2 = Objective(expr=m.x)
-        self.assertFalse(model_is_valid(m))
-        m.obj2.deactivate()
-        self.assertTrue(model_is_valid(m))
-        m.del_component("obj1")
-        m.del_component("obj2")
-        self.assertFalse(model_is_valid(m))
 
 
 class testTurnBoundsToConstraints(unittest.TestCase):
@@ -5399,16 +5385,16 @@ class testModelMultipleObjectives(unittest.TestCase):
 
         # check validation error raised due to multiple objectives
         with self.assertRaisesRegex(
-            AttributeError,
-            "This model structure is not currently handled by the ROSolver.",
+            ValueError,
+            r"Expected model with exactly 1 active objective.*has 3",
         ):
             pyros_solver.solve(**solve_kwargs)
 
         # check validation error raised due to multiple objectives
         m.b.obj.deactivate()
         with self.assertRaisesRegex(
-            AttributeError,
-            "This model structure is not currently handled by the ROSolver.",
+            ValueError,
+            r"Expected model with exactly 1 active objective.*has 2",
         ):
             pyros_solver.solve(**solve_kwargs)
 
@@ -6863,6 +6849,115 @@ class testResolveKeywordArguments(unittest.TestCase):
             1e3,
             msg="Resolved value of kwarg `time_limit` not as expected.",
         )
+
+
+class testModelValidation(unittest.TestCase):
+    """
+    Test model validation routines work as expected.
+    """
+    def make_simple_test_model(self):
+        """
+        Make simple model for testing validation routines.
+        """
+        m = ConcreteModel()
+
+        # uncertain parameters
+        m.p = Param(range(3), initialize=0, mutable=True)
+
+        # second-stage variables
+        m.z = Var([0, 1], initialize=0, bounds=(0, 1))
+
+        # add single constraint
+        m.con = Constraint(expr=m.z[0] + m.z[1] >= m.p[0])
+
+        m.obj = Objective(expr=m.z[0] + m.z[1])
+
+        return m
+
+    def test_validate_model_valid_model(self):
+        """
+        Test model validation method works properly for valid model.
+        """
+        mdl = self.make_simple_test_model()
+        config = Bunch(progress_logger=default_pyros_solver_logger)
+
+        expected_mdl_var_set = ComponentSet([mdl.z[0], mdl.z[1]])
+        mdl_var_set = validate_model(mdl, config)
+
+        self.assertEqual(
+            mdl_var_set,
+            expected_mdl_var_set,
+            msg=(
+                "Variable data set returned by model validator does not match "
+                "expected result"
+            ),
+        )
+
+    def test_validate_model_invalid_num_objs(self):
+        """
+        Test model validator fails when number of objectives is not
+        exactly 1.
+        """
+        mdl = self.make_simple_test_model()
+        mdl.obj.deactivate()
+        config = Bunch(progress_logger=default_pyros_solver_logger)
+
+        exc_str = r"Expected model with exactly 1 active.*provided has 0"
+        with self.assertRaisesRegex(ValueError, exc_str):
+            validate_model(mdl, config)
+
+    def test_validate_model_invalid_vars(self):
+        """
+        Test model validator raises exception in event
+        model has an active constraint featuring variables
+        from another model.
+        """
+        mdl = self.make_simple_test_model()
+        mdl2 = self.make_simple_test_model()
+        mdl.name = "example_model"
+        mdl2.name = "other_model"
+        mdl.bad_con = Constraint(expr=mdl.z[1] + mdl2.z[1] >= 0)
+
+        config = Bunch(progress_logger=default_pyros_solver_logger)
+
+        with LoggingIntercept(level=logging.ERROR) as LOG:
+            exc_str = r"Found Vars in active constraints.*not descended.*"
+            with self.assertRaisesRegex(ValueError, exc_str):
+                validate_model(mdl, config)
+
+        log_msgs = LOG.getvalue().split("\n")[:-1]
+
+        # check contents of log message
+        self.assertRegex(
+            log_msgs[0],
+            expected_regex=(
+                r"The following Vars.*are not components of the "
+                r"model with name 'example_model'.*"
+            ),
+        )
+        self.assertEqual(
+            log_msgs[1],
+            " 'z[1]', from model with name 'other_model'",
+        )
+        self.assertRegex(
+            log_msgs[2],
+            expected_regex=(
+                r"Ensure all Vars.*are components of the "
+                r"model with name 'example_model'.*"
+            ),
+        )
+
+    def test_validate_model_invalid_type(self):
+        """
+        Test model validator raises TypeError if model
+        is not concretemodel.
+        """
+        blk = Block()
+        config = Bunch(progress_logger=default_pyros_solver_logger)
+
+        exc_str = r"Model should be of type.*but is of type.*Block.*"
+        with self.assertRaisesRegex(TypeError, exc_str):
+            validate_model(blk, config)
 
 
 if __name__ == "__main__":

@@ -40,7 +40,6 @@ import timeit
 from contextlib import contextmanager
 import logging
 import math
-import warnings
 from pyomo.common.timing import HierarchicalTimer
 from pyomo.common.log import Preformatted
 
@@ -557,12 +556,72 @@ def recast_to_min_obj(model, obj):
         obj.sense = minimize
 
 
-def model_is_valid(model):
+def validate_model(model, config):
     """
-    Assess whether model is valid on basis of the number of active
-    Objectives. A valid model must contain exactly one active Objective.
+    Validate model input.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Determinstic model. An explicit type check is performed.
+    config : ConfigDict
+        PyROS solver options.
+
+    Returns
+    -------
+    vars_in_active_cons : ComponentSet of _VarData
+        Set of all variables participating in active model
+        constraints.
+
+    Raises
+    ------
+    TypeError
+        If model is not of type ConcreteModel.
+    ValueError
+        If model does not have exactly one active Objective
+        component, or at least one entry of `vars_in_active_cons`
+        is not descended from `model`.
     """
-    return len(list(model.component_data_objects(Objective, active=True))) == 1
+    # note: only support ConcreteModel. no support for Blocks
+    if not isinstance(model, ConcreteModel):
+        raise TypeError(
+            f"Model should be of type {ConcreteModel.__name__}, "
+            f"but is of type {type(model).__name__}."
+        )
+
+    # active objectives check
+    num_active_objs = len(list(
+        model.component_data_objects(Objective, active=True, descend_into=True)
+    ))
+    if num_active_objs != 1:
+        raise ValueError(
+            "Expected model with exactly 1 active objective, but "
+            f"model provided has {num_active_objs}."
+        )
+
+    # variables check
+    vars_in_active_cons = ComponentSet(get_vars_from_component(model, Constraint))
+    vars_not_in_model = [
+        var for var in vars_in_active_cons if
+        var.model() is not model
+    ]
+    if vars_not_in_model:
+        vars_str = "\n ".join(
+            f"{var.name!r}, from model with name {var.model().name!r}"
+            for var in vars_not_in_model
+        )
+        config.progress_logger.error(
+            f"The following Vars participating in the active constraints "
+            f"are not components of the model with name {model.name!r}: "
+            f"\n {vars_str}\n"
+            "Ensure all Vars participating in active constraints are components "
+            f"of the model with name {model.name!r}."
+        )
+        raise ValueError(
+            "Found Vars in active constraints of model not descended from model."
+        )
+
+    return vars_in_active_cons
 
 
 def turn_bounds_to_constraints(variable, model, config=None):
