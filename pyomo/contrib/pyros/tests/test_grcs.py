@@ -149,7 +149,7 @@ class TimeDelaySolver(object):
         self.num_calls = 0
         self.options = Bunch()
 
-    def available(self):
+    def available(self, exception_flag=True):
         return True
 
     def license_is_valid(self):
@@ -210,6 +210,18 @@ class TimeDelaySolver(object):
             results.solver.status = SolverStatus.warning
 
         return results
+
+
+class UnavailableSolver:
+    def available(self, exception_flag=True):
+        if exception_flag:
+            raise ApplicationError(
+                f"Solver {self.__class__} not available"
+            )
+        return False
+
+    def solve(self, model, *args, **kwargs):
+        return SolverResults()
 
 
 # === util.py
@@ -6326,11 +6338,107 @@ class testSolverResolvable(unittest.TestCase):
         exception when invalid entry is provided.
         """
         invalid_object = 2
-        standardizer_func = SolverResolvable()
+        standardizer_func = SolverResolvable(solver_desc="local solver")
 
-        exc_str = r"Cannot cast `obj` to a Pyomo solver.*"
+        exc_str = (
+            r"Cannot cast object `2` to a Pyomo optimizer.*"
+            r"local solver.*got type int.*"
+        )
         with self.assertRaisesRegex(NotSolverResolvable, exc_str):
             standardizer_func(invalid_object)
+
+    def test_solver_resolvable_unavailable_solver(self):
+        """
+        Test solver standardizer fails in event solver is
+        unavaiable.
+        """
+        unavailable_solver = UnavailableSolver()
+        standardizer_func = SolverResolvable(
+            solver_desc="local solver",
+            require_available=True,
+        )
+
+        exc_str = r"Solver.*UnavailableSolver.*not available"
+        with self.assertRaisesRegex(ApplicationError, exc_str):
+            with LoggingIntercept(level=logging.ERROR) as LOG:
+                standardizer_func(unavailable_solver)
+
+        error_msgs = LOG.getvalue()[:-1]
+        self.assertRegex(
+            error_msgs,
+            r"Output of `available\(\)` method.*local solver.*",
+        )
+
+    def test_pyros_unavailable_subsolver(self):
+        """
+        Test PyROS raises expected error message when
+        unavailable subsolver is passed.
+        """
+        m = ConcreteModel()
+        m.p = Param(range(3), initialize=0, mutable=True)
+        m.z = Var([0, 1], initialize=0)
+        m.con = Constraint(expr=m.z[0] + m.z[1] >= m.p[0])
+        m.obj = Objective(expr=m.z[0] + m.z[1])
+
+        pyros_solver = SolverFactory("pyros")
+
+        exc_str = r".*Solver.*UnavailableSolver.*not available"
+        with self.assertRaisesRegex(ValueError, exc_str):
+            # note: ConfigDict interface raises ValueError
+            #       once any exception is triggered,
+            #       so we check for that instead of ApplicationError
+            with LoggingIntercept(level=logging.ERROR) as LOG:
+                pyros_solver.solve(
+                    model=m,
+                    first_stage_variables=[m.z[0]],
+                    second_stage_variables=[m.z[1]],
+                    uncertain_params=[m.p[0]],
+                    uncertainty_set=BoxSet([[0, 1]]),
+                    local_solver=SolverFactory("ipopt"),
+                    global_solver=UnavailableSolver(),
+                )
+
+        error_msgs = LOG.getvalue()[:-1]
+        self.assertRegex(
+            error_msgs,
+            r"Output of `available\(\)` method.*global solver.*",
+        )
+
+    def test_pyros_unavailable_backup_subsolver(self):
+        """
+        Test PyROS raises expected error message when
+        unavailable backup subsolver is passed.
+        """
+        m = ConcreteModel()
+        m.p = Param(range(3), initialize=0, mutable=True)
+        m.z = Var([0, 1], initialize=0)
+        m.con = Constraint(expr=m.z[0] + m.z[1] >= m.p[0])
+        m.obj = Objective(expr=m.z[0] + m.z[1])
+
+        pyros_solver = SolverFactory("pyros")
+
+        exc_str = r".*Solver.*UnavailableSolver.*not available"
+        with self.assertRaisesRegex(ValueError, exc_str):
+            # note: ConfigDict interface raises ValueError
+            #       once any exception is triggered,
+            #       so we check for that instead of ApplicationError
+            with LoggingIntercept(level=logging.ERROR) as LOG:
+                pyros_solver.solve(
+                    model=m,
+                    first_stage_variables=[m.z[0]],
+                    second_stage_variables=[m.z[1]],
+                    uncertain_params=[m.p[0]],
+                    uncertainty_set=BoxSet([[0, 1]]),
+                    local_solver=SolverFactory("ipopt"),
+                    global_solver=SolverFactory("ipopt"),
+                    backup_global_solvers=[UnavailableSolver()],
+                )
+
+        error_msgs = LOG.getvalue()[:-1]
+        self.assertRegex(
+            error_msgs,
+            r"Output of `available\(\)` method.*backup global solver.*",
+        )
 
 
 class testSolverIterable(unittest.TestCase):
@@ -6393,10 +6501,13 @@ class testSolverIterable(unittest.TestCase):
         at least one invalid object.
         """
         invalid_object = ["ipopt", 2]
-        standardizer_func = SolverIterable()
+        standardizer_func = SolverIterable(solver_desc="backup solver")
 
-        exc_str = r"Cannot cast object with repr.* to a list of solvers.*"
-        with self.assertRaisesRegex(ValueError, exc_str):
+        exc_str = (
+            r"Cannot cast object `2` to a Pyomo optimizer.*"
+            r"backup solver.*index 1.*got type int.*"
+        )
+        with self.assertRaisesRegex(NotSolverResolvable, exc_str):
             standardizer_func(invalid_object)
 
 
