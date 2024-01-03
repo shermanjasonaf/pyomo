@@ -558,20 +558,20 @@ def recast_to_min_obj(model, obj):
 
 def validate_model(model, config):
     """
-    Validate model input.
+    Validate deterministic model passed to PyROS solver.
 
     Parameters
     ----------
     model : ConcreteModel
-        Determinstic model. An explicit type check is performed.
+        Determinstic model. Should have only one active Objective.
     config : ConfigDict
         PyROS solver options.
 
     Returns
     -------
-    vars_in_active_cons : ComponentSet of _VarData
-        Set of all variables participating in active model
-        constraints.
+    ComponentSet
+        The variables participating in the active Objective
+        and Constraint expressions of `model`.
 
     Raises
     ------
@@ -579,8 +579,9 @@ def validate_model(model, config):
         If model is not of type ConcreteModel.
     ValueError
         If model does not have exactly one active Objective
-        component, or at least one entry of `vars_in_active_cons`
-        is not descended from `model`.
+        component, or at least one variable participating in the
+        active objective/constraints of the model is not
+        descended from the model.
     """
     # note: only support ConcreteModel. no support for Blocks
     if not isinstance(model, ConcreteModel):
@@ -590,19 +591,21 @@ def validate_model(model, config):
         )
 
     # active objectives check
-    num_active_objs = len(list(
+    active_objs_list = list(
         model.component_data_objects(Objective, active=True, descend_into=True)
-    ))
-    if num_active_objs != 1:
+    )
+    if len(active_objs_list) != 1:
         raise ValueError(
             "Expected model with exactly 1 active objective, but "
-            f"model provided has {num_active_objs}."
+            f"model provided has {len(active_objs_list)}."
         )
+    active_obj = active_objs_list[0]
 
     # variables check
     vars_in_active_cons = ComponentSet(get_vars_from_component(model, Constraint))
+    vars_in_active_obj = ComponentSet(identify_variables(active_obj))
     vars_not_in_model = [
-        var for var in vars_in_active_cons if
+        var for var in vars_in_active_cons | vars_in_active_obj if
         var.model() is not model
     ]
     if vars_not_in_model:
@@ -611,17 +614,324 @@ def validate_model(model, config):
             for var in vars_not_in_model
         )
         config.progress_logger.error(
-            f"The following Vars participating in the active constraints "
-            f"are not components of the model with name {model.name!r}: "
-            f"\n {vars_str}\n"
-            "Ensure all Vars participating in active constraints are components "
-            f"of the model with name {model.name!r}."
+            f"The following Vars participating in the active Objective or "
+            f"Constraints of the model are not components of "
+            f"the model with name {model.name!r}:\n {vars_str}\n"
+            "Ensure all Vars participating in active objective or constraints "
+            f"are components of the model with name {model.name!r}."
         )
         raise ValueError(
-            "Found Vars in active constraints of model not descended from model."
+            "Found Vars in active objective/constraints of model "
+            "not descended from model."
         )
 
-    return vars_in_active_cons
+    return vars_in_active_obj | vars_in_active_cons
+
+
+def check_components_descended_from_model(model, components, components_name, config):
+    """
+    Check all members in a provided sequence of Pyomo component
+    objects are descended from a given ConcreteModel object.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Model from which components should all be descended.
+    components : Iterable of Component
+        Components of interest.
+    components_name : str
+        Brief description or name for the sequence of components.
+        Used for constructing error messages.
+    config : ConfigDict
+        PyROS solver options.
+
+    Raises
+    ------
+    ValueError
+        If at least one entry of `components` is not descended
+        from `model`.
+    """
+    components_not_in_model = [
+        comp for comp in components
+        if comp.model() is not model
+    ]
+    if components_not_in_model:
+        comp_names_str = "\n ".join(
+            f"{comp.name!r}, from model with name {comp.model().name!r}"
+            for comp in components_not_in_model
+        )
+        config.progress_logger.error(
+            f"The following entries of argument `{components_name}` "
+            "are not descended from the "
+            f"input deterministic model with name {model.name!r}:\n "
+            f"{comp_names_str}"
+        )
+        raise ValueError(
+            f"Found entries of argument `{components_name}` "
+            "not descended from input model. "
+            "Check logger output messages."
+        )
+
+
+def check_variables_continuous(model, config):
+    """
+    Check that all DOF and state variables of the model
+    are continuous.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Input deterministic model.
+    config : ConfigDict
+        PyROS solver options.
+
+    Raises
+    ------
+    ValueError
+        If at least one variable is found to not be continuous.
+
+    Note
+    ----
+    A variable is considered continuous if the `is_continuous()`
+    method returns True.
+    """
+    state_vars = list(get_state_vars(
+        blk=model,
+        first_stage_variables=config.first_stage_variables,
+        second_stage_variables=config.second_stage_variables,
+    ))
+    all_vars = config.first_stage_variables + config.second_stage_variables + state_vars
+
+    # ensure all variables continuous
+    non_continuous_vars = [
+        var for var in all_vars
+        if not var.is_continuous()
+    ]
+    if non_continuous_vars:
+        non_continuous_vars_str = "\n ".join(
+            f"{var.name!r}" for var in non_continuous_vars
+        )
+        config.progress_logger.error(
+            f"The following Vars of model with name {model.name!r} "
+            f"are non-continuous:\n {non_continuous_vars_str}\n"
+            "Ensure all model variables passed to PyROS solver are continuous."
+        )
+        raise ValueError(
+            f"Model with name {model.name!r} contains non-continuous Vars."
+        )
+
+
+def get_state_vars(blk, first_stage_variables, second_stage_variables):
+    """
+    Get state variables of block.
+    based on degree-of-freedom specification.
+
+    Parameters
+    ----------
+    blk : ScalarBlock
+        Block with structure of, say, a determinstic model
+        passed to PyROS solver, or a master problem scenario
+        block.
+    first_stage_variables : Iterable of VarData
+        First-stage variables.
+    second_stage_variables : Iterable of VarData
+        Second-stage variables.
+
+    Yields
+    ------
+    _VarData
+        State variable.
+    """
+    dof_var_set = (
+        ComponentSet(first_stage_variables)
+        | ComponentSet(second_stage_variables)
+    )
+    seen = set()
+    for var in blk.component_data_objects(Var, active=True, descend_into=True):
+        is_state_var = (
+            not var.fixed
+            and var not in dof_var_set
+        )
+        if is_state_var and id(var) not in seen:
+            seen.add(id(var))
+            yield var
+
+
+def validate_variable_partitioning(model, config):
+    """
+    Check that partitioning of the first-stage variables,
+    second-stage variables, and uncertain parameters
+    is valid.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Input deterministic model.
+    config : ConfigDict
+        PyROS solver options.
+
+    Raises
+    ------
+    ValueError
+        If first-stage variables and second-stage variables
+        overlap, or there are no first-stage variables
+        and no second-stage variables.
+    """
+    # at least one DOF required
+    if not config.first_stage_variables and not config.second_stage_variables:
+        raise ValueError(
+            "Arguments `first_stage_variables` and "
+            "`second_stage_variables` are both empty lists."
+        )
+
+    # ensure no overlap between DOF var sets
+    overlapping_vars = (
+        ComponentSet(config.first_stage_variables)
+        & ComponentSet(config.second_stage_variables)
+    )
+    if overlapping_vars:
+        overlapping_var_list = "\n ".join(f"{var.name!r}" for var in overlapping_vars)
+        config.progress_logger.error(
+            "The following Vars were found in both `first_stage_variables`"
+            f"and `second_stage_variables`:\n {overlapping_var_list}"
+            "\nEnsure no Vars are included in both arguments."
+        )
+        raise ValueError(
+            "Arguments `first_stage_variables` and `second_stage_variables` "
+            "contain at least one common Var object."
+        )
+
+    # DOF variables should all be descended from model.
+    check_components_descended_from_model(
+        model=model,
+        components=config.first_stage_variables,
+        components_name="first_stage_variables",
+        config=config,
+    )
+    check_components_descended_from_model(
+        model=model,
+        components=config.second_stage_variables,
+        components_name="second_stage_variables",
+        config=config,
+    )
+
+    # all variables should be continuous
+    check_variables_continuous(model, config)
+
+
+def validate_uncertainty_specification(model, config):
+    """
+    Validate specification of uncertain parameters and uncertainty
+    set.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Input deterministic model.
+    config : ConfigDict
+        PyROS solver options.
+
+    Raises
+    ------
+    ValueError
+        If at least one of the following holds:
+
+        - dimension of uncertainty set does not equal number of
+          uncertain parameters
+        - uncertainty set `is_valid()` method does not return
+          true.
+        - nominal parameter realization is not in the uncertainty set.
+    """
+    check_components_descended_from_model(
+        model=model,
+        components=config.uncertain_params,
+        components_name="uncertain_params",
+        config=config,
+    )
+
+    if len(config.uncertain_params) != config.uncertainty_set.dim:
+        raise ValueError(
+            "Length of argument `uncertain_params` does not match dimension "
+            "of argument `uncertainty_set` "
+            f"({len(config.uncertain_params)} != {config.uncertainty_set.dim})."
+        )
+
+    # validate uncertainty set
+    if not config.uncertainty_set.is_valid(config=config):
+        raise ValueError(
+            f"Uncertainty set {config.uncertainty_set} is invalid, "
+            "as it is either empty or unbounded."
+        )
+
+    # fill-in nominal point as necessary, if not provided.
+    # otherwise, check length matches uncertainty dimension
+    if not config.nominal_uncertain_param_vals:
+        config.nominal_uncertain_param_vals = [
+            value(param, exception=True)
+            for param in config.uncertain_params
+        ]
+    elif len(config.nominal_uncertain_param_vals) != len(config.uncertain_params):
+        raise ValueError(
+            "Lengths of arguments `uncertain_params` and "
+            "`nominal_uncertain_param_vals` "
+            "do not match "
+            f"({len(config.uncertain_params)} != "
+            f"{len(config.nominal_uncertain_param_vals)})."
+        )
+
+    # uncertainty set should contain nominal point
+    nominal_point_in_set = config.uncertainty_set.point_in_set(
+        point=config.nominal_uncertain_param_vals
+    )
+    if not nominal_point_in_set:
+        raise ValueError(
+            "Nominal uncertain parameter realization "
+            f"{config.nominal_uncertain_param_vals} "
+            "is not a point in the uncertainty set "
+            f"{config.uncertainty_set!r}."
+        )
+
+
+def validate_separation_problem_options(model, config):
+    """
+    Validate separation problem arguments to the PyROS solver.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Input deterministic model.
+    config : ConfigDict
+        PyROS solver options.
+
+    Raises
+    ------
+    ValueError
+        If options `bypass_local_separation` and
+        `bypass_global_separation` are set to False.
+    """
+    if config.bypass_local_separation and config.bypass_global_separation:
+        raise ValueError(
+            "Arguments `bypass_local_separation` "
+            "and `bypass_global_separation` "
+            "cannot both be True."
+        )
+
+
+def validate_pyros_inputs(model, config):
+    """
+    Perform advanced validation of PyROS solver arguments.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Input deterministic model.
+    config : ConfigDict
+        PyROS solver options.
+    """
+    validate_model(model, config)
+    validate_variable_partitioning(model, config)
+    validate_uncertainty_specification(model, config)
+    validate_separation_problem_options(model, config)
 
 
 def turn_bounds_to_constraints(variable, model, config=None):
@@ -705,41 +1015,6 @@ def get_time_from_solver(results):
             break
 
     return float("nan") if solve_time is None else solve_time
-
-
-def validate_uncertainty_set(config):
-    '''
-    Confirm expression output from uncertainty set function references all q in q.
-    Typecheck the uncertainty_set.q is Params referenced inside of m.
-    Give warning that the nominal point (default value in the model) is not in the specified uncertainty set.
-    :param config: solver config
-    '''
-    # === Check that q in UncertaintySet object constraint expression is referencing q in model.uncertain_params
-    uncertain_params = config.uncertain_params
-
-    # === Non-zero number of uncertain parameters
-    if len(uncertain_params) == 0:
-        raise AttributeError(
-            "Must provide uncertain params, uncertain_params list length is 0."
-        )
-    # === No duplicate parameters
-    if len(uncertain_params) != len(ComponentSet(uncertain_params)):
-        raise AttributeError("No duplicates allowed for uncertain param objects.")
-    # === Ensure nominal point is in the set
-    if not config.uncertainty_set.point_in_set(
-        point=config.nominal_uncertain_param_vals
-    ):
-        raise AttributeError(
-            "Nominal point for uncertain parameters must be in the uncertainty set."
-        )
-    # === Check set validity via boundedness and non-emptiness
-    if not config.uncertainty_set.is_valid(config=config):
-        raise AttributeError(
-            "Invalid uncertainty set detected. Check the uncertainty set object to "
-            "ensure non-emptiness and boundedness."
-        )
-
-    return
 
 
 def add_bounds_for_uncertain_parameters(model, config):
@@ -919,100 +1194,6 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
             for l_bnd in lower_bounds:
                 uncertain_var_bound_constrs.add(l_bnd - v <= 0)
             v.setlb(None)
-
-
-def validate_kwarg_inputs(model, config):
-    '''
-    Confirm kwarg inputs satisfy PyROS requirements.
-    :param model: the deterministic model
-    :param config: the config for this PyROS instance
-    :return:
-    '''
-
-    # === Check if model is ConcreteModel object
-    if not isinstance(model, ConcreteModel):
-        raise ValueError("Model passed to PyROS solver must be a ConcreteModel object.")
-
-    first_stage_variables = config.first_stage_variables
-    second_stage_variables = config.second_stage_variables
-    uncertain_params = config.uncertain_params
-
-    if not config.first_stage_variables and not config.second_stage_variables:
-        # Must have non-zero DOF
-        raise ValueError(
-            "first_stage_variables and "
-            "second_stage_variables cannot both be empty lists."
-        )
-
-    if ComponentSet(first_stage_variables) != ComponentSet(
-        config.first_stage_variables
-    ):
-        raise ValueError(
-            "All elements in first_stage_variables must be Var members of the model object."
-        )
-
-    if ComponentSet(second_stage_variables) != ComponentSet(
-        config.second_stage_variables
-    ):
-        raise ValueError(
-            "All elements in second_stage_variables must be Var members of the model object."
-        )
-
-    if any(
-        v in ComponentSet(second_stage_variables)
-        for v in ComponentSet(first_stage_variables)
-    ):
-        raise ValueError(
-            "No common elements allowed between first_stage_variables and second_stage_variables."
-        )
-
-    if ComponentSet(uncertain_params) != ComponentSet(config.uncertain_params):
-        raise ValueError(
-            "uncertain_params must be mutable Param members of the model object."
-        )
-
-    if not config.uncertainty_set:
-        raise ValueError(
-            "An UncertaintySet object must be provided to the PyROS solver."
-        )
-
-    non_mutable_params = []
-    for p in config.uncertain_params:
-        if not (
-            not p.is_constant() and p.is_fixed() and not p.is_potentially_variable()
-        ):
-            non_mutable_params.append(p)
-        if non_mutable_params:
-            raise ValueError(
-                "Param objects which are uncertain must have attribute mutable=True. "
-                "Offending Params: %s" % [p.name for p in non_mutable_params]
-            )
-
-    # === Solvers provided check
-    if not config.local_solver or not config.global_solver:
-        raise ValueError(
-            "User must designate both a local and global optimization solver via the local_solver"
-            " and global_solver options."
-        )
-
-    if config.bypass_local_separation and config.bypass_global_separation:
-        raise ValueError(
-            "User cannot simultaneously enable options "
-            "'bypass_local_separation' and "
-            "'bypass_global_separation'."
-        )
-
-    # === Degrees of freedom provided check
-    if len(config.first_stage_variables) + len(config.second_stage_variables) == 0:
-        raise ValueError(
-            "User must designate at least one first- and/or second-stage variable."
-        )
-
-    # === Uncertain params provided check
-    if len(config.uncertain_params) == 0:
-        raise ValueError("User must designate at least one uncertain parameter.")
-
-    return
 
 
 def substitute_ssv_in_dr_constraints(model, constraint):

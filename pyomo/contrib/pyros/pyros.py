@@ -39,9 +39,7 @@ from pyomo.contrib.pyros.util import (
     TimingData,
     transform_to_standard_form,
     turn_bounds_to_constraints,
-    validate_model,
-    validate_uncertainty_set,
-    validate_kwarg_inputs,
+    validate_pyros_inputs,
     ValidEnum,
 )
 from pyomo.contrib.pyros.solve_data import ROSolveResults
@@ -383,7 +381,14 @@ class InputDataStandardizer(object):
     ctype
     cdatatype
     """
-    def __init__(self, ctype, cdatatype, ctype_validator=None, cdatatype_validator=None):
+    def __init__(
+            self,
+            ctype,
+            cdatatype,
+            ctype_validator=None,
+            cdatatype_validator=None,
+            allow_repeats=False,
+            ):
         """Initialize self (see class docstring).
 
         """
@@ -391,6 +396,7 @@ class InputDataStandardizer(object):
         self.cdatatype = cdatatype
         self.ctype_validator = ctype_validator
         self.cdatatype_validator = cdatatype_validator
+        self.allow_repeats = allow_repeats
 
     def standardize_ctype_obj(self, obj):
         """
@@ -410,7 +416,7 @@ class InputDataStandardizer(object):
             self.cdatatype_validator(obj)
         return [obj]
 
-    def __call__(self, obj, from_iterable=None):
+    def __call__(self, obj, from_iterable=None, allow_repeats=None):
         """
         Cast object to a flat list of Pyomo component data type
         entries.
@@ -419,17 +425,27 @@ class InputDataStandardizer(object):
         ----------
         obj : object
             Object to be cast.
+        from_iterable : Iterable or None, optional
+            Iterable from which `obj` obtained, if any.
+        allow_repeats : bool or None, optional
+            True if list can contain repeated entries,
+            False otherwise.
 
         Raises
         ------
         TypeError
             If all entries in the resulting list
             are not of type ``self.cdatatype``.
+        ValueError
+            If the resulting list contains duplicate entries.
         """
+        if allow_repeats is None:
+            allow_repeats = self.allow_repeats
+
         if isinstance(obj, self.ctype):
-            return self.standardize_ctype_obj(obj)
-        if isinstance(obj, self.cdatatype):
-            return self.standardize_cdatatype_obj(obj)
+            ans = self.standardize_ctype_obj(obj)
+        elif isinstance(obj, self.cdatatype):
+            ans = self.standardize_cdatatype_obj(obj)
         elif isinstance(obj, Iterable) and not isinstance(obj, str):
             ans = []
             for item in obj:
@@ -445,6 +461,16 @@ class InputDataStandardizer(object):
                 f"{self.ctype.__name__} or component data type "
                 f"{self.cdatatype.__name__}."
             )
+
+        # check for duplicates if desired
+        if not allow_repeats and len(ans) != len(ComponentSet(ans)):
+            comp_name_list = [comp.name for comp in ans]
+            raise ValueError(
+                f"Standardized component list {comp_name_list} "
+                f"derived from input {obj} "
+                "contains duplicate entries."
+            )
+
         return ans
 
 
@@ -586,7 +612,7 @@ def pyros_config():
         "first_stage_variables",
         PyROSConfigValue(
             default=[],
-            domain=InputDataStandardizer(Var, _VarData),
+            domain=InputDataStandardizer(Var, _VarData, allow_repeats=False),
             description="First-stage (or design) variables.",
             is_optional=False,
             dtype_spec_str="VarData, Var, or list of VarData/Var",
@@ -596,7 +622,7 @@ def pyros_config():
         "second_stage_variables",
         PyROSConfigValue(
             default=[],
-            domain=InputDataStandardizer(Var, _VarData),
+            domain=InputDataStandardizer(Var, _VarData, allow_repeats=False),
             description="Second-stage (or control) variables.",
             is_optional=False,
             dtype_spec_str="VarData, Var, or list of VarData/Var",
@@ -610,6 +636,7 @@ def pyros_config():
                 ctype=Param,
                 cdatatype=_ParamData,
                 ctype_validator=mutable_param_validator,
+                allow_repeats=False,
             ),
             description=(
                 """
@@ -1222,24 +1249,11 @@ class PyROS(object):
             func=PyROS.solve,
         )
 
-        # cast arguments to ConfigDict.
-        # some basic validation is performed here
+        # cast arguments to ConfigDict; perform argument-wise validation
         config = self.CONFIG(resolved_options)
 
-        # validate model and config
-        validate_model(model, config)
-        validate_kwarg_inputs(model, config)
-
-        # === Define nominal point if not specified
-        if len(config.nominal_uncertain_param_vals) == 0:
-            config.nominal_uncertain_param_vals = list(
-                p.value for p in config.uncertain_params
-            )
-        elif len(config.nominal_uncertain_param_vals) != len(config.uncertain_params):
-            raise AttributeError(
-                "The nominal_uncertain_param_vals list must be the same length"
-                "as the uncertain_params list"
-            )
+        # advanced validation
+        validate_pyros_inputs(model, config)
 
         # === Create data containers
         model_data = ROSolveResults()
@@ -1275,9 +1289,6 @@ class PyROS(object):
             model_data.util_block = unique_component_name(model, 'util')
             model.add_component(model_data.util_block, util)
             # Note:  model.component(model_data.util_block) is util
-
-            # === Validate uncertainty set happens here, requires util block for Cardinality and FactorModel sets
-            validate_uncertainty_set(config=config)
 
             # === Leads to a logger warning here for inactive obj when cloning
             model_data.original_model = model
