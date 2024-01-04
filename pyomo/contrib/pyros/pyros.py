@@ -10,21 +10,27 @@
 #  ___________________________________________________________________________
 
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
-from collections.abc import Iterable
+from datetime import datetime
 import logging
 import os
+import subprocess
 from textwrap import indent, dedent, wrap
+
 from pyomo.common.collections import Bunch, ComponentSet
-from pyomo.common.config import ConfigDict, ConfigValue, In, NonNegativeFloat, Path
-from pyomo.core.base.block import Block
-from pyomo.core.expr import value
-from pyomo.core.base.var import Var, _VarData
-from pyomo.core.base.param import Param, _ParamData
-from pyomo.core.base.objective import Objective
 from pyomo.common.modeling import unique_component_name
+from pyomo.core.base import Block, Constraint, Objective, Var
+from pyomo.core.expr import value
 from pyomo.opt import SolverFactory
+from pyomo.version import version
+
+from pyomo.contrib.pyros.config import (
+    pyros_config,
+    resolve_keyword_arguments,
+    validate_pyros_inputs,
+)
+from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
+from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.util import (
-    a_logger,
     add_decision_rule_constraints,
     add_decision_rule_variables,
     identify_objective_functions,
@@ -34,22 +40,12 @@ from pyomo.contrib.pyros.util import (
     pyrosTerminationCondition,
     recast_to_min_obj,
     replace_uncertain_bounds_with_constraints,
-    resolve_keyword_arguments,
     setup_pyros_logger,
     time_code,
     TimingData,
     transform_to_standard_form,
     turn_bounds_to_constraints,
-    validate_pyros_inputs,
-    ValidEnum,
 )
-from pyomo.contrib.pyros.solve_data import ROSolveResults
-from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
-from pyomo.contrib.pyros.uncertainty_sets import uncertainty_sets
-from pyomo.core.base import Constraint
-from pyomo.common.errors import ApplicationError
-
-from datetime import datetime
 
 
 __version__ = "1.2.9"
@@ -62,10 +58,6 @@ def _get_pyomo_version_info():
     """
     Get Pyomo version information.
     """
-    import os
-    import subprocess
-    from pyomo.version import version
-
     pyomo_version = version
     commit_hash = "unknown"
 
@@ -86,981 +78,6 @@ def _get_pyomo_version_info():
         commit_hash = "unknown"
 
     return {"Pyomo version": pyomo_version, "Commit hash": commit_hash}
-
-
-def NonNegIntOrMinusOne(obj):
-    '''
-    if obj is a non-negative int, return the non-negative int
-    if obj is -1, return -1
-    else, error
-    '''
-    ans = int(obj)
-    if ans != float(obj) or (ans < 0 and ans != -1):
-        raise ValueError("Expected non-negative int, but received %s" % (obj,))
-    return ans
-
-
-def PositiveIntOrMinusOne(obj):
-    '''
-    if obj is a positive int, return the int
-    if obj is -1, return -1
-    else, error
-    '''
-    ans = int(obj)
-    if ans != float(obj) or (ans <= 0 and ans != -1):
-        raise ValueError("Expected positive int, but received %s" % (obj,))
-    return ans
-
-
-class NotSolverResolvable(Exception):
-    """
-    Exception type for failure to cast an object to a Pyomo solver.
-    """
-
-
-class SolverResolvable(object):
-    """
-    Callable for casting an object (such as a str)
-    to a Pyomo solver.
-
-    Parameters
-    ----------
-    require_available : bool, optional
-        True if `available()` method of a standardized solver
-        object obtained through `self` must return `True`,
-        False otherwise.
-    solver_desc : str, optional
-        Descriptor for the solver obtained through `self`,
-        such as 'local solver'
-        or 'global solver'. This argument is used
-        for constructing error/exception messages.
-
-    Attributes
-    ----------
-    require_available
-    solver_desc
-    """
-
-    def __init__(self, require_available=True, solver_desc="solver"):
-        """Initialize self (see class docstring).
-
-        """
-        self.require_available = require_available
-        self.solver_desc = solver_desc
-
-    @staticmethod
-    def is_solver_type(obj):
-        """
-        Return True if object is considered a Pyomo solver,
-        False otherwise.
-
-        An object is considered a Pyomo solver provided that
-        it has callable attributes named 'solve' and
-        'available'.
-        """
-        return (
-            callable(getattr(obj, "solve", None))
-            and callable(getattr(obj, "available", None))
-        )
-
-    def __call__(self, obj, require_available=None, solver_desc=None):
-        """
-        Cast object to a Pyomo solver.
-
-        If `obj` is a string, then ``SolverFactory(obj.lower())``
-        is returned. If `obj` is a Pyomo solver type, then
-        `obj` is returned.
-
-        Parameters
-        ----------
-        obj : object
-            Object to be cast to Pyomo solver type.
-        require_available : bool or None, optional
-            True if `available()` method of the resolved solver
-            object must return True, False otherwise.
-            If `None` is passed, then ``self.require_available``
-            is used.
-        solver_desc : str or None, optional
-            Brief description of the solver, such as 'local solver'
-            or 'backup global solver'. This argument is used
-            for constructing error/exception messages.
-            If `None` is passed, then ``self.solver_desc``
-            is used.
-
-        Returns
-        -------
-        Solver
-            Pyomo solver.
-
-        Raises
-        ------
-        NotSolverResolvable
-            If `obj` cannot be cast to a Pyomo solver because
-            it is neither a str nor a Pyomo solver type.
-        ApplicationError
-            In event that solver is not available, the
-            method `available(exception_flag=True)` of the
-            solver to which `obj` is cast should raise an
-            exception of this type. The present method
-            will also emit a more detailed error message
-            through the default PyROS logger.
-        """
-        # resort to defaults if necessary
-        if require_available is None:
-            require_available = self.require_available
-        if solver_desc is None:
-            solver_desc = self.solver_desc
-
-        # perform casting
-        if isinstance(obj, str):
-            solver = SolverFactory(obj.lower())
-        elif self.is_solver_type(obj):
-            solver = obj
-        else:
-            raise NotSolverResolvable(
-                f"Cannot cast object `{obj!r}` to a Pyomo optimizer for use as a "
-                f"{solver_desc}, as the object is neither a str nor a "
-                f"Pyomo Solver type (got type {type(obj).__name__})."
-            )
-
-        # availability check, if so desired
-        if require_available:
-            try:
-                solver.available(exception_flag=True)
-            except ApplicationError:
-                default_pyros_solver_logger.exception(
-                    f"Output of `available()` method for {solver_desc} "
-                    f"with repr {solver!r} resolved from object {obj} "
-                    "is not `True`. "
-                    "Check solver and any required dependencies "
-                    "have been set up properly."
-                )
-                raise
-
-        return solver
-
-
-class SolverIterable(object):
-    """
-    Callable for casting an iterable (such as a list of strs)
-    to a list of Pyomo solvers.
-
-    Parameters
-    ----------
-    require_available : bool, optional
-        True if `available()` method of a standardized solver
-        object obtained through `self` must return `True`,
-        False otherwise.
-    solver_desc : str, optional
-        Descriptor for the solver obtained through `self`,
-        such as 'backup local solver'
-        or 'backup global solver'.
-    """
-
-    def __init__(self, require_available=True, solver_desc="solver"):
-        self.require_available = require_available
-        self.solver_desc = solver_desc
-
-    def __call__(self, obj, require_available=None, solver_desc=None):
-        """
-        Cast iterable object to a list of Pyomo solver objects.
-
-        Parameters
-        ----------
-        obj : Iterable
-            Object of interest. Should not be of type `str`.
-        require_available : bool or None, optional
-            True if `available()` method of each solver
-            object must return True, False otherwise.
-            If `None` is passed, then ``self.require_available``
-            is used.
-        solver_desc : str or None, optional
-            Descriptor for the solver, such as 'backup local solver'
-            or 'backup global solver'. This argument is used
-            for constructing error/exception messages.
-            If `None` is passed, then ``self.solver_desc``
-            is used.
-
-        Returns
-        -------
-        solvers : list of Solver
-            List of solver objects to which obj is cast.
-
-        Raises
-        ------
-        TypeError
-            If `obj` is a str.
-        """
-        # resort to defaults if necessary
-        if require_available is None:
-            require_available = self.require_available
-        if solver_desc is None:
-            solver_desc = self.solver_desc
-
-        # set up single standardization callable
-        solver_resolve_func = SolverResolvable()
-
-        if isinstance(obj, str):
-            # as str is iterable, check explicitly that str not passed,
-            # otherwise this method would attempt to resolve each
-            # character
-            raise TypeError("Object should be an iterable not of type str.")
-
-        # now resolve to list of solver objects
-        solvers = []
-        obj_as_list = list(obj)
-        for idx, val in enumerate(obj_as_list):
-            solver_desc_str = (
-                f"{solver_desc} "
-                f"(index {idx})"
-            )
-            solvers.append(solver_resolve_func(
-                obj=val,
-                require_available=require_available,
-                solver_desc=solver_desc_str,
-            ))
-
-        return solvers
-
-
-class PathLikeOrNone:
-    """
-    Validator for path-like objects.
-
-    This interface is a wrapper around the domain validator
-    ``common.config.Path``, and extends the domain of interest to
-    to include:
-        - None
-        - objects following the Python ``os.PathLike`` protocol.
-
-    Parameters
-    ----------
-    **config_path_kwargs : dict
-        Keyword arguments to ``common.config.Path``.
-    """
-    def __init__(self, **config_path_kwargs):
-        """Initialize self (see class docstring)."""
-        self.config_path = Path(**config_path_kwargs)
-
-    def __call__(self, path):
-        """
-        Cast path to expanded string representation.
-
-        Parameters
-        ----------
-        path : None str, bytes, or path-like
-            Object to be cast.
-
-        Returns
-        -------
-        None
-            If obj is None.
-        str
-            String representation of path-like object.
-        """
-        if path is None:
-            return path
-
-        # cast to str. if not str, bytes, or path-like,
-        # expect TypeError to be raised here
-        path_str = os.fsdecode(path)
-
-        # expand path using ``common.config.Path`` interface
-        return self.config_path(path_str)
-
-
-class ImmutableParamError(Exception):
-    """
-    Exception raised whenever a Param or ParamData
-    object for which we expect ``mutable=True``
-    is immutable.
-    """
-
-
-def mutable_param_validator(param_obj):
-    """
-    Check that Param-like object has attribute `mutable=True`.
-
-    Parameters
-    ----------
-    param_obj : Param or _ParamData
-        Param-like object of interest.
-
-    Raises
-    ------
-    ValueError
-        If lengths of the param object and the accompanying
-        index set do not match. This may occur if some entry
-        of the Param is not initialized.
-    ImmutableParamError
-        If attribute `mutable` is of value False.
-    """
-    if len(param_obj) != len(param_obj.index_set()):
-        raise ValueError(
-            f"Length of Param component object with "
-            f"name {param_obj.name!r} is {len(param_obj)}, "
-            "and does not match that of its index set, "
-            f"which is of length {len(param_obj.index_set())}. "
-            "Check that all entries of the component object "
-            "have been initialized."
-        )
-    if not param_obj.mutable:
-        raise ImmutableParamError(
-            f"Param object with name {param_obj.name!r} is immutable."
-        )
-
-
-class InputDataStandardizer(object):
-    """
-    Standardizer for objects castable to a list of Pyomo
-    component types.
-
-    Parameters
-    ----------
-    ctype : type
-        Pyomo component type, such as Component, Var or Param.
-    cdatatype : type
-        Corresponding Pyomo component data type, such as
-        _ComponentData, _VarData, or _ParamData.
-
-    Attributes
-    ----------
-    ctype
-    cdatatype
-    """
-    def __init__(
-            self,
-            ctype,
-            cdatatype,
-            ctype_validator=None,
-            cdatatype_validator=None,
-            allow_repeats=False,
-            ):
-        """Initialize self (see class docstring).
-
-        """
-        self.ctype = ctype
-        self.cdatatype = cdatatype
-        self.ctype_validator = ctype_validator
-        self.cdatatype_validator = cdatatype_validator
-        self.allow_repeats = allow_repeats
-
-    def standardize_ctype_obj(self, obj):
-        """
-        Standardize object of type ``self.ctype`` to list
-        of objects of type ``self.cdatatype``.
-        """
-        if self.ctype_validator is not None:
-            self.ctype_validator(obj)
-        return list(obj.values())
-
-    def standardize_cdatatype_obj(self, obj):
-        """
-        Standarize object of type ``self.cdatatype`` to
-        ``[obj]``.
-        """
-        if self.cdatatype_validator is not None:
-            self.cdatatype_validator(obj)
-        return [obj]
-
-    def __call__(self, obj, from_iterable=None, allow_repeats=None):
-        """
-        Cast object to a flat list of Pyomo component data type
-        entries.
-
-        Parameters
-        ----------
-        obj : object
-            Object to be cast.
-        from_iterable : Iterable or None, optional
-            Iterable from which `obj` obtained, if any.
-        allow_repeats : bool or None, optional
-            True if list can contain repeated entries,
-            False otherwise.
-
-        Raises
-        ------
-        TypeError
-            If all entries in the resulting list
-            are not of type ``self.cdatatype``.
-        ValueError
-            If the resulting list contains duplicate entries.
-        """
-        if allow_repeats is None:
-            allow_repeats = self.allow_repeats
-
-        if isinstance(obj, self.ctype):
-            ans = self.standardize_ctype_obj(obj)
-        elif isinstance(obj, self.cdatatype):
-            ans = self.standardize_cdatatype_obj(obj)
-        elif isinstance(obj, Iterable) and not isinstance(obj, str):
-            ans = []
-            for item in obj:
-                ans.extend(self.__call__(item, from_iterable=obj))
-        else:
-            from_iterable_qual = (
-                f" (entry of iterable {from_iterable})"
-                if from_iterable is not None else ""
-            )
-            raise TypeError(
-                f"Input object {obj!r}{from_iterable_qual} "
-                "is not of valid component type "
-                f"{self.ctype.__name__} or component data type "
-                f"{self.cdatatype.__name__}."
-            )
-
-        # check for duplicates if desired
-        if not allow_repeats and len(ans) != len(ComponentSet(ans)):
-            comp_name_list = [comp.name for comp in ans]
-            raise ValueError(
-                f"Standardized component list {comp_name_list} "
-                f"derived from input {obj} "
-                "contains duplicate entries."
-            )
-
-        return ans
-
-
-class PyROSConfigValue(ConfigValue):
-    """
-    Subclass of ``common.collections.ConfigValue``,
-    with a few attributes added to facilitate documentation
-    of the PyROS solver.
-    An instance of this class is used for storing and
-    documenting an argument to the PyROS solver.
-
-    Attributes
-    ----------
-    is_optional : bool
-        Argument is optional.
-    document_default : bool, optional
-        Document the default value of the argument
-        in any docstring generated from this instance,
-        or a `ConfigDict` object containing this instance.
-    dtype_spec_str : None or str, optional
-        String documenting valid types for this argument.
-        If `None` is provided, then this string is automatically
-        determined based on the `domain` argument to the
-        constructor.
-
-    NOTES
-    -----
-    Cleaner way to access protected attributes
-    (particularly _doc, _description) inherited from ConfigValue?
-
-    """
-
-    def __init__(
-        self,
-        default=None,
-        domain=None,
-        description=None,
-        doc=None,
-        visibility=0,
-        is_optional=True,
-        document_default=True,
-        dtype_spec_str=None,
-    ):
-        """Initialize self (see class docstring)."""
-
-        # initialize base class attributes
-        super(self.__class__, self).__init__(
-            default=default,
-            domain=domain,
-            description=description,
-            doc=doc,
-            visibility=visibility,
-        )
-
-        self.is_optional = is_optional
-        self.document_default = document_default
-
-        if dtype_spec_str is None:
-            self.dtype_spec_str = self.domain_name()
-            # except AttributeError:
-            #     self.dtype_spec_str = repr(self._domain)
-        else:
-            self.dtype_spec_str = dtype_spec_str
-
-
-def pyros_config():
-    CONFIG = ConfigDict('PyROS')
-
-    # ================================================
-    # === Options common to all solvers
-    # ================================================
-    CONFIG.declare(
-        'time_limit',
-        PyROSConfigValue(
-            default=None,
-            domain=NonNegativeFloat,
-            doc=(
-                """
-                Wall time limit for the execution of the PyROS solver
-                in seconds (including time spent by subsolvers).
-                If `None` is provided, then no time limit is enforced.
-                """
-            ),
-            is_optional=True,
-            document_default=False,
-            dtype_spec_str="None or NonNegativeFloat",
-        ),
-    )
-    CONFIG.declare(
-        'keepfiles',
-        PyROSConfigValue(
-            default=False,
-            domain=bool,
-            description=(
-                """
-                Export subproblems with a non-acceptable termination status
-                for debugging purposes.
-                If True is provided, then the argument `subproblem_file_directory`
-                must also be specified.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        'tee',
-        PyROSConfigValue(
-            default=False,
-            domain=bool,
-            description="Output subordinate solver logs for all subproblems.",
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        'load_solution',
-        PyROSConfigValue(
-            default=True,
-            domain=bool,
-            description=(
-                """
-                Load final solution(s) found by PyROS to the deterministic model
-                provided.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-
-    # ================================================
-    # === Required User Inputs
-    # ================================================
-    CONFIG.declare(
-        "first_stage_variables",
-        PyROSConfigValue(
-            default=[],
-            domain=InputDataStandardizer(Var, _VarData, allow_repeats=False),
-            description="First-stage (or design) variables.",
-            is_optional=False,
-            dtype_spec_str="VarData, Var, or list of VarData/Var",
-        ),
-    )
-    CONFIG.declare(
-        "second_stage_variables",
-        PyROSConfigValue(
-            default=[],
-            domain=InputDataStandardizer(Var, _VarData, allow_repeats=False),
-            description="Second-stage (or control) variables.",
-            is_optional=False,
-            dtype_spec_str="VarData, Var, or list of VarData/Var",
-        ),
-    )
-    CONFIG.declare(
-        "uncertain_params",
-        PyROSConfigValue(
-            default=[],
-            domain=InputDataStandardizer(
-                ctype=Param,
-                cdatatype=_ParamData,
-                ctype_validator=mutable_param_validator,
-                allow_repeats=False,
-            ),
-            description=(
-                """
-                Uncertain model parameters.
-                The `mutable` attribute for all
-                Param objects should be set to True.
-                """
-            ),
-            is_optional=False,
-            dtype_spec_str="ParamData, Param, or list of ParamData/Param",
-        ),
-    )
-    CONFIG.declare(
-        "uncertainty_set",
-        PyROSConfigValue(
-            default=None,
-            domain=uncertainty_sets,
-            description=(
-                """
-                Uncertainty set against which the
-                final solution(s) returned by PyROS should be certified
-                to be robust.
-                """
-            ),
-            is_optional=False,
-            dtype_spec_str="UncertaintySet",
-        ),
-    )
-    CONFIG.declare(
-        "local_solver",
-        PyROSConfigValue(
-            default=None,
-            domain=SolverResolvable(
-                solver_desc="local solver",
-                require_available=True,
-            ),
-            description="Subordinate local NLP solver.",
-            is_optional=False,
-            dtype_spec_str="str or Solver",
-        ),
-    )
-    CONFIG.declare(
-        "global_solver",
-        PyROSConfigValue(
-            default=None,
-            domain=SolverResolvable(
-                solver_desc="global solver",
-                require_available=True,
-            ),
-            description="Subordinate global NLP solver.",
-            is_optional=False,
-            dtype_spec_str="str or Solver",
-        ),
-    )
-    # ================================================
-    # === Optional User Inputs
-    # ================================================
-    CONFIG.declare(
-        "objective_focus",
-        PyROSConfigValue(
-            default=ObjectiveType.nominal,
-            domain=ValidEnum(ObjectiveType),
-            description=(
-                """
-                Choice of objective focus to optimize in the master problems.
-                Choices are: `ObjectiveType.worst_case`,
-                `ObjectiveType.nominal`.
-                """
-            ),
-            doc=(
-                """
-                Objective focus for the master problems:
-    
-                - `ObjectiveType.nominal`:
-                  Optimize the objective function subject to the nominal
-                  uncertain parameter realization.
-                - `ObjectiveType.worst_case`:
-                  Optimize the objective function subject to the worst-case
-                  uncertain parameter realization.
-    
-                By default, `ObjectiveType.nominal` is chosen.
-    
-                A worst-case objective focus is required for certification
-                of robust optimality of the final solution(s) returned
-                by PyROS.
-                If a nominal objective focus is chosen, then only robust
-                feasibility is guaranteed.
-                """
-            ),
-            is_optional=True,
-            document_default=False,
-            dtype_spec_str="ObjectiveType",
-        ),
-    )
-    CONFIG.declare(
-        "nominal_uncertain_param_vals",
-        PyROSConfigValue(
-            default=[],
-            domain=list,
-            doc=(
-                """
-                Nominal uncertain parameter realization.
-                Entries should be provided in an order consistent with the
-                entries of the argument `uncertain_params`.
-                If an empty list is provided, then the values of the `Param`
-                objects specified through `uncertain_params` are chosen.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str="iterable of float",
-        ),
-    )
-    CONFIG.declare(
-        "decision_rule_order",
-        PyROSConfigValue(
-            default=0,
-            domain=In([0, 1, 2]),
-            description=(
-                """
-                Order (or degree) of the polynomial decision rule functions used
-                for approximating the adjustability of the second stage
-                variables with respect to the uncertain parameters.
-                """
-            ),
-            doc=(
-                """
-                Order (or degree) of the polynomial decision rule functions used
-                for approximating the adjustability of the second stage
-                variables with respect to the uncertain parameters.
-    
-                Choices are:
-    
-                - 0: static recourse
-                - 1: affine recourse
-                - 2: quadratic recourse
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        "solve_master_globally",
-        PyROSConfigValue(
-            default=False,
-            domain=bool,
-            doc=(
-                """
-                True to solve all master problems with the subordinate
-                global solver, False to solve all master problems with
-                the subordinate local solver.
-                Along with a worst-case objective focus
-                (see argument `objective_focus`),
-                solving the master problems to global optimality is required
-                for certification
-                of robust optimality of the final solution(s) returned
-                by PyROS. Otherwise, only robust feasibility is guaranteed.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        "max_iter",
-        PyROSConfigValue(
-            default=-1,
-            domain=PositiveIntOrMinusOne,
-            description=(
-                """
-                Iteration limit. If -1 is provided, then no iteration
-                limit is enforced.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str="int",
-        ),
-    )
-    CONFIG.declare(
-        "robust_feasibility_tolerance",
-        PyROSConfigValue(
-            default=1e-4,
-            domain=NonNegativeFloat,
-            description=(
-                """
-                Relative tolerance for assessing maximal inequality
-                constraint violations during the GRCS separation step.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        "separation_priority_order",
-        PyROSConfigValue(
-            default={},
-            domain=dict,
-            doc=(
-                """
-                Mapping from model inequality constraint names
-                to positive integers specifying the priorities
-                of their corresponding separation subproblems.
-                A higher integer value indicates a higher priority.
-                Constraints not referenced in the `dict` assume
-                a priority of 0.
-                Separation subproblems are solved in order of decreasing
-                priority.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        "progress_logger",
-        PyROSConfigValue(
-            default=default_pyros_solver_logger,
-            domain=a_logger,
-            doc=(
-                """
-                Logger (or name thereof) used for reporting PyROS solver
-                progress. If a `str` is specified, then ``progress_logger``
-                is cast to ``logging.getLogger(progress_logger)``.
-                In the default case, `progress_logger` is set to
-                a :class:`pyomo.contrib.pyros.util.PreformattedLogger`
-                object of level ``logging.INFO``.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str="str or logging.Logger",
-        ),
-    )
-    CONFIG.declare(
-        "backup_local_solvers",
-        PyROSConfigValue(
-            default=[],
-            domain=SolverIterable(
-                solver_desc="backup local solver",
-                require_available=True,
-            ),
-            doc=(
-                """
-                Additional subordinate local NLP optimizers to invoke
-                in the event the primary local NLP optimizer fails
-                to solve a subproblem to an acceptable termination condition.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str="Iterable of str or Solver",
-        ),
-    )
-    CONFIG.declare(
-        "backup_global_solvers",
-        PyROSConfigValue(
-            default=[],
-            domain=SolverIterable(
-                solver_desc="backup global solver",
-                require_available=True,
-            ),
-            doc=(
-                """
-                Additional subordinate global NLP optimizers to invoke
-                in the event the primary global NLP optimizer fails
-                to solve a subproblem to an acceptable termination condition.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str="Iterable of str or Solver",
-        ),
-    )
-    CONFIG.declare(
-        "subproblem_file_directory",
-        PyROSConfigValue(
-            default=None,
-            domain=PathLikeOrNone(),
-            description=(
-                """
-                Path of directory to which
-                to export subproblems not successfully
-                solved to an acceptable termination condition.
-                If a path is specified, i.e. str, bytes,
-                or path-like value is passed, then the directory
-                to which it refers must exist.
-                Subproblems are exported only if a path is specified
-                and user passes argument ``keepfiles=True``.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str="None, str, bytes, or path-like",
-        ),
-    )
-
-    # ================================================
-    # === Advanced Options
-    # ================================================
-    CONFIG.declare(
-        "bypass_local_separation",
-        PyROSConfigValue(
-            default=False,
-            domain=bool,
-            description=(
-                """
-                This is an advanced option.
-                Solve all separation subproblems with the subordinate global
-                solver(s) only.
-                This option is useful for expediting PyROS
-                in the event that the subordinate global optimizer(s) provided
-                can quickly solve separation subproblems to global optimality.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        "bypass_global_separation",
-        PyROSConfigValue(
-            default=False,
-            domain=bool,
-            doc=(
-                """
-                This is an advanced option.
-                Solve all separation subproblems with the subordinate local
-                solver(s) only.
-                If `True` is chosen, then robustness of the final solution(s)
-                returned by PyROS is not guaranteed, and a warning will
-                be issued at termination.
-                This option is useful for expediting PyROS
-                in the event that the subordinate global optimizer provided
-                cannot tractably solve separation subproblems to global
-                optimality.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-    CONFIG.declare(
-        "p_robustness",
-        PyROSConfigValue(
-            default={},
-            domain=dict,
-            doc=(
-                """
-                This is an advanced option.
-                Add p-robustness constraints to all master subproblems.
-                If an empty dict is provided, then p-robustness constraints
-                are not added.
-                Otherwise, the dict must map a `str` of value ``'rho'``
-                to a non-negative `float`. PyROS automatically
-                specifies ``1 + p_robustness['rho']``
-                as an upper bound for the ratio of the
-                objective function value under any PyROS-sampled uncertain
-                parameter realization to the objective function under
-                the nominal parameter realization.
-                """
-            ),
-            is_optional=True,
-            document_default=True,
-            dtype_spec_str=None,
-        ),
-    )
-
-    return CONFIG
 
 
 @SolverFactory.register(
@@ -1230,6 +247,48 @@ class PyROS(object):
                 logger.log(msg=f" {key}={val!r}", **log_kwargs)
         logger.log(msg="-" * self._LOG_LINE_LENGTH, **log_kwargs)
 
+    def _standardize_and_validate_pyros_inputs(self, model, **kwds):
+        """
+        Standardize and validate arguments to ``self.solve()``.
+
+        Parameters
+        ----------
+        model : ConcreteModel
+            Deterministic model of interest.
+        **kwds : dict
+            All other arguments to ``self.solve()``.
+
+        Returns
+        -------
+        config : ConfigDict
+            Standardized arguments.
+        """
+        # PyROS options can be passed:
+        # - as explicit arguments (strongly encouraged)
+        # - implicitly through the keyword argument 'options'
+        # - implicitly through the keyword argument 'dev_options'.
+        # in the event there is overlap, order of precedence is
+        # (explicit args) > ('options' args) > ('dev_options' args)
+        options_dict = kwds.pop("options", {})
+        dev_options_dict = kwds.pop("dev_options", {})
+        explicit_args_dict = kwds
+        resolved_options = resolve_keyword_arguments(
+            prioritized_kwargs_dicts={
+                "explicitly": explicit_args_dict,
+                "implicitly through argument 'options'": options_dict,
+                "implicitly through argument 'dev_options'": dev_options_dict,
+            },
+            func=PyROS.solve,
+        )
+
+        # cast arguments to ConfigDict; perform argument-wise validation
+        config = self.CONFIG(resolved_options)
+
+        # advanced validation
+        validate_pyros_inputs(model, config)
+
+        return config
+
     def solve(
         self,
         model,
@@ -1273,37 +332,16 @@ class PyROS(object):
             Summary of PyROS termination outcome.
 
         """
-        # PyROS options can be passed:
-        # - as explicit arguments (strongly encouraged)
-        # - implicitly through the keyword argument 'options'
-        # - implicitly through the keyword argument 'dev_options'.
-        # in the event there is overlap, order of precedence is
-        # (explicit args) > ('options' args) > ('dev_options' args)
-        options_dict = kwds.pop("options", {})
-        dev_options_dict = kwds.pop("dev_options", {})
-        explicit_args_dict = dict(
+        # resolve, standardize, and validate arguments
+        kwds.update(dict(
             first_stage_variables=first_stage_variables,
             second_stage_variables=second_stage_variables,
             uncertain_params=uncertain_params,
             uncertainty_set=uncertainty_set,
             local_solver=local_solver,
             global_solver=global_solver,
-            **kwds,
-        )
-        resolved_options = resolve_keyword_arguments(
-            prioritized_kwargs_dicts={
-                "explicitly": explicit_args_dict,
-                "implicitly through argument 'options'": options_dict,
-                "implicitly through argument 'dev_options'": dev_options_dict,
-            },
-            func=PyROS.solve,
-        )
-
-        # cast arguments to ConfigDict; perform argument-wise validation
-        config = self.CONFIG(resolved_options)
-
-        # advanced validation
-        validate_pyros_inputs(model, config)
+        ))
+        config = self._standardize_and_validate_pyros_inputs(model, **kwds)
 
         # === Create data containers
         model_data = ROSolveResults()
