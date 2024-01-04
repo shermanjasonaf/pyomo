@@ -14,7 +14,6 @@ from datetime import datetime
 import logging
 import os
 import subprocess
-from textwrap import indent, dedent, wrap
 
 from pyomo.common.collections import Bunch, ComponentSet
 from pyomo.common.modeling import unique_component_name
@@ -27,6 +26,7 @@ from pyomo.contrib.pyros.config import (
     pyros_config,
     resolve_keyword_arguments,
     validate_pyros_inputs,
+    add_config_kwargs_to_doc,
 )
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
 from pyomo.contrib.pyros.solve_data import ROSolveResults
@@ -289,6 +289,13 @@ class PyROS(object):
 
         return config
 
+    @add_config_kwargs_to_doc(
+        config=CONFIG,
+        section='Keyword Arguments',
+        indent_by=8,
+        width=72,
+        visibility=0,
+    )
     def solve(
         self,
         model,
@@ -514,131 +521,3 @@ class PyROS(object):
         config.progress_logger.info("=" * self._LOG_LINE_LENGTH)
 
         return return_soln
-
-
-def _generate_filtered_docstring():
-    """
-    Add Numpy-style 'Keyword arguments' section to `PyROS.solve()`
-    docstring.
-    """
-    cfg = PyROS.CONFIG()
-
-    # mandatory args already documented
-    exclude_args = [
-        "first_stage_variables",
-        "second_stage_variables",
-        "uncertain_params",
-        "uncertainty_set",
-        "local_solver",
-        "global_solver",
-    ]
-
-    indent_by = 8
-    width = 72
-    before = PyROS.solve.__doc__
-    section_name = "Keyword Arguments"
-
-    indent_str = ' ' * indent_by
-    wrap_width = width - indent_by
-    cfg = pyros_config()
-
-    arg_docs = []
-
-    def wrap_doc(doc, indent_by, width):
-        """
-        Wrap a string, accounting for paragraph
-        breaks ('\n\n') and bullet points (paragraphs
-        which, when dedented, are such that each line
-        starts with '- ' or '  ').
-        """
-        paragraphs = doc.split("\n\n")
-        wrapped_pars = []
-        for par in paragraphs:
-            lines = dedent(par).split("\n")
-            has_bullets = all(
-                line.startswith("- ") or line.startswith("  ")
-                for line in lines
-                if line != ""
-            )
-            if has_bullets:
-                # obtain strings of each bullet point
-                # (dedented, bullet dash and bullet indent removed)
-                bullet_groups = []
-                new_group = False
-                group = ""
-                for line in lines:
-                    new_group = line.startswith("- ")
-                    if new_group:
-                        bullet_groups.append(group)
-                        group = ""
-                    new_line = line[2:]
-                    group += f"{new_line}\n"
-                if group != "":
-                    # ensure last bullet not skipped
-                    bullet_groups.append(group)
-
-                # first entry is just ''; remove
-                bullet_groups = bullet_groups[1:]
-
-                # wrap each bullet point, then add bullet
-                # and indents as necessary
-                wrapped_groups = []
-                for group in bullet_groups:
-                    wrapped_groups.append(
-                        "\n".join(
-                            f"{'- ' if idx == 0 else '  '}{line}"
-                            for idx, line in enumerate(
-                                wrap(group, width - 2 - indent_by)
-                            )
-                        )
-                    )
-
-                # now combine bullets into single 'paragraph'
-                wrapped_pars.append(
-                    indent("\n".join(wrapped_groups), prefix=' ' * indent_by)
-                )
-            else:
-                wrapped_pars.append(
-                    indent(
-                        "\n".join(wrap(dedent(par), width=width - indent_by)),
-                        prefix=' ' * indent_by,
-                    )
-                )
-
-        return "\n\n".join(wrapped_pars)
-
-    section_header = indent(f"{section_name}\n" + "-" * len(section_name), indent_str)
-    for key, itm in cfg._data.items():
-        if key in exclude_args:
-            continue
-        arg_name = key
-        arg_dtype = itm.dtype_spec_str
-
-        if itm.is_optional:
-            if itm.document_default:
-                optional_str = f", default={repr(itm._default)}"
-            else:
-                optional_str = ", optional"
-        else:
-            optional_str = ""
-
-        arg_header = f"{indent_str}{arg_name} : {arg_dtype}{optional_str}"
-
-        # dedented_doc_str = dedent(itm.doc).replace("\n", ' ').strip()
-        if itm._doc is not None:
-            raw_arg_desc = itm._doc
-        else:
-            raw_arg_desc = itm._description
-
-        arg_description = wrap_doc(
-            raw_arg_desc, width=wrap_width, indent_by=indent_by + 4
-        )
-
-        arg_docs.append(f"{arg_header}\n{arg_description}")
-
-    kwargs_section_doc = "\n".join([section_header] + arg_docs)
-
-    return f"{before}\n{kwargs_section_doc}\n"
-
-
-PyROS.solve.__doc__ = _generate_filtered_docstring()

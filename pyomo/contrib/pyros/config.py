@@ -5,8 +5,10 @@ PyROS solver.
 
 
 from collections.abc import Iterable
+import functools
 import logging
 import os
+from textwrap import indent, dedent, wrap
 
 from pyomo.common.config import (
     ConfigDict,
@@ -14,6 +16,7 @@ from pyomo.common.config import (
     In,
     NonNegativeFloat,
     Path,
+    InEnum,
 )
 from pyomo.common.collections import ComponentSet
 from pyomo.common.errors import ApplicationError
@@ -35,7 +38,7 @@ from pyomo.contrib.pyros.util import (
 default_pyros_solver_logger = setup_pyros_logger()
 
 
-def a_logger(str_or_logger):
+class LoggerType:
     """
     Domain validator for objects castable to logging.Logger.
 
@@ -56,48 +59,29 @@ def a_logger(str_or_logger):
         instance is returned in lieu of a standard `Logger`
         instance.
     """
-    if isinstance(str_or_logger, logging.Logger):
-        return logging.getLogger(str_or_logger.name)
-    else:
-        return logging.getLogger(str_or_logger)
+    def __call__(self, str_or_logger):
+        if isinstance(str_or_logger, logging.Logger):
+            return logging.getLogger(str_or_logger.name)
+        else:
+            return logging.getLogger(str_or_logger)
+
+    def domain_name(self):
+        return "str or logging.Logger"
 
 
-def NonNegIntOrMinusOne(obj):
-    """
-    Domain validator for objects castable to a non-negative int or -1.
-    """
-    ans = int(obj)
-    if ans != float(obj) or (ans < 0 and ans != -1):
-        raise ValueError("Expected non-negative int, but received %s" % (obj,))
-    return ans
-
-
-def PositiveIntOrMinusOne(obj):
+class PositiveIntOrMinusOne:
     """
     Domain validator for objects castable to a
     strictly positive int or -1.
     """
-    ans = int(obj)
-    if ans != float(obj) or (ans <= 0 and ans != -1):
-        raise ValueError("Expected positive int, but received %s" % (obj,))
-    return ans
+    def __call__(self, obj):
+        ans = int(obj)
+        if ans != float(obj) or (ans <= 0 and ans != -1):
+            raise ValueError("Expected positive int, but received %s" % (obj,))
+        return ans
 
-
-def ValidEnum(enum_class):
-    """
-    Domain validator for member of an `enum` object.
-    """
-    def fcn(obj):
-        if obj not in enum_class:
-            raise ValueError(
-                "Expected an {0} object, "
-                "instead received {1}".format(
-                    enum_class.__name__, obj.__class__.__name__
-                )
-            )
-        return obj
-
-    return fcn
+    def domain_name(self):
+        return "positive int or -1"
 
 
 class NotSolverResolvable(Exception):
@@ -227,6 +211,10 @@ class SolverResolvable(object):
 
         return solver
 
+    def domain_name(self):
+        """Description of domain encompassed by self."""
+        return "str or Solver"
+
 
 class SolverIterable(object):
     """
@@ -310,6 +298,9 @@ class SolverIterable(object):
 
         return solvers
 
+    def domain_name(self):
+        return "Iterable of str or Solver"
+
 
 class PathLikeOrNone:
     """
@@ -355,6 +346,10 @@ class PathLikeOrNone:
 
         # expand path using ``common.config.Path`` interface
         return self.config_path(path_str)
+
+    def domain_name(self):
+        """str : Brief description of the domain encompassed by self."""
+        return "path-like or None"
 
 
 class ImmutableParamError(Exception):
@@ -508,6 +503,13 @@ class InputDataStandardizer(object):
 
         return ans
 
+    def domain_name(self):
+        """str : Brief description of the domain encompassed by self."""
+        return (
+            f"{self.cdatatype.__name__}, {self.ctype.__name__}, "
+            f"or Iterable of {self.cdatatype.__name__}/{self.ctype.__name__}"
+        )
+
 
 class PyROSConfigValue(ConfigValue):
     """
@@ -602,6 +604,7 @@ def pyros_config():
             is_optional=True,
             document_default=False,
             dtype_spec_str="None or NonNegativeFloat",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -620,6 +623,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -631,6 +635,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -647,6 +652,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
 
@@ -661,6 +667,7 @@ def pyros_config():
             description="First-stage (or design) variables.",
             is_optional=False,
             dtype_spec_str="VarData, Var, or list of VarData/Var",
+            visibility=1,
         ),
     )
     CONFIG.declare(
@@ -671,6 +678,7 @@ def pyros_config():
             description="Second-stage (or control) variables.",
             is_optional=False,
             dtype_spec_str="VarData, Var, or list of VarData/Var",
+            visibility=1,
         ),
     )
     CONFIG.declare(
@@ -692,6 +700,7 @@ def pyros_config():
             ),
             is_optional=False,
             dtype_spec_str="ParamData, Param, or list of ParamData/Param",
+            visibility=1,
         ),
     )
     CONFIG.declare(
@@ -708,6 +717,7 @@ def pyros_config():
             ),
             is_optional=False,
             dtype_spec_str="UncertaintySet",
+            visibility=1,
         ),
     )
     CONFIG.declare(
@@ -721,6 +731,7 @@ def pyros_config():
             description="Subordinate local NLP solver.",
             is_optional=False,
             dtype_spec_str="str or Solver",
+            visibility=1,
         ),
     )
     CONFIG.declare(
@@ -734,6 +745,7 @@ def pyros_config():
             description="Subordinate global NLP solver.",
             is_optional=False,
             dtype_spec_str="str or Solver",
+            visibility=1,
         ),
     )
     # ================================================
@@ -743,7 +755,7 @@ def pyros_config():
         "objective_focus",
         PyROSConfigValue(
             default=ObjectiveType.nominal,
-            domain=ValidEnum(ObjectiveType),
+            domain=InEnum(ObjectiveType),
             description=(
                 """
                 Choice of objective focus to optimize in the master problems.
@@ -774,6 +786,7 @@ def pyros_config():
             is_optional=True,
             document_default=False,
             dtype_spec_str="ObjectiveType",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -793,6 +806,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str="iterable of float",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -823,6 +837,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -846,13 +861,14 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
         "max_iter",
         PyROSConfigValue(
             default=-1,
-            domain=PositiveIntOrMinusOne,
+            domain=PositiveIntOrMinusOne(),
             description=(
                 """
                 Iteration limit. If -1 is provided, then no iteration
@@ -862,6 +878,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str="int",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -878,6 +895,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -900,13 +918,14 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
         "progress_logger",
         PyROSConfigValue(
             default=setup_pyros_logger(),
-            domain=a_logger,
+            domain=LoggerType(),
             doc=(
                 """
                 Logger (or name thereof) used for reporting PyROS solver
@@ -920,6 +939,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str="str or logging.Logger",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -940,6 +960,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str="Iterable of str or Solver",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -960,6 +981,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str="Iterable of str or Solver",
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -982,6 +1004,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str="None, str, bytes, or path-like",
+            visibility=0,
         ),
     )
 
@@ -1006,6 +1029,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -1030,6 +1054,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
     CONFIG.declare(
@@ -1055,6 +1080,7 @@ def pyros_config():
             is_optional=True,
             document_default=True,
             dtype_spec_str=None,
+            visibility=0,
         ),
     )
 
@@ -1078,8 +1104,8 @@ def resolve_keyword_arguments(prioritized_kwargs_dicts, func=None):
         warnings. If `None` is passed, then warning messages
         logged are slightly less informative.
 
-    Parameters
-    ----------
+    Returns
+    -------
     resolved_kwargs : dict
         Resolved keyword arguments.
     """
@@ -1484,3 +1510,170 @@ def validate_pyros_inputs(model, config):
     validate_variable_partitioning(model, config)
     validate_uncertainty_specification(model, config)
     validate_separation_problem_options(model, config)
+
+
+def wrap_doc(doc, indent_by, width):
+    """
+    Wrap a string, accounting for paragraph
+    breaks ('\n\n') and bullet points (paragraphs
+    which, when dedented, are such that each line
+    starts with '- ' or '  ').
+    """
+    paragraphs = doc.split("\n\n")
+    wrapped_pars = []
+    for par in paragraphs:
+        lines = dedent(par).split("\n")
+        has_bullets = all(
+            line.startswith("- ") or line.startswith("  ")
+            for line in lines
+            if line != ""
+        )
+        if has_bullets:
+            # obtain strings of each bullet point
+            # (dedented, bullet dash and bullet indent removed)
+            bullet_groups = []
+            new_group = False
+            group = ""
+            for line in lines:
+                new_group = line.startswith("- ")
+                if new_group:
+                    bullet_groups.append(group)
+                    group = ""
+                new_line = line[2:]
+                group += f"{new_line}\n"
+            if group != "":
+                # ensure last bullet not skipped
+                bullet_groups.append(group)
+
+            # first entry is just ''; remove
+            bullet_groups = bullet_groups[1:]
+
+            # wrap each bullet point, then add bullet
+            # and indents as necessary
+            wrapped_groups = []
+            for group in bullet_groups:
+                wrapped_groups.append(
+                    "\n".join(
+                        f"{'- ' if idx == 0 else '  '}{line}"
+                        for idx, line in enumerate(
+                            wrap(group, width - 2 - indent_by)
+                        )
+                    )
+                )
+
+            # now combine bullets into single 'paragraph'
+            wrapped_pars.append(
+                indent("\n".join(wrapped_groups), prefix=' ' * indent_by)
+            )
+        else:
+            wrapped_pars.append(
+                indent(
+                    "\n".join(wrap(dedent(par), width=width - indent_by)),
+                    prefix=' ' * indent_by,
+                )
+            )
+
+    return "\n\n".join(wrapped_pars)
+
+
+def add_filtered_config_section_to_docstring(
+        func,
+        config,
+        visibility=0,
+        section="Keyword Arguments",
+        indent_by=8,
+        width=72,
+        ):
+    """
+    Add section enumerating entries of a `ConfigDict` to
+    the docstring of a callable.
+
+    func : callable
+        Function of which docstring is to be modified.
+    config : ConfigDict
+        Specification of arguments to the function.
+    visibility : int, optional
+        Visibility filter.
+        Maximum visibility for which a member of `config`
+        will be listed in the added section.
+    section : str, optional
+        Title of the section to be added.
+    indent_by : int, optional
+        Number of spaces by which to indent each line of the
+        docstring.
+    width : 72
+        Maximum line width of the docstring (including indents).
+
+    Returns
+    -------
+    str
+        Modified docstring.
+    """
+    before = func.__doc__
+
+    indent_str = ' ' * indent_by
+    wrap_width = width - indent_by
+
+    arg_docs = []
+
+    section_header = indent(f"{section}\n" + "-" * len(section), indent_str)
+    for key, itm in config._data.items():
+        if itm._visibility > visibility:
+            continue
+        arg_name = key
+        arg_dtype = itm.dtype_spec_str
+
+        if itm.is_optional:
+            if itm.document_default:
+                optional_str = f", default={repr(itm._default)}"
+            else:
+                optional_str = ", optional"
+        else:
+            optional_str = ""
+
+        arg_header = f"{indent_str}{arg_name} : {arg_dtype}{optional_str}"
+
+        # dedented_doc_str = dedent(itm.doc).replace("\n", ' ').strip()
+        if itm._doc is not None:
+            raw_arg_desc = itm._doc
+        else:
+            raw_arg_desc = itm._description
+
+        arg_description = wrap_doc(
+            raw_arg_desc, width=wrap_width, indent_by=indent_by + 4
+        )
+
+        arg_docs.append(f"{arg_header}\n{arg_description}")
+
+    kwargs_section_doc = "\n".join([section_header] + arg_docs)
+
+    return f"{before}\n{kwargs_section_doc}\n"
+
+
+def add_config_kwargs_to_doc(**doc_kwargs):
+    """
+    Create function decorator for adding keyword arguments from
+    members of a ConfigDict to the function docstring.
+
+    Parameters
+    ----------
+    **doc_kwargs : dict, optional
+        Keyword arguments to ``generate_filtered_docstring``.
+
+    Returns
+    -------
+    callable
+        Function decorator.
+    """
+    def decorator_func(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        wrapper.__doc__ = add_filtered_config_section_to_docstring(
+            func=func,
+            **doc_kwargs,
+        )
+        return wrapper
+
+    return decorator_func
