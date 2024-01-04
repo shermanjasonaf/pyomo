@@ -6,7 +6,7 @@ One class per function being tested, minimum one test per class
 import pyomo.common.unittest as unittest
 from pyomo.common.log import LoggingIntercept
 from pyomo.common.collections import ComponentSet, ComponentMap
-from pyomo.common.config import ConfigBlock, ConfigValue
+from pyomo.common.config import ConfigBlock, ConfigValue, Path
 from pyomo.core.base.set_types import NonNegativeIntegers
 from pyomo.core.expr import (
     identify_variables,
@@ -54,6 +54,7 @@ from pyomo.contrib.pyros.pyros import (
     SolverIterable,
     InputDataStandardizer,
     ImmutableParamError,
+    PathLikeOrNone,
     mutable_param_validator,
     default_pyros_solver_logger,
 )
@@ -98,8 +99,8 @@ from pyomo.environ import (
     maximize,
     minimize,
 )
+import os
 import logging
-from itertools import chain
 
 
 logger = logging.getLogger(__name__)
@@ -7542,6 +7543,91 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 bypass_local_separation=True,
                 bypass_global_separation=True,
             )
+
+
+class testPathLikeOrNone(unittest.TestCase):
+    """
+    Test interface for validating path-like arguments.
+    """
+
+    def test_none_valid(self):
+        """
+        Test `None` is valid.
+        """
+        standardizer_func = PathLikeOrNone()
+
+        self.assertIs(
+            standardizer_func(None),
+            None,
+            msg="Output of `PathLikeOrNone` standardizer not as expected.",
+        )
+
+    def test_str_bytes_path_like_valid(self):
+        """
+        Check path-like validator handles str, bytes, and path-like
+        inputs correctly.
+        """
+        class ExamplePathLike(os.PathLike):
+            """
+            Path-like class for testing. Key feature: __fspath__
+            and __str__ return different outputs.
+            """
+            def __init__(self, path_str_or_bytes):
+                self.path = path_str_or_bytes
+
+            def __fspath__(self):
+                return self.path
+
+            def __str__(self):
+                path_str = os.fsdecode(self.path)
+                return f"{type(self).__name__}({path_str})"
+
+        path_standardization_func = PathLikeOrNone()
+
+        # construct path arguments of different type
+        path_as_str = "example_output_dir/"
+        path_as_bytes = os.fsencode(path_as_str)
+        path_like_from_str = ExamplePathLike(path_as_str)
+        path_like_from_bytes = ExamplePathLike(path_as_bytes)
+
+        # for all possible arguments, output should be
+        # the str returned by ``common.config.Path`` when
+        # string representation of the path is input.
+        expected_output = Path()(path_as_str)
+
+        # check output is as expected in all cases
+        self.assertEqual(
+            path_standardization_func(path_as_str),
+            expected_output,
+            msg=(
+                "Path-like validator output from str input "
+                "does not match expected value."
+            ),
+        )
+        self.assertEqual(
+            path_standardization_func(path_as_bytes),
+            expected_output,
+            msg=(
+                "Path-like validator output from bytes input "
+                "does not match expected value."
+            ),
+        )
+        self.assertEqual(
+            path_standardization_func(path_like_from_str),
+            expected_output,
+            msg=(
+                "Path-like validator output from path-like input "
+                "derived from str does not match expected value."
+            ),
+        )
+        self.assertEqual(
+            path_standardization_func(path_like_from_bytes),
+            expected_output,
+            msg=(
+                "Path-like validator output from path-like input "
+                "derived from bytes does not match expected value."
+            ),
+        )
 
 
 if __name__ == "__main__":

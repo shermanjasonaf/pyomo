@@ -12,9 +12,10 @@
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
 from collections.abc import Iterable
 import logging
+import os
 from textwrap import indent, dedent, wrap
 from pyomo.common.collections import Bunch, ComponentSet
-from pyomo.common.config import ConfigDict, ConfigValue, In, NonNegativeFloat
+from pyomo.common.config import ConfigDict, ConfigValue, In, NonNegativeFloat, Path
 from pyomo.core.base.block import Block
 from pyomo.core.expr import value
 from pyomo.core.base.var import Var, _VarData
@@ -320,6 +321,52 @@ class SolverIterable(object):
             ))
 
         return solvers
+
+
+class PathLikeOrNone:
+    """
+    Validator for path-like objects.
+
+    This interface is a wrapper around the domain validator
+    ``common.config.Path``, and extends the domain of interest to
+    to include:
+        - None
+        - objects following the Python ``os.PathLike`` protocol.
+
+    Parameters
+    ----------
+    **config_path_kwargs : dict
+        Keyword arguments to ``common.config.Path``.
+    """
+    def __init__(self, **config_path_kwargs):
+        """Initialize self (see class docstring)."""
+        self.config_path = Path(**config_path_kwargs)
+
+    def __call__(self, path):
+        """
+        Cast path to expanded string representation.
+
+        Parameters
+        ----------
+        path : None str, bytes, or path-like
+            Object to be cast.
+
+        Returns
+        -------
+        None
+            If obj is None.
+        str
+            String representation of path-like object.
+        """
+        if path is None:
+            return path
+
+        # cast to str. if not str, bytes, or path-like,
+        # expect TypeError to be raised here
+        path_str = os.fsdecode(path)
+
+        # expand path using ``common.config.Path`` interface
+        return self.config_path(path_str)
 
 
 class ImmutableParamError(Exception):
@@ -921,19 +968,22 @@ def pyros_config():
         "subproblem_file_directory",
         PyROSConfigValue(
             default=None,
-            domain=str,
+            domain=PathLikeOrNone(),
             description=(
                 """
-                Directory to which to export subproblems not successfully
+                Path of directory to which
+                to export subproblems not successfully
                 solved to an acceptable termination condition.
-                In the event ``keepfiles=True`` is specified, a str or
-                path-like referring to an existing directory must be
-                provided.
+                If a path is specified, i.e. str, bytes,
+                or path-like value is passed, then the directory
+                to which it refers must exist.
+                Subproblems are exported only if a path is specified
+                and user passes argument ``keepfiles=True``.
                 """
             ),
             is_optional=True,
             document_default=True,
-            dtype_spec_str="None, str, or path-like",
+            dtype_spec_str="None, str, bytes, or path-like",
         ),
     )
 
