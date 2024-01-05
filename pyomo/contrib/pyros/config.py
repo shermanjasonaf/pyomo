@@ -242,8 +242,8 @@ class SolverIterable(object):
 
         Parameters
         ----------
-        obj : Iterable
-            Object of interest. Should not be of type `str`.
+        obj : str, Solver, or Iterable of str/Solver
+            Object of interest.
         require_available : bool or None, optional
             True if `available()` method of each solver
             object must return True, False otherwise.
@@ -275,11 +275,15 @@ class SolverIterable(object):
         # set up single standardization callable
         solver_resolve_func = SolverResolvable()
 
-        if isinstance(obj, str):
+        if isinstance(obj, str) or solver_resolve_func.is_solver_type(obj):
             # as str is iterable, check explicitly that str not passed,
             # otherwise this method would attempt to resolve each
             # character
-            raise TypeError("Object should be an iterable not of type str.")
+            return [solver_resolve_func(
+                obj,
+                require_available=require_available,
+                solver_desc=solver_desc,
+            )]
 
         # now resolve to list of solver objects
         solvers = []
@@ -298,7 +302,7 @@ class SolverIterable(object):
         return solvers
 
     def domain_name(self):
-        return "Iterable of str or Solver"
+        return "str, Solver, or Iterable of str/Solver"
 
 
 class PathLikeOrNone:

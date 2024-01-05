@@ -6487,16 +6487,19 @@ class testSolverIterable(unittest.TestCase):
             ),
         )
 
-    def test_solver_iterable_invalid_str(self):
+    def test_solver_iterable_valid_str(self):
         """
         Test SolverIterable raises exception when str passed.
         """
-        invalid_object = "abcd"
+        solver_str = "ipopt"
         standardizer_func = SolverIterable()
 
-        exc_str = r"Object should be an iterable not of type str.*"
-        with self.assertRaisesRegex(TypeError, exc_str):
-            standardizer_func(invalid_object)
+        solver_list = standardizer_func(solver_str)
+        self.assertEqual(
+            len(solver_list),
+            1,
+            "Standardized solver list is not of expected length",
+        )
 
     def test_solver_iterable_invalid_list(self):
         """
