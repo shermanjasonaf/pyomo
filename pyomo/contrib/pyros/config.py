@@ -5,10 +5,9 @@ PyROS solver.
 
 
 from collections.abc import Iterable
-import functools
 import logging
 import os
-from textwrap import indent, dedent, wrap
+from pyomo.common.config import document_kwargs_from_configdict
 
 from pyomo.common.config import (
     ConfigDict,
@@ -1512,144 +1511,6 @@ def validate_pyros_inputs(model, config):
     validate_separation_problem_options(model, config)
 
 
-def wrap_doc(doc, indent_by, width):
-    """
-    Wrap a string, accounting for paragraph
-    breaks ('\n\n') and bullet points (paragraphs
-    which, when dedented, are such that each line
-    starts with '- ' or '  ').
-    """
-    paragraphs = doc.split("\n\n")
-    wrapped_pars = []
-    for par in paragraphs:
-        lines = dedent(par).split("\n")
-        has_bullets = all(
-            line.startswith("- ") or line.startswith("  ")
-            for line in lines
-            if line != ""
-        )
-        if has_bullets:
-            # obtain strings of each bullet point
-            # (dedented, bullet dash and bullet indent removed)
-            bullet_groups = []
-            new_group = False
-            group = ""
-            for line in lines:
-                new_group = line.startswith("- ")
-                if new_group:
-                    bullet_groups.append(group)
-                    group = ""
-                new_line = line[2:]
-                group += f"{new_line}\n"
-            if group != "":
-                # ensure last bullet not skipped
-                bullet_groups.append(group)
-
-            # first entry is just ''; remove
-            bullet_groups = bullet_groups[1:]
-
-            # wrap each bullet point, then add bullet
-            # and indents as necessary
-            wrapped_groups = []
-            for group in bullet_groups:
-                wrapped_groups.append(
-                    "\n".join(
-                        f"{'- ' if idx == 0 else '  '}{line}"
-                        for idx, line in enumerate(
-                            wrap(group, width - 2 - indent_by)
-                        )
-                    )
-                )
-
-            # now combine bullets into single 'paragraph'
-            wrapped_pars.append(
-                indent("\n".join(wrapped_groups), prefix=' ' * indent_by)
-            )
-        else:
-            wrapped_pars.append(
-                indent(
-                    "\n".join(wrap(dedent(par), width=width - indent_by)),
-                    prefix=' ' * indent_by,
-                )
-            )
-
-    return "\n\n".join(wrapped_pars)
-
-
-def add_filtered_config_section_to_docstring(
-        func,
-        config,
-        visibility=0,
-        section="Keyword Arguments",
-        indent_by=8,
-        width=72,
-        ):
-    """
-    Add section enumerating entries of a `ConfigDict` to
-    the docstring of a callable.
-
-    func : callable
-        Function of which docstring is to be modified.
-    config : ConfigDict
-        Specification of arguments to the function.
-    visibility : int, optional
-        Visibility filter.
-        Maximum visibility for which a member of `config`
-        will be listed in the added section.
-    section : str, optional
-        Title of the section to be added.
-    indent_by : int, optional
-        Number of spaces by which to indent each line of the
-        docstring.
-    width : 72
-        Maximum line width of the docstring (including indents).
-
-    Returns
-    -------
-    str
-        Modified docstring.
-    """
-    before = func.__doc__
-
-    indent_str = ' ' * indent_by
-    wrap_width = width - indent_by
-
-    arg_docs = []
-
-    section_header = indent(f"{section}\n" + "-" * len(section), indent_str)
-    for key, itm in config._data.items():
-        if itm._visibility > visibility:
-            continue
-        arg_name = key
-        arg_dtype = itm.dtype_spec_str
-
-        if itm.is_optional:
-            if itm.document_default:
-                optional_str = f", default={repr(itm._default)}"
-            else:
-                optional_str = ", optional"
-        else:
-            optional_str = ""
-
-        arg_header = f"{indent_str}{arg_name} : {arg_dtype}{optional_str}"
-
-        # dedented_doc_str = dedent(itm.doc).replace("\n", ' ').strip()
-        if itm._doc is not None:
-            raw_arg_desc = itm._doc
-        else:
-            raw_arg_desc = itm._description
-
-        arg_description = wrap_doc(
-            raw_arg_desc, width=wrap_width, indent_by=indent_by + 4
-        )
-
-        arg_docs.append(f"{arg_header}\n{arg_description}")
-
-    kwargs_section_doc = "\n".join([section_header] + arg_docs)
-
-    return f"{before}\n{kwargs_section_doc}\n"
-
-
 def add_config_kwargs_to_doc(**doc_kwargs):
     """
     Create function decorator for adding keyword arguments from
@@ -1665,15 +1526,4 @@ def add_config_kwargs_to_doc(**doc_kwargs):
     callable
         Function decorator.
     """
-    def decorator_func(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-
-        wrapper.__doc__ = add_filtered_config_section_to_docstring(
-            func=func,
-            **doc_kwargs,
-        )
-        return wrapper
-
-    return decorator_func
+    return document_kwargs_from_configdict(**doc_kwargs)

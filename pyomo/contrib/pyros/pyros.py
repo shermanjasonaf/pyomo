@@ -292,7 +292,7 @@ class PyROS(object):
     @add_config_kwargs_to_doc(
         config=CONFIG,
         section='Keyword Arguments',
-        indent_by=8,
+        indent_spacing=4,
         width=72,
         visibility=0,
     )
