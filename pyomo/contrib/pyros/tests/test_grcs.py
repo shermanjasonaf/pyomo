@@ -6636,6 +6636,21 @@ class testInputDataStandardizer(unittest.TestCase):
                 ),
             )
 
+    def test_standardizer_invalid_duplicates(self):
+        """
+        Test standardizer raises exception if input contains duplicates
+        and duplicates are not allowed.
+        """
+        mdl = ConcreteModel()
+        mdl.v = Var([0, 1])
+        mdl.x = Var(["a", "b"])
+
+        standardizer_func = InputDataStandardizer(Var, _VarData, allow_repeats=False)
+
+        exc_str = r"Standardized.*list.*contains duplicate entries\."
+        with self.assertRaisesRegex(ValueError, exc_str):
+            standardizer_func([mdl.x, mdl.v, mdl.x])
+
     def test_standardizer_invalid_type(self):
         """
         Test standardizer raises exception as expected
