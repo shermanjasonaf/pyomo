@@ -78,6 +78,7 @@ class PositiveIntOrMinusOne:
     Domain validator for objects castable to a
     strictly positive int or -1.
     """
+
     def __call__(self, obj):
         """
         Cast object to positive int or -1.
@@ -137,9 +138,7 @@ class SolverResolvable(object):
     """
 
     def __init__(self, require_available=True, solver_desc="solver"):
-        """Initialize self (see class docstring).
-
-        """
+        """Initialize self (see class docstring)."""
         self.require_available = require_available
         self.solver_desc = solver_desc
 
@@ -153,9 +152,8 @@ class SolverResolvable(object):
         it has callable attributes named 'solve' and
         'available'.
         """
-        return (
-            callable(getattr(obj, "solve", None))
-            and callable(getattr(obj, "available", None))
+        return callable(getattr(obj, "solve", None)) and callable(
+            getattr(obj, "available", None)
         )
 
     def __call__(self, obj, require_available=None, solver_desc=None):
@@ -303,25 +301,24 @@ class SolverIterable(object):
             # as str is iterable, check explicitly that str not passed,
             # otherwise this method would attempt to resolve each
             # character
-            return [solver_resolve_func(
-                obj,
-                require_available=require_available,
-                solver_desc=solver_desc,
-            )]
+            return [
+                solver_resolve_func(
+                    obj, require_available=require_available, solver_desc=solver_desc
+                )
+            ]
 
         # now resolve to list of solver objects
         solvers = []
         obj_as_list = list(obj)
         for idx, val in enumerate(obj_as_list):
-            solver_desc_str = (
-                f"{solver_desc} "
-                f"(index {idx})"
+            solver_desc_str = f"{solver_desc} " f"(index {idx})"
+            solvers.append(
+                solver_resolve_func(
+                    obj=val,
+                    require_available=require_available,
+                    solver_desc=solver_desc_str,
+                )
             )
-            solvers.append(solver_resolve_func(
-                obj=val,
-                require_available=require_available,
-                solver_desc=solver_desc_str,
-            ))
 
         return solvers
 
@@ -345,6 +342,7 @@ class PathLikeOrNone:
     **config_path_kwargs : dict
         Keyword arguments to ``common.config.Path``.
     """
+
     def __init__(self, **config_path_kwargs):
         """Initialize self (see class docstring)."""
         self.config_path = Path(**config_path_kwargs)
@@ -449,17 +447,16 @@ class InputDataStandardizer(object):
     cdatatype_validator
     allow_repeats
     """
-    def __init__(
-            self,
-            ctype,
-            cdatatype,
-            ctype_validator=None,
-            cdatatype_validator=None,
-            allow_repeats=False,
-            ):
-        """Initialize self (see class docstring).
 
-        """
+    def __init__(
+        self,
+        ctype,
+        cdatatype,
+        ctype_validator=None,
+        cdatatype_validator=None,
+        allow_repeats=False,
+    ):
+        """Initialize self (see class docstring)."""
         self.ctype = ctype
         self.cdatatype = cdatatype
         self.ctype_validator = ctype_validator
@@ -521,7 +518,8 @@ class InputDataStandardizer(object):
         else:
             from_iterable_qual = (
                 f" (entry of iterable {from_iterable})"
-                if from_iterable is not None else ""
+                if from_iterable is not None
+                else ""
             )
             raise TypeError(
                 f"Input object {obj!r}{from_iterable_qual} "
@@ -762,10 +760,7 @@ def pyros_config():
         "local_solver",
         PyROSConfigValue(
             default=None,
-            domain=SolverResolvable(
-                solver_desc="local solver",
-                require_available=True,
-            ),
+            domain=SolverResolvable(solver_desc="local solver", require_available=True),
             description="Subordinate local NLP solver.",
             is_optional=False,
             dtype_spec_str="str or Solver",
@@ -777,8 +772,7 @@ def pyros_config():
         PyROSConfigValue(
             default=None,
             domain=SolverResolvable(
-                solver_desc="global solver",
-                require_available=True,
+                solver_desc="global solver", require_available=True
             ),
             description="Subordinate global NLP solver.",
             is_optional=False,
@@ -985,8 +979,7 @@ def pyros_config():
         PyROSConfigValue(
             default=[],
             domain=SolverIterable(
-                solver_desc="backup local solver",
-                require_available=True,
+                solver_desc="backup local solver", require_available=True
             ),
             doc=(
                 """
@@ -1006,8 +999,7 @@ def pyros_config():
         PyROSConfigValue(
             default=[],
             domain=SolverIterable(
-                solver_desc="backup global solver",
-                require_available=True,
+                solver_desc="backup global solver", require_available=True
             ),
             doc=(
                 """
@@ -1170,9 +1162,8 @@ def resolve_keyword_arguments(prioritized_kwargs_dicts, func=None):
             # set of kwargs, and remove overlap of current
             # and higher priority sets from the result
             curr_prev_overlapping_args = (
-                (set(curr_kwargs.keys()) & set(prev_kwargs.keys()))
-                - overlapping_args_set
-            )
+                set(curr_kwargs.keys()) & set(prev_kwargs.keys())
+            ) - overlapping_args_set
             if curr_prev_overlapping_args:
                 # if there is overlap, prepare overlapping args
                 # for when warning is to be issued
@@ -1183,18 +1174,18 @@ def resolve_keyword_arguments(prioritized_kwargs_dicts, func=None):
 
         # ensure kwargs specified in higher priority
         # dicts are not overwritten in resolved kwargs
-        resolved_kwargs.update({
-            kw: val
-            for kw, val in curr_kwargs.items()
-            if kw not in overlapping_args_set
-        })
+        resolved_kwargs.update(
+            {
+                kw: val
+                for kw, val in curr_kwargs.items()
+                if kw not in overlapping_args_set
+            }
+        )
 
         # if there are overlaps, log warnings accordingly
         # per priority level
         for overlap_desc, args_set in overlapping_args.items():
-            new_overlapping_args_str = ", ".join(
-                f"{arg!r}" for arg in args_set
-            )
+            new_overlapping_args_str = ", ".join(f"{arg!r}" for arg in args_set)
             default_logger.warning(
                 f"Arguments [{new_overlapping_args_str}] passed {curr_desc} "
                 f"already {func_desc} {overlap_desc}, "
@@ -1231,10 +1222,7 @@ def check_components_descended_from_model(model, components, components_name, co
         If at least one entry of `components` is not descended
         from `model`.
     """
-    components_not_in_model = [
-        comp for comp in components
-        if comp.model() is not model
-    ]
+    components_not_in_model = [comp for comp in components if comp.model() is not model]
     if components_not_in_model:
         comp_names_str = "\n ".join(
             f"{comp.name!r}, from model with name {comp.model().name!r}"
@@ -1275,18 +1263,17 @@ def check_variables_continuous(model, config):
     A variable is considered continuous if the `is_continuous()`
     method returns True.
     """
-    state_vars = list(get_state_vars(
-        blk=model,
-        first_stage_variables=config.first_stage_variables,
-        second_stage_variables=config.second_stage_variables,
-    ))
+    state_vars = list(
+        get_state_vars(
+            blk=model,
+            first_stage_variables=config.first_stage_variables,
+            second_stage_variables=config.second_stage_variables,
+        )
+    )
     all_vars = config.first_stage_variables + config.second_stage_variables + state_vars
 
     # ensure all variables continuous
-    non_continuous_vars = [
-        var for var in all_vars
-        if not var.is_continuous()
-    ]
+    non_continuous_vars = [var for var in all_vars if not var.is_continuous()]
     if non_continuous_vars:
         non_continuous_vars_str = "\n ".join(
             f"{var.name!r}" for var in non_continuous_vars
@@ -1350,8 +1337,9 @@ def validate_model(model, config):
     vars_in_active_cons = ComponentSet(get_vars_from_component(model, Constraint))
     vars_in_active_obj = ComponentSet(identify_variables(active_obj))
     vars_not_in_model = [
-        var for var in vars_in_active_cons | vars_in_active_obj if
-        var.model() is not model
+        var
+        for var in vars_in_active_cons | vars_in_active_obj
+        if var.model() is not model
     ]
     if vars_not_in_model:
         vars_str = "\n ".join(
@@ -1401,9 +1389,8 @@ def validate_variable_partitioning(model, config):
         )
 
     # ensure no overlap between DOF var sets
-    overlapping_vars = (
-        ComponentSet(config.first_stage_variables)
-        & ComponentSet(config.second_stage_variables)
+    overlapping_vars = ComponentSet(config.first_stage_variables) & ComponentSet(
+        config.second_stage_variables
     )
     if overlapping_vars:
         overlapping_var_list = "\n ".join(f"{var.name!r}" for var in overlapping_vars)
@@ -1483,8 +1470,7 @@ def validate_uncertainty_specification(model, config):
     # otherwise, check length matches uncertainty dimension
     if not config.nominal_uncertain_param_vals:
         config.nominal_uncertain_param_vals = [
-            value(param, exception=True)
-            for param in config.uncertain_params
+            value(param, exception=True) for param in config.uncertain_params
         ]
     elif len(config.nominal_uncertain_param_vals) != len(config.uncertain_params):
         raise ValueError(

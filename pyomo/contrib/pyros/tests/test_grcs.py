@@ -57,9 +57,7 @@ from pyomo.contrib.pyros.uncertainty_sets import (
     DiscreteScenarioSet,
     Geometry,
 )
-from pyomo.contrib.pyros.pyros import (
-    default_pyros_solver_logger,
-)
+from pyomo.contrib.pyros.pyros import default_pyros_solver_logger
 from pyomo.contrib.pyros.master_problem_methods import (
     add_scenario_to_master,
     initial_construct_master,
@@ -218,9 +216,7 @@ class TimeDelaySolver(object):
 class UnavailableSolver:
     def available(self, exception_flag=True):
         if exception_flag:
-            raise ApplicationError(
-                f"Solver {self.__class__} not available"
-            )
+            raise ApplicationError(f"Solver {self.__class__} not available")
         return False
 
     def solve(self, model, *args, **kwargs):
@@ -5400,16 +5396,14 @@ class testModelMultipleObjectives(unittest.TestCase):
 
         # check validation error raised due to multiple objectives
         with self.assertRaisesRegex(
-            ValueError,
-            r"Expected model with exactly 1 active objective.*has 3",
+            ValueError, r"Expected model with exactly 1 active objective.*has 3"
         ):
             pyros_solver.solve(**solve_kwargs)
 
         # check validation error raised due to multiple objectives
         m.b.obj.deactivate()
         with self.assertRaisesRegex(
-            ValueError,
-            r"Expected model with exactly 1 active objective.*has 2",
+            ValueError, r"Expected model with exactly 1 active objective.*has 2"
         ):
             pyros_solver.solve(**solve_kwargs)
 
@@ -6357,8 +6351,7 @@ class testSolverResolvable(unittest.TestCase):
         """
         unavailable_solver = UnavailableSolver()
         standardizer_func = SolverResolvable(
-            solver_desc="local solver",
-            require_available=True,
+            solver_desc="local solver", require_available=True
         )
 
         exc_str = r"Solver.*UnavailableSolver.*not available"
@@ -6368,8 +6361,7 @@ class testSolverResolvable(unittest.TestCase):
 
         error_msgs = LOG.getvalue()[:-1]
         self.assertRegex(
-            error_msgs,
-            r"Output of `available\(\)` method.*local solver.*",
+            error_msgs, r"Output of `available\(\)` method.*local solver.*"
         )
 
     def test_pyros_unavailable_subsolver(self):
@@ -6403,8 +6395,7 @@ class testSolverResolvable(unittest.TestCase):
 
         error_msgs = LOG.getvalue()[:-1]
         self.assertRegex(
-            error_msgs,
-            r"Output of `available\(\)` method.*global solver.*",
+            error_msgs, r"Output of `available\(\)` method.*global solver.*"
         )
 
     def test_pyros_unavailable_backup_subsolver(self):
@@ -6439,8 +6430,7 @@ class testSolverResolvable(unittest.TestCase):
 
         error_msgs = LOG.getvalue()[:-1]
         self.assertRegex(
-            error_msgs,
-            r"Output of `available\(\)` method.*backup global solver.*",
+            error_msgs, r"Output of `available\(\)` method.*backup global solver.*"
         )
 
 
@@ -6472,7 +6462,7 @@ class testSolverIterable(unittest.TestCase):
                     f"(index {idx}) expected to be of type "
                     f"{expected_solver_types[idx].__name__}, "
                     f"but is of type {standardized_solver.__class__.__name__}"
-                )
+                ),
             )
 
         # second entry of standardized solver list should be the same
@@ -6496,9 +6486,7 @@ class testSolverIterable(unittest.TestCase):
 
         solver_list = standardizer_func(solver_str)
         self.assertEqual(
-            len(solver_list),
-            1,
-            "Standardized solver list is not of expected length",
+            len(solver_list), 1, "Standardized solver list is not of expected length"
         )
 
     def test_solver_iterable_invalid_list(self):
@@ -6521,6 +6509,7 @@ class testInputDataStandardizer(unittest.TestCase):
     """
     Test standardizer method for Pyomo component-type inputs.
     """
+
     def test_single_component_data(self):
         """
         Test standardizer works for single component
@@ -6576,7 +6565,7 @@ class testInputDataStandardizer(unittest.TestCase):
             msg=(
                 "Standardized output should be of type list, "
                 f"but is of type {standardizer_output.__class__.__name__}."
-            )
+            ),
         )
         self.assertEqual(
             len(standardizer_output),
@@ -6616,7 +6605,7 @@ class testInputDataStandardizer(unittest.TestCase):
             msg=(
                 "Standardized output should be of type list, "
                 f"but is of type {standardizer_output.__class__.__name__}."
-            )
+            ),
         )
         self.assertEqual(
             len(standardizer_output),
@@ -6692,9 +6681,7 @@ class testInputDataStandardizer(unittest.TestCase):
         uninitialized entries passed.
         """
         standardizer_func = InputDataStandardizer(
-            ctype=Param,
-            cdatatype=_ParamData,
-            ctype_validator=mutable_param_validator,
+            ctype=Param, cdatatype=_ParamData, ctype_validator=mutable_param_validator
         )
 
         mdl = ConcreteModel()
@@ -6710,9 +6697,7 @@ class testInputDataStandardizer(unittest.TestCase):
         Param object(s) passed.
         """
         standardizer_func = InputDataStandardizer(
-            ctype=Param,
-            cdatatype=_ParamData,
-            ctype_validator=mutable_param_validator,
+            ctype=Param, cdatatype=_ParamData, ctype_validator=mutable_param_validator
         )
 
         mdl = ConcreteModel()
@@ -6732,9 +6717,7 @@ class testInputDataStandardizer(unittest.TestCase):
         mdl.p2 = Param(["a", "b"], initialize=1, mutable=True)
 
         standardizer_func = InputDataStandardizer(
-            ctype=Param,
-            cdatatype=_ParamData,
-            ctype_validator=mutable_param_validator,
+            ctype=Param, cdatatype=_ParamData, ctype_validator=mutable_param_validator
         )
 
         standardizer_input = [mdl.p1[0], mdl.p2]
@@ -6747,7 +6730,7 @@ class testInputDataStandardizer(unittest.TestCase):
             msg=(
                 "Standardized output should be of type list, "
                 f"but is of type {standardizer_output.__class__.__name__}."
-            )
+            ),
         )
         self.assertEqual(
             len(standardizer_output),
@@ -6778,25 +6761,12 @@ class testResolveKeywordArguments(unittest.TestCase):
         Test resolve kwargs works, simple example
         where there is overlap.
         """
-        explicit_kwargs = dict(
-            arg1=1,
-        )
-        implicit_kwargs_1 = dict(
-            arg1=2,
-            arg2=3,
-        )
-        implicit_kwargs_2 = dict(
-            arg1=4,
-            arg2=4,
-            arg3=5,
-        )
+        explicit_kwargs = dict(arg1=1)
+        implicit_kwargs_1 = dict(arg1=2, arg2=3)
+        implicit_kwargs_2 = dict(arg1=4, arg2=4, arg3=5)
 
         # expected answer
-        expected_resolved_kwargs = dict(
-            arg1=1,
-            arg2=3,
-            arg3=5,
-        )
+        expected_resolved_kwargs = dict(arg1=1, arg2=3, arg3=5)
 
         # attempt kwargs resolve
         with LoggingIntercept(level=logging.WARNING) as LOG:
@@ -6805,23 +6775,21 @@ class testResolveKeywordArguments(unittest.TestCase):
                     "explicitly": explicit_kwargs,
                     "implicitly through set 1": implicit_kwargs_1,
                     "implicitly through set 2": implicit_kwargs_2,
-                },
+                }
             )
 
         # check kwargs resolved as expected
         self.assertEqual(
             resolved_kwargs,
             expected_resolved_kwargs,
-            msg="Resolved kwargs do not match expected value."
+            msg="Resolved kwargs do not match expected value.",
         )
 
         # extract logger warning messages
         warning_msgs = LOG.getvalue().split("\n")[:-1]
 
         self.assertEqual(
-            len(warning_msgs),
-            3,
-            msg="Number of warning messages is not as expected.",
+            len(warning_msgs), 3, msg="Number of warning messages is not as expected."
         )
 
         # check contents of warning msgs
@@ -6907,14 +6875,15 @@ class testResolveKeywordArguments(unittest.TestCase):
         # extract warning-level messages.
         warning_msgs = LOG.getvalue().split("\n")[:-1]
         resolve_kwargs_warning_msgs = [
-            msg for msg in warning_msgs
+            msg
+            for msg in warning_msgs
             if msg.startswith("Arguments [")
             and "Consider modifying your arguments" in msg
         ]
         self.assertEqual(
             len(resolve_kwargs_warning_msgs),
             3,
-            msg="Number of warning-level messages not as expected."
+            msg="Number of warning-level messages not as expected.",
         )
 
         self.assertRegex(
@@ -6949,9 +6918,7 @@ class testResolveKeywordArguments(unittest.TestCase):
             msg="Termination condition not as expected",
         )
         self.assertEqual(
-            results.iterations,
-            1,
-            msg="Number of iterations not as expected",
+            results.iterations, 1, msg="Number of iterations not as expected"
         )
 
         # check config resolved as expected
@@ -6987,6 +6954,7 @@ class testModelValidation(unittest.TestCase):
     """
     Test model validation routines work as expected.
     """
+
     def make_simple_test_model(self):
         """
         Make simple model for testing validation routines.
@@ -7067,10 +7035,7 @@ class testModelValidation(unittest.TestCase):
                 r"model with name 'example_model'.*"
             ),
         )
-        self.assertEqual(
-            log_msgs[1],
-            " 'z[1]', from model with name 'other_model'",
-        )
+        self.assertEqual(log_msgs[1], " 'z[1]', from model with name 'other_model'")
         self.assertRegex(
             log_msgs[2],
             expected_regex=(
@@ -7098,6 +7063,7 @@ class SimpleTestSolver:
     functionality. Written to test unrelated aspects
     of PyROS functionality.
     """
+
     def available(self, exception_flag=False):
         """
         Check solver available.
@@ -7155,7 +7121,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[mdl.x1],
                 second_stage_variables=[mdl.x2],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2]]),
+                uncertainty_set=BoxSet([[1 / 4, 2]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
             )
@@ -7180,7 +7146,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[mdl.x1],
                 second_stage_variables=[mdl.x2],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2]]),
+                uncertainty_set=BoxSet([[1 / 4, 2]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
             )
@@ -7212,7 +7178,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                     first_stage_variables=[mdl.x1],
                     second_stage_variables=[mdl.x2],
                     uncertain_params=[mdl.u],
-                    uncertainty_set=BoxSet([[1/4, 2]]),
+                    uncertainty_set=BoxSet([[1 / 4, 2]]),
                     local_solver=local_solver,
                     global_solver=global_solver,
                 )
@@ -7221,9 +7187,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
 
         # check detailed log message is as expected
         self.assertEqual(
-            len(log_msgs),
-            3,
-            "Error message does not contain expected number of lines.",
+            len(log_msgs), 3, "Error message does not contain expected number of lines."
         )
         self.assertRegex(
             text=log_msgs[0],
@@ -7233,12 +7197,10 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
             ),
         )
         self.assertRegex(
-            text=log_msgs[1],
-            expected_regex=" 'x1', from model with name 'model2'",
+            text=log_msgs[1], expected_regex=" 'x1', from model with name 'model2'"
         )
         self.assertRegex(
-            text=log_msgs[2],
-            expected_regex="Ensure all Vars participating.*",
+            text=log_msgs[2], expected_regex="Ensure all Vars participating.*"
         )
 
     def test_pyros_empty_dof_vars(self):
@@ -7265,7 +7227,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[],
                 second_stage_variables=[],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2]]),
+                uncertainty_set=BoxSet([[1 / 4, 2]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
             )
@@ -7295,7 +7257,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                     first_stage_variables=[mdl.x1],
                     second_stage_variables=[mdl.x1, mdl.x2],
                     uncertain_params=[mdl.u],
-                    uncertainty_set=BoxSet([[1/4, 2]]),
+                    uncertainty_set=BoxSet([[1 / 4, 2]]),
                     local_solver=local_solver,
                     global_solver=global_solver,
                 )
@@ -7303,9 +7265,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
         # check logger output is as expected
         log_msgs = LOG.getvalue().split("\n")[:-1]
         self.assertEqual(
-            len(log_msgs),
-            3,
-            "Error message does not contain expected number of lines.",
+            len(log_msgs), 3, "Error message does not contain expected number of lines."
         )
         self.assertRegex(
             text=log_msgs[0],
@@ -7314,10 +7274,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 "and `second_stage_variables`.*"
             ),
         )
-        self.assertRegex(
-            text=log_msgs[1],
-            expected_regex=" 'x1'",
-        )
+        self.assertRegex(text=log_msgs[1], expected_regex=" 'x1'")
         self.assertRegex(
             text=log_msgs[2],
             expected_regex="Ensure no Vars are included in both arguments.",
@@ -7357,7 +7314,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                         first_stage_variables=first_stage_vars,
                         second_stage_variables=second_stage_vars,
                         uncertain_params=[mdl.u],
-                        uncertainty_set=BoxSet([[1/4, 2]]),
+                        uncertainty_set=BoxSet([[1 / 4, 2]]),
                         local_solver=local_solver,
                         global_solver=global_solver,
                     )
@@ -7397,9 +7354,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
         global_solver = SimpleTestSolver()
 
         # perform checks
-        exc_str = (
-            "Model with name 'test_model' contains non-continuous Vars."
-        )
+        exc_str = "Model with name 'test_model' contains non-continuous Vars."
         with LoggingIntercept(level=logging.ERROR) as LOG:
             with self.assertRaisesRegex(ValueError, exc_str):
                 pyros.solve(
@@ -7407,7 +7362,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                     first_stage_variables=[mdl.x1],
                     second_stage_variables=[mdl.x2],
                     uncertain_params=[mdl.u],
-                    uncertainty_set=BoxSet([[1/4, 2]]),
+                    uncertainty_set=BoxSet([[1 / 4, 2]]),
                     local_solver=local_solver,
                     global_solver=global_solver,
                 )
@@ -7415,9 +7370,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
         # check logger output is as expected
         log_msgs = LOG.getvalue().split("\n")[:-1]
         self.assertEqual(
-            len(log_msgs),
-            3,
-            "Error message does not contain expected number of lines.",
+            len(log_msgs), 3, "Error message does not contain expected number of lines."
         )
         self.assertRegex(
             text=log_msgs[0],
@@ -7426,15 +7379,11 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 "are non-continuous:"
             ),
         )
-        self.assertRegex(
-            text=log_msgs[1],
-            expected_regex=" 'x2'",
-        )
+        self.assertRegex(text=log_msgs[1], expected_regex=" 'x2'")
         self.assertRegex(
             text=log_msgs[2],
             expected_regex=(
-                "Ensure all model variables passed to "
-                "PyROS solver are continuous."
+                "Ensure all model variables passed to " "PyROS solver are continuous."
             ),
         )
 
@@ -7463,7 +7412,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[mdl.x1],
                 second_stage_variables=[mdl.x2],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2], [0, 1]]),
+                uncertainty_set=BoxSet([[1 / 4, 2], [0, 1]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
             )
@@ -7495,7 +7444,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[mdl.x1],
                 second_stage_variables=[mdl.x2],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2]]),
+                uncertainty_set=BoxSet([[1 / 4, 2]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
                 nominal_uncertain_param_vals=[0],
@@ -7527,7 +7476,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[mdl.x1],
                 second_stage_variables=[mdl.x2],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2]]),
+                uncertainty_set=BoxSet([[1 / 4, 2]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
                 nominal_uncertain_param_vals=[0, 1],
@@ -7557,7 +7506,7 @@ class testPyROSSolverAdvancedValidation(unittest.TestCase):
                 first_stage_variables=[mdl.x1],
                 second_stage_variables=[mdl.x2],
                 uncertain_params=[mdl.u],
-                uncertainty_set=BoxSet([[1/4, 2]]),
+                uncertainty_set=BoxSet([[1 / 4, 2]]),
                 local_solver=local_solver,
                 global_solver=global_solver,
                 bypass_local_separation=True,
@@ -7587,11 +7536,13 @@ class testPathLikeOrNone(unittest.TestCase):
         Check path-like validator handles str, bytes, and path-like
         inputs correctly.
         """
+
         class ExamplePathLike(os.PathLike):
             """
             Path-like class for testing. Key feature: __fspath__
             and __str__ return different outputs.
             """
+
             def __init__(self, path_str_or_bytes):
                 self.path = path_str_or_bytes
 

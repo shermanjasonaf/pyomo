@@ -532,16 +532,12 @@ def get_state_vars(blk, first_stage_variables, second_stage_variables):
     _VarData
         State variable.
     """
-    dof_var_set = (
-        ComponentSet(first_stage_variables)
-        | ComponentSet(second_stage_variables)
+    dof_var_set = ComponentSet(first_stage_variables) | ComponentSet(
+        second_stage_variables
     )
     seen = set()
     for var in blk.component_data_objects(Var, active=True, descend_into=True):
-        is_state_var = (
-            not var.fixed
-            and var not in dof_var_set
-        )
+        is_state_var = not var.fixed and var not in dof_var_set
         if is_state_var and id(var) not in seen:
             seen.add(id(var))
             yield var
