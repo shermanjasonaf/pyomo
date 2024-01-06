@@ -40,31 +40,36 @@ default_pyros_solver_logger = setup_pyros_logger()
 class LoggerType:
     """
     Domain validator for objects castable to logging.Logger.
-
-    Parameters
-    ----------
-    str_or_logger : str or logging.Logger
-        String or logger object to normalize.
-
-    Returns
-    -------
-    logging.Logger
-        If `str_or_logger` is of type `logging.Logger`,then
-        `str_or_logger` is returned.
-        Otherwise, ``logging.getLogger(str_or_logger)``
-        is returned. In the event `str_or_logger` is
-        the name of the default PyROS logger, the logger level
-        is set to `logging.INFO`, and a `PreformattedLogger`
-        instance is returned in lieu of a standard `Logger`
-        instance.
     """
+
     def __call__(self, str_or_logger):
+        """
+        Cast object to logger.
+
+        Parameters
+        ----------
+        str_or_logger : str or logging.Logger
+            String or logger object to normalize.
+
+        Returns
+        -------
+        logging.Logger
+            If `str_or_logger` is of type `logging.Logger`,then
+            `str_or_logger` is returned.
+            Otherwise, ``logging.getLogger(str_or_logger)``
+            is returned. In the event `str_or_logger` is
+            the name of the default PyROS logger, the logger level
+            is set to `logging.INFO`, and a `PreformattedLogger`
+            instance is returned in lieu of a standard `Logger`
+            instance.
+        """
         if isinstance(str_or_logger, logging.Logger):
             return logging.getLogger(str_or_logger.name)
         else:
             return logging.getLogger(str_or_logger)
 
     def domain_name(self):
+        """Return str briefly describing domain encompassed by self."""
         return "str or logging.Logger"
 
 
@@ -74,12 +79,31 @@ class PositiveIntOrMinusOne:
     strictly positive int or -1.
     """
     def __call__(self, obj):
+        """
+        Cast object to positive int or -1.
+
+        Parameters
+        ----------
+        obj : object
+            Object of interest.
+
+        Returns
+        -------
+        int
+            Positive int, or -1.
+
+        Raises
+        ------
+        ValueError
+            If object not castable to positive int, or -1.
+        """
         ans = int(obj)
         if ans != float(obj) or (ans <= 0 and ans != -1):
             raise ValueError("Expected positive int, but received %s" % (obj,))
         return ans
 
     def domain_name(self):
+        """Return str briefly describing domain encompassed by self."""
         return "positive int or -1"
 
 
@@ -211,7 +235,7 @@ class SolverResolvable(object):
         return solver
 
     def domain_name(self):
-        """Description of domain encompassed by self."""
+        """Return str briefly describing domain encompassed by self."""
         return "str or Solver"
 
 
@@ -302,6 +326,7 @@ class SolverIterable(object):
         return solvers
 
     def domain_name(self):
+        """Return str briefly describing domain encompassed by self."""
         return "str, Solver, or Iterable of str/Solver"
 
 
@@ -351,7 +376,7 @@ class PathLikeOrNone:
         return self.config_path(path_str)
 
     def domain_name(self):
-        """str : Brief description of the domain encompassed by self."""
+        """Return str briefly describing domain encompassed by self."""
         return "path-like or None"
 
 
@@ -408,11 +433,21 @@ class InputDataStandardizer(object):
     cdatatype : type
         Corresponding Pyomo component data type, such as
         _ComponentData, _VarData, or _ParamData.
+    ctype_validator : callable, optional
+        Validator function for objects of type `ctype`.
+    cdatatype_validator : callable, optional
+        Validator function for objects of type `cdatatype`.
+    allow_repeats : bool, optional
+        True to allow duplicate component data entries in final
+        list to which argument is cast, False otherwise.
 
     Attributes
     ----------
     ctype
     cdatatype
+    ctype_validator
+    cdatatype_validator
+    allow_repeats
     """
     def __init__(
             self,
@@ -507,7 +542,7 @@ class InputDataStandardizer(object):
         return ans
 
     def domain_name(self):
-        """str : Brief description of the domain encompassed by self."""
+        """Return str briefly describing domain encompassed by self."""
         return (
             f"{self.cdatatype.__name__}, {self.ctype.__name__}, "
             f"or Iterable of {self.cdatatype.__name__}/{self.ctype.__name__}"
