@@ -211,7 +211,7 @@ class SolverResolvable(object):
             solver = obj
         else:
             raise NotSolverResolvable(
-                f"Cannot cast object `{obj!r}` to a Pyomo optimizer for use as a "
+                f"Cannot cast object `{obj!r}` to a Pyomo optimizer for use as "
                 f"{solver_desc}, as the object is neither a str nor a "
                 f"Pyomo Solver type (got type {type(obj).__name__})."
             )
