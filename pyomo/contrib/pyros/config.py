@@ -280,7 +280,7 @@ class SolverIterable(object):
 
         Returns
         -------
-        solvers : list of Solver
+        solvers : list of solver type
             List of solver objects to which obj is cast.
 
         Raises
@@ -324,7 +324,7 @@ class SolverIterable(object):
 
     def domain_name(self):
         """Return str briefly describing domain encompassed by self."""
-        return "str, Solver, or Iterable of str/Solver"
+        return "str, solver type, or Iterable of str/solver type"
 
 
 class PathLikeOrNone:

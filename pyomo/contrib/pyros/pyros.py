@@ -324,11 +324,11 @@ class PyROS(object):
         uncertainty_set: UncertaintySet
             Uncertainty set against which the solution(s) returned
             will be confirmed to be robust.
-        local_solver: str or Solver
+        local_solver: str or solver type
             Subordinate local NLP solver.
             If a str is passed, then the str is cast to
             ``SolverFactory(local_solver)``.
-        global_solver: str or Solver
+        global_solver: str or solver type
             Subordinate global NLP solver.
             If a str is passed, then the str is cast to
             ``SolverFactory(global_solver)``.
