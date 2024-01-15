@@ -15,13 +15,13 @@ from pyomo.opt import SolverResults
 from pyomo.core.expr import value
 from pyomo.core.base.set_types import NonNegativeIntegers, NonNegativeReals
 from pyomo.contrib.pyros.util import (
-    selective_clone,
     ObjectiveType,
     pyrosTerminationCondition,
     process_termination_condition_master_problem,
     adjust_solver_time_settings,
     revert_solver_max_time_adjustment,
     get_main_elapsed_time,
+    generate_all_decision_rule_vars,
 )
 from pyomo.contrib.pyros.solve_data import MasterProblemData, MasterResult
 from pyomo.opt.results import check_optimal_termination
@@ -318,31 +318,15 @@ def construct_dr_polishing_problem(model_data, config):
     nominal_polishing_block = polishing_model.scenarios[0, 0]
 
     # fix first-stage variables (including epigraph, where applicable)
-    decision_rule_var_set = ComponentSet(
-        var
-        for indexed_dr_var in nominal_polishing_block.util.decision_rule_vars
-        for var in indexed_dr_var.values()
-    )
-    first_stage_vars = nominal_polishing_block.util.first_stage_variables
-    for var in first_stage_vars:
-        if var not in decision_rule_var_set:
-            var.fix()
+    for var in nominal_polishing_block.util.first_stage_variables:
+        var.fix()
 
-    # ensure master optimality constraint enforced
-    if config.objective_focus == ObjectiveType.worst_case:
-        polishing_model.zeta.fix()
-    else:
-        optimal_master_obj_value = value(polishing_model.obj)
-        polishing_model.nominal_optimality_con = Constraint(
-            expr=(
-                nominal_polishing_block.first_stage_objective
-                + nominal_polishing_block.second_stage_objective
-                <= optimal_master_obj_value
-            )
-        )
-
-    # deactivate master problem objective
-    polishing_model.obj.deactivate()
+    # fix epigraph variable, and deactivate epigraph objective.
+    # note: to ensure optimality of polished solutions, the
+    #       epigraph constraints are kept active
+    #       (in accordance with objective focus)
+    nominal_polishing_block.util.epigraph_var.fix()
+    polishing_model.epigraph_obj.deactivate()
 
     decision_rule_vars = nominal_polishing_block.util.decision_rule_vars
     nominal_polishing_block.util.polishing_vars = polishing_vars = []
@@ -544,7 +528,7 @@ def minimize_dr_vars(model_data, config):
         eval_obj_blk_idx = max(
             model_data.master_model.scenarios.keys(),
             key=lambda idx: value(
-                model_data.master_model.scenarios[idx].second_stage_objective
+                model_data.master_model.scenarios[idx].util.full_objective
             ),
         )
     else:
@@ -553,15 +537,16 @@ def minimize_dr_vars(model_data, config):
     # debugging: summarize objective breakdown
     eval_obj_blk = model_data.master_model.scenarios[eval_obj_blk_idx]
     config.progress_logger.debug(
-        "  First-stage objective: " f"{value(eval_obj_blk.first_stage_objective)}"
+        "  First-stage objective: "
+        f"{value(eval_obj_blk.util.first_stage_objective)}"
     )
     config.progress_logger.debug(
-        "  Second-stage objective: " f"{value(eval_obj_blk.second_stage_objective)}"
+        "  Second-stage objective: "
+        f"{value(eval_obj_blk.util.second_stage_objective)}"
     )
-    polished_master_obj = value(
-        eval_obj_blk.first_stage_objective + eval_obj_blk.second_stage_objective
+    config.progress_logger.debug(
+        f"  Objective: {value(eval_obj_blk.util.full_objective)}"
     )
-    config.progress_logger.debug(f"  Objective: {polished_master_obj}")
 
     return results, True
 
@@ -587,26 +572,51 @@ def add_p_robust_constraint(model_data, config):
     return
 
 
-def add_scenario_to_master(model_data, violations):
+def add_scenario_to_master(master_data, scenario_idx, param_realization):
     """
-    Add block to master, without cloning the master_model.first_stage_variables
+    Add new scenario block to the master model.
+
+    Parameters
+    ----------
+    master_data : MasterProblemData
+        Master problem data.
+    scenario_idx : tuple
+        Index of ``master_data.master_model.scenarios`` at
+        which to place the new scenario block.
+    param_realization : Iterable of float
+        Uncertain parameter realization for the new scenario
+        block.
     """
+    master_model = master_data.master_model
 
-    m = model_data.master_model
-    i = max(m.scenarios.keys())[0] + 1
-
-    # === Add a block to master for each violation
-    idx = 0  # Only supporting adding single violation back to master in v1
-    new_block = selective_clone(
-        m.scenarios[0, 0], m.scenarios[0, 0].util.first_stage_variables
+    # clone new block from the nominal block,
+    # ensuring first-stage, DR, and epigraph variables
+    # are not copied.
+    # Note for any of the Vars not copied:
+    # - if Var is not a member of an indexed var, then
+    #   the 'name' attribute changes from
+    #   'scenarios[0, 0].<<local var name>>'
+    #   to 'scenarios[scenario_idx].<<local var name>>'
+    # - otherwise, the name stays the same
+    # Either way, variable can be referenced from any of
+    # the used scenario blocks.
+    nominal_master_block = master_data.master_model.scenarios[0, 0]
+    effective_first_stage_vars = (
+        [nominal_master_block.util.epigraph_var]
+        + nominal_master_block.util.first_stage_variables
+        + list(generate_all_decision_rule_vars(nominal_master_block))
     )
-    m.scenarios[i, idx].transfer_attributes_from(new_block)
+    new_block = nominal_master_block.clone(
+        memo={id(var): var for var in effective_first_stage_vars},
+    )
+    master_model.scenarios[scenario_idx].transfer_attributes_from(new_block)
 
-    # === Set uncertain params in new block(s) to correct value(s)
-    for j, p in enumerate(m.scenarios[i, idx].util.uncertain_params):
-        p.set_value(violations[j])
-
-    return
+    # update uncertain parameter values in new block
+    new_uncertain_params = (
+        master_model.scenarios[scenario_idx].util.uncertain_params
+    )
+    for param, val in zip(new_uncertain_params, param_realization):
+        param.set_value(val)
 
 
 def get_master_dr_degree(model_data, config):
@@ -669,6 +679,33 @@ def higher_order_decision_rule_efficiency(model_data, config):
     )
 
 
+def _should_epigraph_con_be_active(master_scenario_idx, config):
+    """
+    Determine whether epigraph constraint of master model
+    should be active.
+    """
+    if config.objective_focus == ObjectiveType.worst_case:
+        return True
+    elif config.objective_focus == ObjectiveType.nominal:
+        return master_scenario_idx == (0, 0)
+    else:
+        raise ValueError(
+            f"Objective focus {config.objective_focus!r} not supported."
+        )
+
+
+def enforce_objective_focus(master_data, config):
+    """
+    Enforce master problem objective focus based on solver
+    settings.
+    """
+    for idx, blk in master_data.master_model.scenarios.items():
+        if _should_epigraph_con_be_active(idx, config):
+            blk.util.epigraph_con.activate()
+        else:
+            blk.util.epigraph_con.deactivate()
+
+
 def solver_call_master(model_data, config, solver, solve_data):
     """
     Invoke subsolver(s) on PyROS master problem.
@@ -676,7 +713,8 @@ def solver_call_master(model_data, config, solver, solve_data):
     Parameters
     ----------
     model_data : MasterProblemData
-        Container for current master problem and related data.
+            Container for current master problem and related data.
+
     config : ConfigDict
         PyROS solver settings.
     solver : solver type
@@ -781,7 +819,7 @@ def solver_call_master(model_data, config, solver, solve_data):
                     for v in nlp_model.scenarios[0, 0].util.second_stage_variables
                 )
                 master_soln.second_stage_objective = value(
-                    nlp_model.scenarios[0, 0].second_stage_objective
+                    nlp_model.scenarios[0, 0].util.second_stage_objective
                 )
             else:
                 idx = max(nlp_model.scenarios.keys())[0]
@@ -790,10 +828,10 @@ def solver_call_master(model_data, config, solver, solve_data):
                     for v in nlp_model.scenarios[idx, 0].util.second_stage_variables
                 )
                 master_soln.second_stage_objective = value(
-                    nlp_model.scenarios[idx, 0].second_stage_objective
+                    nlp_model.scenarios[idx, 0].util.second_stage_objective
                 )
             master_soln.first_stage_objective = value(
-                nlp_model.scenarios[0, 0].first_stage_objective
+                nlp_model.scenarios[0, 0].util.first_stage_objective
             )
 
             # debugging: log breakdown of master objective
@@ -801,7 +839,7 @@ def solver_call_master(model_data, config, solver, solve_data):
                 eval_obj_blk_idx = max(
                     nlp_model.scenarios.keys(),
                     key=lambda idx: value(
-                        nlp_model.scenarios[idx].second_stage_objective
+                        nlp_model.scenarios[idx].util.second_stage_objective
                     ),
                 )
             else:
@@ -810,13 +848,15 @@ def solver_call_master(model_data, config, solver, solve_data):
             eval_obj_blk = nlp_model.scenarios[eval_obj_blk_idx]
             config.progress_logger.debug(" Optimized master objective breakdown:")
             config.progress_logger.debug(
-                f"  First-stage objective: {value(eval_obj_blk.first_stage_objective)}"
+                "  First-stage objective: "
+                f"{value(eval_obj_blk.util.first_stage_objective)}"
             )
             config.progress_logger.debug(
-                f"  Second-stage objective: {value(eval_obj_blk.second_stage_objective)}"
+                "  Second-stage objective: "
+                f"{value(eval_obj_blk.util.second_stage_objective)}"
             )
             master_obj = (
-                eval_obj_blk.first_stage_objective + eval_obj_blk.second_stage_objective
+                eval_obj_blk.util.full_objective
             )
             config.progress_logger.debug(f"  Objective: {value(master_obj)}")
             config.progress_logger.debug(

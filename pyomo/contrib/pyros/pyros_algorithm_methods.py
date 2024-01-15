@@ -12,8 +12,11 @@ from pyomo.contrib.pyros.util import (
     get_time_from_solver,
     pyrosTerminationCondition,
     IterationLogRecord,
+    generate_all_decision_rule_vars,
+    generate_all_decision_rule_eqns,
+    get_decision_rule_to_second_stage_var_map,
 )
-from pyomo.contrib.pyros.util import get_main_elapsed_time, coefficient_matching
+from pyomo.contrib.pyros.util import get_main_elapsed_time
 from pyomo.core.base import value
 from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.core.base.var import _VarData as VarData
@@ -68,127 +71,6 @@ def get_dr_var_to_scaled_expr_map(
                 var_to_scaled_expr_map[dr_var] = term
 
     return var_to_scaled_expr_map
-
-
-def evaluate_and_log_component_stats(model_data, separation_model, config):
-    """
-    Evaluate and log model component statistics.
-    """
-    IterationLogRecord.log_header_rule(config.progress_logger.info)
-    config.progress_logger.info("Model statistics:")
-    # print model statistics
-    dr_var_set = ComponentSet(
-        chain(
-            *tuple(
-                indexed_dr_var.values()
-                for indexed_dr_var in model_data.working_model.util.decision_rule_vars
-            )
-        )
-    )
-    first_stage_vars = [
-        var
-        for var in model_data.working_model.util.first_stage_variables
-        if var not in dr_var_set
-    ]
-
-    # account for epigraph constraint
-    sep_model_epigraph_con = getattr(separation_model, "epigraph_constr", None)
-    has_epigraph_con = sep_model_epigraph_con is not None
-
-    num_fsv = len(first_stage_vars)
-    num_ssv = len(model_data.working_model.util.second_stage_variables)
-    num_sv = len(model_data.working_model.util.state_vars)
-    num_dr_vars = len(dr_var_set)
-    num_vars = int(has_epigraph_con) + num_fsv + num_ssv + num_sv + num_dr_vars
-
-    num_uncertain_params = len(model_data.working_model.util.uncertain_params)
-
-    eq_cons = [
-        con
-        for con in model_data.working_model.component_data_objects(
-            Constraint, active=True
-        )
-        if con.equality
-    ]
-    dr_eq_set = ComponentSet(
-        chain(
-            *tuple(
-                indexed_dr_eq.values()
-                for indexed_dr_eq in model_data.working_model.util.decision_rule_eqns
-            )
-        )
-    )
-    num_eq_cons = len(eq_cons)
-    num_dr_cons = len(dr_eq_set)
-    num_coefficient_matching_cons = len(
-        getattr(model_data.working_model, "coefficient_matching_constraints", [])
-    )
-    num_other_eq_cons = num_eq_cons - num_dr_cons - num_coefficient_matching_cons
-
-    # get performance constraints as referenced in the separation
-    # model object
-    new_sep_con_map = separation_model.util.map_new_constraint_list_to_original_con
-    perf_con_set = ComponentSet(
-        new_sep_con_map.get(con, con)
-        for con in separation_model.util.performance_constraints
-    )
-    is_epigraph_con_first_stage = (
-        has_epigraph_con and sep_model_epigraph_con not in perf_con_set
-    )
-    working_model_perf_con_set = ComponentSet(
-        model_data.working_model.find_component(new_sep_con_map.get(con, con))
-        for con in separation_model.util.performance_constraints
-        if con is not None
-    )
-
-    num_perf_cons = len(separation_model.util.performance_constraints)
-    num_fsv_bounds = sum(
-        int(var.lower is not None) + int(var.upper is not None)
-        for var in first_stage_vars
-    )
-    ineq_con_set = [
-        con
-        for con in model_data.working_model.component_data_objects(
-            Constraint, active=True
-        )
-        if not con.equality
-    ]
-    num_fsv_ineqs = (
-        num_fsv_bounds
-        + len([con for con in ineq_con_set if con not in working_model_perf_con_set])
-        + is_epigraph_con_first_stage
-    )
-    num_ineq_cons = len(ineq_con_set) + has_epigraph_con + num_fsv_bounds
-
-    config.progress_logger.info(f"{'  Number of variables'} : {num_vars}")
-    config.progress_logger.info(f"{'    Epigraph variable'} : {int(has_epigraph_con)}")
-    config.progress_logger.info(f"{'    First-stage variables'} : {num_fsv}")
-    config.progress_logger.info(f"{'    Second-stage variables'} : {num_ssv}")
-    config.progress_logger.info(f"{'    State variables'} : {num_sv}")
-    config.progress_logger.info(f"{'    Decision rule variables'} : {num_dr_vars}")
-    config.progress_logger.info(
-        f"{'  Number of uncertain parameters'} : {num_uncertain_params}"
-    )
-    config.progress_logger.info(
-        f"{'  Number of constraints'} : " f"{num_ineq_cons + num_eq_cons}"
-    )
-    config.progress_logger.info(f"{'    Equality constraints'} : {num_eq_cons}")
-    config.progress_logger.info(
-        f"{'      Coefficient matching constraints'} : "
-        f"{num_coefficient_matching_cons}"
-    )
-    config.progress_logger.info(f"{'      Decision rule equations'} : {num_dr_cons}")
-    config.progress_logger.info(
-        f"{'      All other equality constraints'} : " f"{num_other_eq_cons}"
-    )
-    config.progress_logger.info(f"{'    Inequality constraints'} : {num_ineq_cons}")
-    config.progress_logger.info(
-        f"{'      First-stage inequalities (incl. certain var bounds)'} : "
-        f"{num_fsv_ineqs}"
-    )
-    config.progress_logger.info(
-        f"{'      Performance constraints (incl. var bounds)'} : {num_perf_cons}"
-    )
 
 
 def evaluate_first_stage_var_shift(
@@ -333,54 +215,6 @@ def ROSolver_iterative_solve(model_data, config):
     :model_data: ROSolveData object with deterministic model information
     :config: ConfigBlock for the instance being solved
     '''
-
-    # === The "violation" e.g. uncertain parameter values added to the master problem are nominal in iteration 0
-    #     User can supply a nominal_uncertain_param_vals if they want to set nominal to a certain point,
-    #     Otherwise, the default init value for the params is used as nominal_uncertain_param_vals
-    violation = list(p for p in config.nominal_uncertain_param_vals)
-
-    # === Do coefficient matching
-    constraints = [
-        c
-        for c in model_data.working_model.component_data_objects(Constraint)
-        if c.equality
-        and c not in ComponentSet(model_data.working_model.util.decision_rule_eqns)
-    ]
-    model_data.working_model.util.h_x_q_constraints = ComponentSet()
-    for c in constraints:
-        coeff_matching_success, robust_infeasible = coefficient_matching(
-            model=model_data.working_model,
-            constraint=c,
-            uncertain_params=model_data.working_model.util.uncertain_params,
-            config=config,
-        )
-        if not coeff_matching_success and not robust_infeasible:
-            config.progress_logger.error(
-                f"Equality constraint {c.name!r} cannot be guaranteed to "
-                "be robustly feasible, given the current partitioning "
-                "among first-stage, second-stage, and state variables. "
-                "Consider editing this constraint to reference some "
-                "second-stage and/or state variable(s)."
-            )
-            raise ValueError("Coefficient matching unsuccessful. See the solver logs.")
-        elif not coeff_matching_success and robust_infeasible:
-            config.progress_logger.info(
-                "PyROS has determined that the model is robust infeasible. "
-                f"One reason for this is that the equality constraint {c.name} "
-                "cannot be satisfied against all realizations of uncertainty, "
-                "given the current partitioning between "
-                "first-stage, second-stage, and state variables. "
-                "Consider editing this constraint to reference some (additional) "
-                "second-stage and/or state variable(s)."
-            )
-            return None, None
-        else:
-            pass
-
-    # h(x,q) == 0 becomes h'(x) == 0
-    for c in model_data.working_model.util.h_x_q_constraints:
-        c.deactivate()
-
     # === Build the master problem and master problem data container object
     master_data = master_problem_methods.initial_construct_master(model_data)
 
@@ -388,59 +222,25 @@ def ROSolver_iterative_solve(model_data, config):
     if config.p_robustness:
         master_data.master_model.p_robust_constraints = ConstraintList()
 
-    # === Add scenario_0
-    master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-        master_data.original.clone()
-    )
-    if len(master_data.master_model.scenarios[0, 0].util.uncertain_params) != len(
-        violation
-    ):
-        raise ValueError
+    # set up nominal scenario block
+    nominal_master_block = master_data.master_model.scenarios[0, 0]
+    nominal_master_block.transfer_attributes_from(master_data.original.clone())
+    nominal_param_vals = list(p for p in config.nominal_uncertain_param_vals)
+    for param, nom_val in zip(
+            nominal_master_block.util.uncertain_params,
+            nominal_param_vals,
+            ):
+        param.set_value(nom_val)
 
-    # === Set the nominal uncertain parameters to the violation values
-    for i, v in enumerate(violation):
-        master_data.master_model.scenarios[0, 0].util.uncertain_params[i].value = v
-
-    # === Add objective function (assuming minimization of costs) with nominal second-stage costs
-    if config.objective_focus is ObjectiveType.nominal:
-        master_data.master_model.obj = Objective(
-            expr=master_data.master_model.scenarios[0, 0].first_stage_objective
-            + master_data.master_model.scenarios[0, 0].second_stage_objective
-        )
-    elif config.objective_focus is ObjectiveType.worst_case:
-        # === Worst-case cost objective
-        master_data.master_model.zeta = Var(
-            initialize=value(
-                master_data.master_model.scenarios[0, 0].first_stage_objective
-                + master_data.master_model.scenarios[0, 0].second_stage_objective,
-                exception=False,
-            )
-        )
-        master_data.master_model.obj = Objective(expr=master_data.master_model.zeta)
-        master_data.master_model.scenarios[0, 0].epigraph_constr = Constraint(
-            expr=master_data.master_model.scenarios[0, 0].first_stage_objective
-            + master_data.master_model.scenarios[0, 0].second_stage_objective
-            <= master_data.master_model.zeta
-        )
-        master_data.master_model.scenarios[0, 0].util.first_stage_variables.append(
-            master_data.master_model.zeta
-        )
-
-    # === Add deterministic constraints to ComponentSet on original so that these become part of separation model
-    master_data.original.util.deterministic_constraints = ComponentSet(
-        c
-        for c in master_data.original.component_data_objects(
-            Constraint, descend_into=True
-        )
+    # set up epigraph objective
+    master_data.master_model.epigraph_obj = Objective(
+        expr=nominal_master_block.util.epigraph_var,
     )
 
     # === Make separation problem model once before entering the solve loop
     separation_model = separation_problem_methods.make_separation_problem(
-        model_data=master_data, config=config
-    )
-
-    evaluate_and_log_component_stats(
-        model_data=model_data, separation_model=separation_model, config=config
+        model_data=model_data,
+        config=config,
     )
 
     # === Create separation problem data container object and add information to catalog during solve
@@ -493,22 +293,13 @@ def ROSolver_iterative_solve(model_data, config):
 
     # set up first-stage variable and DR variable sets
     master_dr_var_set = ComponentSet(
-        chain(
-            *tuple(
-                indexed_var.values()
-                for indexed_var in master_data.master_model.scenarios[
-                    0, 0
-                ].util.decision_rule_vars
-            )
-        )
+        generate_all_decision_rule_vars(nominal_master_block)
     )
     master_fsv_set = ComponentSet(
-        var
-        for var in master_data.master_model.scenarios[0, 0].util.first_stage_variables
-        if var not in master_dr_var_set
+        var for var in nominal_master_block.util.first_stage_variables
     )
     master_nom_ssv_set = ComponentSet(
-        master_data.master_model.scenarios[0, 0].util.second_stage_variables
+        nominal_master_block.util.second_stage_variables
     )
     previous_master_fsv_vals = ComponentMap((var, None) for var in master_fsv_set)
     previous_master_dr_var_vals = ComponentMap((var, None) for var in master_dr_var_set)
@@ -521,27 +312,25 @@ def ROSolver_iterative_solve(model_data, config):
         (var, None) for var in master_nom_ssv_set
     )
     first_iter_dr_var_vals = ComponentMap((var, None) for var in master_dr_var_set)
-    nom_master_util_blk = master_data.master_model.scenarios[0, 0].util
     dr_var_scaled_expr_map = get_dr_var_to_scaled_expr_map(
-        decision_rule_vars=nom_master_util_blk.decision_rule_vars,
-        decision_rule_eqns=nom_master_util_blk.decision_rule_eqns,
-        second_stage_vars=nom_master_util_blk.second_stage_variables,
-        uncertain_params=nom_master_util_blk.uncertain_params,
+        decision_rule_vars=nominal_master_block.util.decision_rule_vars,
+        decision_rule_eqns=nominal_master_block.util.decision_rule_eqns,
+        second_stage_vars=nominal_master_block.util.second_stage_variables,
+        uncertain_params=nominal_master_block.util.uncertain_params,
     )
-    dr_var_to_ssv_map = ComponentMap()
-    dr_ssv_zip = zip(
-        nom_master_util_blk.decision_rule_vars,
-        nom_master_util_blk.second_stage_variables,
+    dr_var_to_ssv_map = ComponentMap(
+        get_decision_rule_to_second_stage_var_map(
+            nominal_master_block,
+            indexed_dr_vars=False,
+        )
     )
-    for indexed_dr_var, ssv in dr_ssv_zip:
-        for drvar in indexed_dr_var.values():
-            dr_var_to_ssv_map[drvar] = ssv
 
     IterationLogRecord.log_header(config.progress_logger.info)
     k = 0
     master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
         master_data.iteration = k
+        master_problem_methods.enforce_objective_focus(master_data, config)
 
         # === Add p-robust constraint if iteration > 0
         if k > 0 and config.p_robustness:
@@ -625,7 +414,7 @@ def ROSolver_iterative_solve(model_data, config):
 
             nominal_data.nom_first_stage_cost = master_soln.first_stage_objective
             nominal_data.nom_second_stage_cost = master_soln.second_stage_objective
-            nominal_data.nom_obj = value(master_data.master_model.obj)
+            nominal_data.nom_obj = value(master_data.master_model.epigraph_obj)
 
         polishing_successful = True
         if (
@@ -705,7 +494,7 @@ def ROSolver_iterative_solve(model_data, config):
             if elapsed >= config.time_limit:
                 iter_log_record = IterationLogRecord(
                     iteration=k,
-                    objective=value(master_data.master_model.obj),
+                    objective=value(master_data.master_model.epigraph_obj),
                     first_stage_var_shift=first_stage_var_shift,
                     second_stage_var_shift=second_stage_var_shift,
                     dr_var_shift=dr_var_shift,
@@ -737,9 +526,6 @@ def ROSolver_iterative_solve(model_data, config):
 
         # === Provide master model scenarios to separation problem for initialization options
         separation_data.master_scenarios = master_data.master_model.scenarios
-
-        if config.objective_focus is ObjectiveType.worst_case:
-            separation_model.util.zeta = value(master_soln.master_model.obj)
 
         # === Solve Separation Problem
         separation_data.iteration = k
@@ -799,7 +585,7 @@ def ROSolver_iterative_solve(model_data, config):
 
         iter_log_record = IterationLogRecord(
             iteration=k,
-            objective=value(master_data.master_model.obj),
+            objective=value(master_data.master_model.epigraph_obj),
             first_stage_var_shift=first_stage_var_shift,
             second_stage_var_shift=second_stage_var_shift,
             dr_var_shift=dr_var_shift,
@@ -874,8 +660,9 @@ def ROSolver_iterative_solve(model_data, config):
 
         # === Add block to master at violation
         master_problem_methods.add_scenario_to_master(
-            model_data=master_data,
-            violations=separation_results.violating_param_realization,
+            master_data=master_data,
+            scenario_idx=(k + 1, 0),
+            param_realization=separation_results.violating_param_realization,
         )
         separation_data.points_added_to_master.append(
             separation_results.violating_param_realization

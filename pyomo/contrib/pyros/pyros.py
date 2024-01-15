@@ -15,9 +15,6 @@ import logging
 import os
 import subprocess
 
-from pyomo.common.collections import Bunch, ComponentSet
-from pyomo.common.modeling import unique_component_name
-from pyomo.core.base import Block, Constraint, Objective, Var
 from pyomo.core.expr import value
 from pyomo.opt import SolverFactory
 from pyomo.version import version
@@ -31,21 +28,16 @@ from pyomo.contrib.pyros.config import (
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
 from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.util import (
-    add_decision_rule_constraints,
-    add_decision_rule_variables,
-    identify_objective_functions,
     IterationLogRecord,
     load_final_solution,
-    ObjectiveType,
     pyrosTerminationCondition,
-    recast_to_min_obj,
-    replace_uncertain_bounds_with_constraints,
     setup_pyros_logger,
     time_code,
     TimingData,
-    transform_to_standard_form,
-    turn_bounds_to_constraints,
+    evaluate_and_log_model_statistics,
+    preprocess_model_data,
 )
+from pyomo.core.base import Objective
 
 
 __version__ = "1.2.9"
@@ -289,6 +281,12 @@ class PyROS(object):
 
         return config
 
+    def _preprocess(self, model_data, config):
+        """
+        Preprocess solver inputs.
+        """
+        return preprocess_model_data(model_data, config)
+
     @add_config_kwargs_to_doc(
         config=CONFIG,
         section='Keyword Arguments',
@@ -352,12 +350,12 @@ class PyROS(object):
         )
         config = self._standardize_and_validate_pyros_inputs(model, **kwds)
 
-        # === Create data containers
+        # create data containers
         model_data = ROSolveResults()
-        model_data.timing = Bunch()
-
-        # === Start timer, run the algorithm
+        model_data.original_model = model
         model_data.timing = TimingData()
+
+        # start timer, then solve
         with time_code(
             timing_data_obj=model_data.timing,
             code_block_name="main",
@@ -373,135 +371,56 @@ class PyROS(object):
                 level=logging.INFO,
             )
 
-            # begin preprocessing
-            config.progress_logger.info("Preprocessing...")
-            model_data.timing.start_timer("main.preprocessing")
+            # robust infeasibilty can be determined here, depending
+            # on outcome of coefficient matching
+            robust_infeasible = self._preprocess(model_data, config)
 
-            # === A block to hold list-type data to make cloning easy
-            util = Block(concrete=True)
-            util.first_stage_variables = config.first_stage_variables
-            util.second_stage_variables = config.second_stage_variables
-            util.uncertain_params = config.uncertain_params
-
-            model_data.util_block = unique_component_name(model, 'util')
-            model.add_component(model_data.util_block, util)
-            # Note:  model.component(model_data.util_block) is util
-
-            # === Leads to a logger warning here for inactive obj when cloning
-            model_data.original_model = model
-            # === For keeping track of variables after cloning
-            cname = unique_component_name(model_data.original_model, 'tmp_var_list')
-            src_vars = list(model_data.original_model.component_data_objects(Var))
-            setattr(model_data.original_model, cname, src_vars)
-            model_data.working_model = model_data.original_model.clone()
-
-            # identify active objective function
-            # (there should only be one at this point)
-            # recast to minimization if necessary
-            active_objs = list(
-                model_data.working_model.component_data_objects(
-                    Objective, active=True, descend_into=True
-                )
-            )
-            assert len(active_objs) == 1
-            active_obj = active_objs[0]
-            active_obj_original_sense = active_obj.sense
-            recast_to_min_obj(model_data.working_model, active_obj)
-
-            # === Determine first and second-stage objectives
-            identify_objective_functions(model_data.working_model, active_obj)
-            active_obj.deactivate()
-
-            # === Put model in standard form
-            transform_to_standard_form(model_data.working_model)
-
-            # === Replace variable bounds depending on uncertain params with
-            #     explicit inequality constraints
-            replace_uncertain_bounds_with_constraints(
-                model_data.working_model, model_data.working_model.util.uncertain_params
-            )
-
-            # === Add decision rule information
-            add_decision_rule_variables(model_data, config)
-            add_decision_rule_constraints(model_data, config)
-
-            # === Move bounds on control variables to explicit ineq constraints
-            wm_util = model_data.working_model
-
-            # === Every non-fixed variable that is neither first-stage
-            #     nor second-stage is taken to be a state variable
-            fsv = ComponentSet(model_data.working_model.util.first_stage_variables)
-            ssv = ComponentSet(model_data.working_model.util.second_stage_variables)
-            sv = ComponentSet()
-            model_data.working_model.util.state_vars = []
-            for v in model_data.working_model.component_data_objects(Var):
-                if not v.fixed and v not in fsv | ssv | sv:
-                    model_data.working_model.util.state_vars.append(v)
-                    sv.add(v)
-
-            # Bounds on second stage variables and state variables are separation objectives,
-            #  they are brought in this was as explicit constraints
-            for c in model_data.working_model.util.second_stage_variables:
-                turn_bounds_to_constraints(c, wm_util, config)
-
-            for c in model_data.working_model.util.state_vars:
-                turn_bounds_to_constraints(c, wm_util, config)
-
-            # === Make control_variable_bounds array
-            wm_util.ssv_bounds = []
-            for c in model_data.working_model.component_data_objects(
-                Constraint, descend_into=True
-            ):
-                if "bound_con" in c.name:
-                    wm_util.ssv_bounds.append(c)
-
-            model_data.timing.stop_timer("main.preprocessing")
-            preprocessing_time = model_data.timing.get_total_time("main.preprocessing")
-            config.progress_logger.info(
-                f"Done preprocessing; required wall time of "
-                f"{preprocessing_time:.3f}s."
-            )
-
-            # === Solve and load solution into model
-            pyros_soln, final_iter_separation_solns = ROSolver_iterative_solve(
-                model_data, config
-            )
+            # model component statistics
             IterationLogRecord.log_header_rule(config.progress_logger.info)
+            evaluate_and_log_model_statistics(model_data, config)
 
+            # set up results object before solving
             return_soln = ROSolveResults()
-            if pyros_soln is not None and final_iter_separation_solns is not None:
-                if config.load_solution and (
+
+            if not robust_infeasible:
+                # === Solve and load solution into model
+                pyros_soln, final_iter_separation_solns = ROSolver_iterative_solve(
+                    model_data, config
+                )
+                IterationLogRecord.log_header_rule(config.progress_logger.info)
+
+                termination_acceptable = (
                     pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_optimal
-                    or pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_feasible
-                ):
-                    load_final_solution(model_data, pyros_soln.master_soln, config)
+                    in {
+                        pyrosTerminationCondition.robust_optimal,
+                        pyrosTerminationCondition.robust_feasible
+                    }
+                )
+                if config.load_solution and termination_acceptable:
+                    load_final_solution(
+                        model_data=model_data,
+                        master_soln=pyros_soln.master_soln,
+                        config=config,
+                    )
 
                 # account for sense of the original model objective
                 # when reporting the final PyROS (master) objective,
-                # since maximization objective is changed to
-                # minimization objective during preprocessing
-                if config.objective_focus == ObjectiveType.nominal:
-                    return_soln.final_objective_value = (
-                        active_obj_original_sense
-                        * value(pyros_soln.master_soln.master_model.obj)
-                    )
-                elif config.objective_focus == ObjectiveType.worst_case:
-                    return_soln.final_objective_value = (
-                        active_obj_original_sense
-                        * value(pyros_soln.master_soln.master_model.zeta)
-                    )
+                # since working model objective is recast to
+                # minimization sense during preprocessing.
+                active_obj_original_sense = next(
+                    model.component_data_objects(Objective, active=True)
+                ).sense
+                return_soln.final_objective_value = (
+                    active_obj_original_sense
+                    * value(pyros_soln.master_soln.master_model.epigraph_obj)
+                )
                 return_soln.pyros_termination_condition = (
                     pyros_soln.pyros_termination_condition
                 )
                 return_soln.iterations = pyros_soln.total_iters + 1
 
-                # === Remove util block
-                model.del_component(model_data.util_block)
-
-                del pyros_soln.util_block
                 del pyros_soln.working_model
+                del model.util
             else:
                 return_soln.final_objective_value = None
                 return_soln.pyros_termination_condition = (
