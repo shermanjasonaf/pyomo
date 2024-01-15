@@ -420,13 +420,15 @@ class PyROS(object):
                 return_soln.iterations = pyros_soln.total_iters + 1
 
                 del pyros_soln.working_model
-                del model.util
             else:
                 return_soln.final_objective_value = None
                 return_soln.pyros_termination_condition = (
                     pyrosTerminationCondition.robust_infeasible
                 )
                 return_soln.iterations = 0
+
+            # restore user model to original state
+            del model.util
 
         return_soln.config = config
         return_soln.time = model_data.timing.get_total_time("main")
