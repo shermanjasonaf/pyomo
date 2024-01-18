@@ -355,10 +355,9 @@ def group_performance_constraints_by_priority(model_data, config):
         (i.e. highest priority first).
     """
     separation_priority_groups = dict()
-    config_sep_priority_dict = config.separation_priority_order
+    sep_priority_map = model_data.separation_model.util.pyros_separation_priority
     for perf_con in model_data.separation_model.util.performance_constraints:
-        # by default, priority set to 0
-        priority = config_sep_priority_dict.get(perf_con.name, 0)
+        priority = sep_priority_map[perf_con]
         cons_with_same_priority = separation_priority_groups.setdefault(priority, [])
         cons_with_same_priority.append(perf_con)
 

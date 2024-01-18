@@ -16,6 +16,10 @@ from pyomo.core.base import (
     maximize,
     Block,
     Param,
+    _VarData,
+    _ConstraintData,
+    _ObjectiveData,
+    Suffix,
 )
 from pyomo.core.util import prod
 from pyomo.core.base.var import IndexedVar
@@ -543,18 +547,22 @@ def get_state_vars(blk, first_stage_variables, second_stage_variables):
             yield var
 
 
-def turn_variable_bounds_to_constraints(working_model):
+def turn_bounds_to_constraints(working_model, logger=None):
     """
     Cast bounds of all first-stage, second-stage, and state
     variables to inequality constraints.
 
+    Separation priorities for the Constraints added to the model
+    are adapted from the specifications for the corresponding
+    Vars.
+
     Parameters
     ----------
-    model_data : ModelData
-        Model data object.
-    skip_first_stage_vars : bool, optional
-        True to exclude first-stage variables from this procedure,
-        False otherwise.
+    working_model : ConcreteModel
+        Working model object.
+    logger : logging.Logger, optional
+        Logger used for warning/error messages when
+        separation priorities are mappped.
 
     Note
     ----
@@ -566,12 +574,19 @@ def turn_variable_bounds_to_constraints(working_model):
 
     All Vars are assumed to have continuous domains.
     """
+    if logger is None:
+        logger = logging.getLogger(DEFAULT_LOGGER_NAME)
+
     all_model_vars = (
         working_model.util.first_stage_variables
         + working_model.util.second_stage_variables
         + working_model.util.state_vars
     )
     uncertain_params_set = ComponentSet(working_model.util.uncertain_params)
+
+    # keeping track of separation priorities
+    sep_priority_std = _SeparationPriorityStandardizer()
+    sep_priority_suffix = working_model.util.pyros_separation_priority
 
     def generate_constraint_expr(var, bound, bound_desc):
         """
@@ -582,7 +597,7 @@ def turn_variable_bounds_to_constraints(working_model):
         elif bound_desc == "upper":
             return (None, var - bound, 0)
         elif bound_desc == "eq":
-            return (0, var - bound, 0)
+            return var - bound == 0
         else:
             raise ValueError(f"Bound type {bound_desc!r} not supported.")
 
@@ -649,15 +664,32 @@ def turn_variable_bounds_to_constraints(working_model):
             (lb_args, ub_args, matching_lb_ub_args),
             ("lower", "upper", "eq"),
         )
+
+        # resolve separation priorities
+        var_sep_priority = sep_priority_std(
+            component=var,
+            priority=sep_priority_suffix.get(var, None),
+            logger=logger,
+        )
+        sep_priority_suffix.clear_value(var)
+        var_sep_priority_dict = {
+            "lower": var_sep_priority[0],
+            "upper": var_sep_priority[1],
+        }
+
         for bound_args_list, desc in bound_zip:
             for arg in bound_args_list:
+                con = Constraint(expr=generate_constraint_expr(var, arg, desc))
                 working_model.add_component(
                     unique_component_name(
                         instance=working_model,
                         name=f"{var.local_name}_{desc}_bound_con",
                     ),
-                    Constraint(expr=generate_constraint_expr(var, arg, desc)),
+                    con,
                 )
+
+                sep_priority_suffix[con] = var_sep_priority_dict[desc]
+                working_model.util.constraint_inferred_from[con] = var
 
         # adjust domain. remove variable bounds
         var.domain = Reals
@@ -705,18 +737,25 @@ def get_time_from_solver(results):
     return float("nan") if solve_time is None else solve_time
 
 
-def standardize_inequality_constraints(model):
+def standardize_inequality_constraints(model, logger=None):
     """
     Recast all model inequality constraints of the form `a <= g(v)` (`<= b`)
     to the 'standard' form `a - g(v) <= 0` (and `g(v) - b <= 0`),
     in which `v` denotes all model variables and `a` and `b` are
     contingent on model parameters.
 
+    This method also maps the separation priorities for the
+    standardized constraints to the priorities of the
+    constraints from which they were derived.
+
     Parameters
     ----------
     model : ConcreteModel
         The model to search for constraints. This will descend into all
         active Blocks and sub-Blocks as well.
+    logger : logging.Logger, optional
+        Logger for outputting warning/error messages during
+        management of separation priorities.
 
     Note
     ----
@@ -724,6 +763,13 @@ def standardize_inequality_constraints(model):
     equality (i.e. the `equality` attribute of the constraint object
     is `False`), then the constraint is recast to the equality `g(v) == a`.
     """
+    if logger is None:
+        logger = logging.getLogger(DEFAULT_LOGGER_NAME)
+
+    # keeping track of separation priorities
+    sep_priority_std = _SeparationPriorityStandardizer()
+    sep_priority_suffix = model.util.pyros_separation_priority
+
     # Note: because we will be adding / modifying the number of
     # constraints, we want to resolve the generator to a list before
     # starting.
@@ -735,6 +781,11 @@ def standardize_inequality_constraints(model):
             has_lb = con.lower is not None
             has_ub = con.upper is not None
 
+            lb_priority, ub_priority = sep_priority_std(
+                component=con,
+                priority=sep_priority_suffix.get(con, None),
+                logger=logger,
+            )
             if has_lb and has_ub:
                 if con.lower is con.upper:
                     # recast as equality Constraint
@@ -742,16 +793,20 @@ def standardize_inequality_constraints(model):
                 else:
                     # range inequality; split into two Constraints.
                     uniq_name = unique_component_name(model, con.name + '_lb')
-                    model.add_component(
-                        uniq_name, Constraint(expr=con.lower - con.body <= 0)
-                    )
+                    lb_con = Constraint(expr=con.lower - con.body <= 0)
+                    model.add_component(uniq_name, lb_con)
                     con.set_value(con.body - con.upper <= 0)
+                    sep_priority_suffix[lb_con] = lb_priority
+                    sep_priority_suffix[con] = ub_priority
+                    model.util.constraint_inferred_from[lb_con] = con
             elif has_lb:
                 # not in standard form; recast.
                 con.set_value(con.lower - con.body <= 0)
+                sep_priority_suffix[con] = lb_priority
             elif has_ub:
                 # move upper bound to body.
                 con.set_value(con.body - con.upper <= 0)
+                sep_priority_suffix[con] = ub_priority
             else:
                 # unbounded constraint: deactivate
                 con.deactivate()
@@ -1849,6 +1904,411 @@ def evaluate_and_log_model_statistics(model_data, config):
     return model_stats
 
 
+def standardize_objective(model_data, config):
+    """
+    Standardize active objective of the working model and
+    related components.
+
+    This method involves:
+
+    - recasting the active objective to a minimization sense,
+      if necessary
+    - performing an epigraph reformulation and setting the
+      priority of the epigraph constraint to that of the
+      active objective
+    - identifying first-stage and second-stage additive terms
+      of the objective expression.
+
+    Parameters
+    ----------
+    model_data : ROSolveResults
+        Main model data object.
+    config : ConfigDict
+        PyROS solver options.
+    """
+    working_model = model_data.working_model
+    active_obj = next(
+        model_data.working_model.component_data_objects(
+            Objective, active=True, descend_into=True
+        )
+    )
+
+    # epigraph reformulation
+    recast_to_min_obj(working_model, active_obj)
+    reformulate_objective(working_model.util, active_obj)
+    identify_objective_functions(
+        working_model,
+        active_obj,
+        blk_for_obj_exprs=working_model.util,
+    )
+
+    # map objective separation priority to epigraph constraint
+    epigraph_con = working_model.util.epigraph_con
+    sep_priority_suffix = working_model.util.pyros_separation_priority
+    sep_priority_std = _SeparationPriorityStandardizer()
+    sep_priority_suffix[epigraph_con] = sep_priority_std(
+        component=active_obj,
+        priority=sep_priority_suffix.get(active_obj, None),
+        logger=config.progress_logger,
+    )
+    sep_priority_suffix.clear_value(active_obj)
+    working_model.util.constraint_inferred_from[epigraph_con] = active_obj
+
+
+class _SeparationPriorityStandardizer:
+    """
+    Standardizer callable for separation problem priority
+    specification.
+    """
+    DEFAULT_SEPARATION_PRIORITY = 0
+
+    def _standardize_constraint_priority(self, component, priority, logger):
+        """
+        Standardize separation priority for constraint data object.
+
+        Parameters
+        ----------
+        component : _ConstraintData
+            Constraint for which priority is to be standardized.
+        priority : None, int, or 2-tuple of None/int
+            Priority specification.
+        logger : logging.Logger
+            Logger for warning/error messages.
+
+        Returns
+        -------
+        2-tuple of int/None
+            Priority specification.
+            The first entry specifies the priority for the
+            lower bound requirement.
+            The second entry specifies the priority for the
+            upper bound requirement.
+        """
+        if priority is None:
+            priority = (None, None)
+
+        if isinstance(priority, tuple):
+            if len(priority) != 2:
+                raise ValueError(
+                    f"Separation priority for component {component.name!r} "
+                    f"is not of length 2 (got tuple of length {len(priority)})"
+                )
+        else:
+            lb_priority = priority if component.lower is not None else None
+            ub_priority = priority if component.upper is not None else None
+            priority = (lb_priority, ub_priority)
+
+        final_priority_list = []
+        priority_zip = zip(
+            priority,
+            (component.lower, component.upper),
+            ("lower", "upper"),
+        )
+        for val, bnd, desc in priority_zip:
+            if bnd is None:
+                if val is not None:
+                    logger.warning(
+                        f"Component {component.name!r} has separation priority "
+                        f"specified for its {desc} bound attribute, "
+                        f"but the bound attribute is of value None. "
+                        "Separation priority for this bound will be disregarded."
+                    )
+                final_priority_list.append(None)
+            else:
+                std_val = (
+                    int(val) if val is not None
+                    else None
+                )
+                if val is not None and val != std_val:
+                    raise ValueError(
+                        "Could not cast separation priority for component "
+                        f"{component.name!r} to 2-tuple of ints. "
+                        f"(Got value {val}.)"
+                    )
+                final_priority_list.append(std_val)
+
+        return tuple(final_priority_list)
+
+    def _standardize_var_priority(self, component, priority, logger):
+        """
+        Standardize separation priority for variable data object.
+
+        Parameters
+        ----------
+        component : _VarData
+            Variable for which priority is to be standardized.
+        priority : None, int, or 2-tuple of None/int
+            Priority specification.
+        logger : logging.Logger
+            Logger for warning/error messages.
+
+        Returns
+        -------
+        2-tuple of int/None
+            Priority specification.
+            The first entry specifies the priority for the
+            lower bound requirement.
+            The second entry specifies the priority for the
+            upper bound requirement.
+        """
+        return self._standardize_constraint_priority(component, priority, logger)
+
+    def _standardize_objective_priority(self, component, priority, logger):
+        """
+        Standardize separation priority for objective data object.
+
+        Parameters
+        ----------
+        component : _ObjectiveData
+            Objective for which priority is to be standardized.
+        priority : int or None
+             Priority specification.
+        logger : logging.Logger
+            Logger for warning/error messages.
+
+        Returns
+        -------
+        int or None
+            Separation priority.
+        """
+        if priority is None:
+            return None
+        else:
+            std_priority = int(priority)
+            if std_priority != priority:
+                raise ValueError(
+                    "Separation priority of objective with name "
+                    f"{component.name!r} is not castable to int "
+                    f"(got priority value {priority})"
+                )
+            return int(priority)
+
+    def __call__(self, component, priority, logger):
+        """
+        Standardize separation priority specification for
+        a component data attribute.
+
+        Parameters
+        ----------
+        component : _ConstraintData, _ObjectiveData, or _VarData
+            Component for which priority is to be standardized.
+        priority : int, None, or 2-tuple of int/None
+             Priority specification.
+        logger : logging.Logger
+            Logger for warning/error messages.
+
+        Returns
+        -------
+        int or None
+            If `component` is of type `_ObjectiveData`.
+        2-tuple of int/None
+            If `component` is of type `_ConstraintData`
+            or `_VarData`.
+
+        Raises
+        ------
+        TypeError
+            If component is not of appropriate type.
+        """
+        if isinstance(component, _VarData):
+            return self._standardize_var_priority(
+                component=component,
+                priority=priority,
+                logger=logger,
+            )
+        elif isinstance(component, _ConstraintData):
+            return self._standardize_constraint_priority(
+                component=component,
+                priority=priority,
+                logger=logger,
+            )
+        elif isinstance(component, _ObjectiveData):
+            return self._standardize_objective_priority(
+                component=component,
+                priority=priority,
+                logger=logger,
+            )
+        else:
+            raise TypeError(
+                f"Argument component {component=!r} should be of type "
+                "_VarData, _ConstraintData, or _ObjectiveData, but got type "
+                f"{type(component).__name__!r}."
+            )
+
+
+def standardize_separation_priorities(model_data, config):
+    """
+    Standardize separation priority specifications for
+    model components from which performance constraints
+    may be inferred.
+
+    This method involves parsing custom priority specifications
+    from both the `separation_priority_order` attribute of
+    the PyROS solver options contained in `config` and
+    (if present) the `pyros_separation_priority` Suffix
+    declared on the root block of the working model.
+
+    Notes on the order of precedence in the event there
+    are overlaps:
+
+    - Priorities specified through the Suffix take precedence over
+      priorities specified through `separation_priority_order`.
+    - In both the Suffix and `separation_priority_order`,
+      priorities are processed in the order in which they appear
+      in the `.items()` iterable.
+    - If an indexed component and any of its members
+      both appear in either the Suffix or `separation_priority_order`,
+      then the priority specified for the
+      indexed component takes precedence over the priority specified
+      for its member.
+
+    Parameters
+    ----------
+    model_data : ROSolveResults
+        Main model data object.
+    config : ConfigDict
+        PyROS solver options.
+    """
+    working_model = model_data.working_model
+    active_sep_priority_suffix_list = [
+        suffix for suffix in working_model.component_data_objects(
+            Suffix,
+            active=True,
+            descend_into=False,
+        )
+        if "pyros_separation_priority" == suffix.name
+    ]
+    if active_sep_priority_suffix_list:
+        original_priority_suffix = active_sep_priority_suffix_list[0]
+        original_priority_suffix.deactivate()
+    else:
+        original_priority_suffix = ComponentMap()
+
+    # suffix of standardized priorities.
+    # deactivate to prevent suffix clashes with subsolvers later.
+    priority_suffix = working_model.util.pyros_separation_priority = Suffix(
+        direction=Suffix.LOCAL,
+        datatype=None,
+    )
+    priority_suffix.deactivate()
+
+    priority_std_func = _SeparationPriorityStandardizer()
+
+    # priorities from separation_priority_order argument
+    valid_component_types = (
+        Constraint,
+        Objective,
+        Var,
+        _ConstraintData,
+        _ObjectiveData,
+        _VarData,
+    )
+    for component_name, priority in config.separation_priority_order.items():
+        component = model_data.working_model.find_component(component_name)
+        if not isinstance(component, valid_component_types):
+            raise ValueError(
+                "Could not find Component-type attribute with name "
+                f"{component_name!r} in working model "
+                f"(`.find_component` method returned {component!r})."
+            )
+
+        standardized_priority = priority_std_func(
+            component=component,
+            priority=priority,
+            logger=config.progress_logger,
+        )
+        priority_suffix.set_value(
+            component=component,
+            value=standardized_priority,
+            expand=True,  # ensure unraveled for indexed components
+        )
+
+    # priorities from user-provided suffix
+    for component, priority in list(original_priority_suffix.items()):
+        standardized_priority = priority_std_func(
+            component=component,
+            priority=priority,
+            logger=config.progress_logger,
+        )
+        priority_suffix.set_value(
+            component=component,
+            value=standardized_priority,
+            expand=True,  # ensure unraveled for indexed components
+        )
+
+    # useful for logging messages later
+    working_model.util.user_specified_priorities_for = ComponentSet(
+        con for con in priority_suffix.keys()
+    )
+
+
+def finalize_separation_priorities(model_data, config):
+    """
+    Finalize separation priority specifications
+    of preprocessed working model.
+
+    In the event the separation priority suffix specifications
+    for components not included in the list of
+    performance constriants, a DEBUG-level message
+    enumerating the components is logged.
+
+    Parameters
+    ----------
+    model_data : ROSolveResults
+        Main model data object.
+    config : ConfigDict
+        PyROS solver options.
+    """
+    working_model = model_data.working_model
+    perf_cons_set = ComponentSet(
+        model_data.working_model.util.performance_constraints
+    )
+    inferred_from_map = working_model.util.constraint_inferred_from
+    priorities_for = working_model.util.user_specified_priorities_for
+    sep_priority_suffix = working_model.util.pyros_separation_priority
+
+    non_perf_con_priorities = ComponentMap()
+    ignored_con_strs = []
+    for comp, priority in sep_priority_suffix.items():
+        inferred_from = inferred_from_map.get(comp, comp)
+        priority_ignored = (
+            comp not in perf_cons_set
+            and inferred_from in priorities_for
+        )
+        if priority_ignored:
+            non_perf_con_priorities[comp] = priority
+            inferred_from_qual = ""
+            if inferred_from is not comp:
+                inferred_from_qual = (
+                    " (derived from component "
+                    f"{inferred_from.name!r})"
+                )
+            ignored_con_strs.append(
+                f"{comp.name!r}{inferred_from_qual}, "
+                f"priority {priority}"
+            )
+        if priority is None and comp in perf_cons_set:
+            sep_priority_suffix[comp] = (
+                _SeparationPriorityStandardizer.DEFAULT_SEPARATION_PRIORITY
+            )
+
+    non_perf_cons_str = "\n ".join(ignored_con_strs)
+    if ignored_con_strs:
+        config.progress_logger.debug(
+            "User has specified custom separation "
+            "priorities for the "
+            "following components not considered "
+            "performance constraints:\n "
+            f"{non_perf_cons_str}\n"
+            "These specifications will be ignored."
+        )
+
+    # done tracking user specifications.
+    # finalize: clean up the suffix entries
+    for con in non_perf_con_priorities:
+        sep_priority_suffix.clear_value(con)
+
+
 def preprocess_model_data(model_data, config):
     """
     Preprocess model and PyROS options.
@@ -1891,27 +2351,20 @@ def preprocess_model_data(model_data, config):
     # working model: basis for all other pyros subproblems
     model_data.working_model = working_model = model_data.original_model.clone()
 
-    turn_variable_bounds_to_constraints(working_model)
-    standardize_inequality_constraints(working_model)
-    standardize_equality_constraints(working_model)
+    standardize_separation_priorities(model_data, config)
 
-    # epigraph reformulation of active objective
-    active_obj = next(
-        model_data.working_model.component_data_objects(
-            Objective, active=True, descend_into=True
-        )
-    )
-    recast_to_min_obj(working_model, active_obj)
-    reformulate_objective(working_model.util, active_obj)
-
-    # get first-stage and second-stage objective expressions.
-    # useful for logging and recording results.
-    identify_objective_functions(
+    # standardization routines also carefully manage
+    # separation priority specifications.
+    # once done, priority suffix should be a mapping from
+    # inequality constraints to ints
+    working_model.util.constraint_inferred_from = ComponentMap()
+    turn_bounds_to_constraints(working_model, logger=config.progress_logger)
+    standardize_inequality_constraints(
         working_model,
-        active_obj,
-        blk_for_obj_exprs=working_model.util,
+        logger=config.progress_logger,
     )
-
+    standardize_equality_constraints(working_model)
+    standardize_objective(model_data, config)
     working_model.util.original_model_equality_cons = [
         con
         for con in working_model.component_data_objects(
@@ -1919,9 +2372,9 @@ def preprocess_model_data(model_data, config):
         )
         if con.equality
     ]
-
-    # assemble list of performance constraints
     identify_performance_constraints(working_model, config)
+
+    finalize_separation_priorities(model_data, config)
 
     add_decision_rule_variables(model_data, config)
     add_decision_rule_constraints(model_data, config)
