@@ -2156,7 +2156,7 @@ def standardize_separation_priorities(model_data, config):
     - Priorities specified through the Suffix take precedence over
       priorities specified through `separation_priority_order`.
     - Priorities specified through the Suffix(es) are resolved
-      through the `SuffixFinder` protocol. See documentation of
+      through the `SuffixFinder` interface. See documentation of
       `SuffixFinder.find()` for more information.
     - In the context of `separation_priority_order`, priorities
       specified for component data objects take precedence over
