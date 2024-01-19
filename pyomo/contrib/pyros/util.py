@@ -547,14 +547,47 @@ def get_state_vars(blk, first_stage_variables, second_stage_variables):
             yield var
 
 
+class BoundType(Enum):
+    """
+    Indicator for whether a bound specification on a constraint
+    is a lower bound, upper bound, or 'bound by equality'.
+    """
+    LOWER = "lower"
+    UPPER = "upper"
+    EQ = "eq"
+
+    def generate_bound_constraint_expr(self, body, bound):
+        """
+        Generate bound constraint expression depending on
+        bound type.
+
+        Parameters
+        ----------
+        body : NumericExpression
+            Body of the constraint.
+        bound : NumericExpression or numeric type
+            Bound for the body expression.
+            If an expression, then should include mutable
+            params only.
+
+        Returns
+        -------
+        ExpressionData
+        """
+        if self == self.LOWER:
+            return (None, bound - body, 0)
+        elif self == self.UPPER:
+            return (None, body - bound, 0)
+        elif self == self.EQ:
+            return body - bound == 0
+        else:
+            raise ValueError(f"Bound type {self!r} not supported.")
+
+
 def turn_bounds_to_constraints(working_model, logger=None):
     """
     Cast bounds of all first-stage, second-stage, and state
     variables to inequality constraints.
-
-    Separation priorities for the Constraints added to the model
-    are adapted from the specifications for the corresponding
-    Vars.
 
     Parameters
     ----------
@@ -563,6 +596,14 @@ def turn_bounds_to_constraints(working_model, logger=None):
     logger : logging.Logger, optional
         Logger used for warning/error messages when
         separation priorities are mappped.
+
+    Returns
+    -------
+    var_to_bound_con_map : ComponentMap
+        Each entry maps a first-stage, second-stage, or
+        state variable to a ComponentMap which matches
+        a derived bound constraint to a BoundType
+        instance indicating the nature of the constraint.
 
     Note
     ----
@@ -584,26 +625,12 @@ def turn_bounds_to_constraints(working_model, logger=None):
     )
     uncertain_params_set = ComponentSet(working_model.util.uncertain_params)
 
-    # keeping track of separation priorities
-    sep_priority_std = _SeparationPriorityStandardizer()
-    sep_priority_map = working_model.util.separation_priority_map
-
-    def generate_constraint_expr(var, bound, bound_desc):
-        """
-        Generate bound constraint expression.
-        """
-        if bound_desc == "lower":
-            return (None, bound - var, 0)
-        elif bound_desc == "upper":
-            return (None, var - bound, 0)
-        elif bound_desc == "eq":
-            return var - bound == 0
-        else:
-            raise ValueError(f"Bound type {bound_desc!r} not supported.")
-
+    var_to_bound_con_map = ComponentMap()
     for var in all_model_vars:
-        # use upper/lower to get bounds expressions, rather
-        # than just their values
+        var_to_bound_con_map[var] = std_con_to_bound_map = ComponentMap()
+        # use upper/lower to get bounds expressions,
+        # rather than just their values,
+        # in case the expression contains uncertain parameters
         lb = var.lower
         ub = var.upper
 
@@ -662,40 +689,31 @@ def turn_bounds_to_constraints(working_model, logger=None):
         # finally, perform the bound -> constraint reformulations
         bound_zip = zip(
             (lb_args, ub_args, matching_lb_ub_args),
-            ("lower", "upper", "eq"),
+            (BoundType.LOWER, BoundType.UPPER, BoundType.EQ),
         )
-
-        # resolve separation priorities
-        var_sep_priority = sep_priority_std(
-            component=var,
-            priority=sep_priority_map.get(var, None),
-            logger=logger,
-        )
-        del sep_priority_map[var]
-        var_sep_priority_dict = {
-            "lower": var_sep_priority[0],
-            "upper": var_sep_priority[1],
-        }
-
-        for bound_args_list, desc in bound_zip:
+        for bound_args_list, bound_type in bound_zip:
             for arg in bound_args_list:
-                con = Constraint(expr=generate_constraint_expr(var, arg, desc))
+                con = Constraint(
+                    expr=bound_type.generate_bound_constraint_expr(
+                        body=var,
+                        bound=arg,
+                    )
+                )
                 working_model.add_component(
                     unique_component_name(
                         instance=working_model,
-                        name=f"{var.local_name}_{desc}_bound_con",
+                        name=f"{var.local_name}_{bound_type.value}_bound_con",
                     ),
                     con,
                 )
+                std_con_to_bound_map[con] = bound_type
 
-                if desc != "eq":
-                    sep_priority_map[con] = var_sep_priority_dict[desc]
-                working_model.util.constraint_inferred_from[con] = var
-
-        # adjust domain. remove variable bounds
+        # remove variable domain and bound specifications
         var.domain = Reals
         var.setlb(None)
         var.setub(None)
+
+    return var_to_bound_con_map
 
 
 def get_time_from_solver(results):
@@ -758,6 +776,15 @@ def standardize_inequality_constraints(model, logger=None):
         Logger for outputting warning/error messages during
         management of separation priorities.
 
+    Returns
+    -------
+    std_ineq_con_map : ComponentMap
+        Each entry matches an inequality constraint of `model`
+        to a ComponentMap. The inner map matches a standardized
+        inequality constraint of `model` to a BoundType depending
+        on whether the standardized constraint was derived from
+        the lower bound, upper bound, or deduced to be an equality.
+
     Note
     ----
     If `a` and `b` are identical and the constraint is not classified as an
@@ -770,6 +797,7 @@ def standardize_inequality_constraints(model, logger=None):
     # keeping track of separation priorities
     sep_priority_std = _SeparationPriorityStandardizer()
     sep_priority_map = model.util.separation_priority_map
+    std_ineq_con_map = ComponentMap()
 
     # Note: because we will be adding / modifying the number of
     # constraints, we want to resolve the generator to a list before
@@ -778,6 +806,7 @@ def standardize_inequality_constraints(model, logger=None):
         model.component_data_objects(Constraint, descend_into=True, active=True)
     )
     for con in cons:
+        std_ineq_con_map[con] = con_to_bound_type_map = ComponentMap()
         if not con.equality:
             has_lb = con.lower is not None
             has_ub = con.upper is not None
@@ -791,26 +820,29 @@ def standardize_inequality_constraints(model, logger=None):
                 if con.lower is con.upper:
                     # recast as equality Constraint
                     con.set_value(con.lower == con.body)
+                    con_to_bound_type_map[con] = BoundType.EQ
                 else:
                     # range inequality; split into two Constraints.
                     uniq_name = unique_component_name(model, con.name + '_lb')
                     lb_con = Constraint(expr=con.lower - con.body <= 0)
                     model.add_component(uniq_name, lb_con)
                     con.set_value(con.body - con.upper <= 0)
-                    sep_priority_map[lb_con] = lb_priority
-                    sep_priority_map[con] = ub_priority
-                    model.util.constraint_inferred_from[lb_con] = con
+
+                    con_to_bound_type_map[lb_con] = BoundType.LOWER
+                    con_to_bound_type_map[con] = BoundType.UPPER
             elif has_lb:
                 # not in standard form; recast.
                 con.set_value(con.lower - con.body <= 0)
-                sep_priority_map[con] = lb_priority
+                con_to_bound_type_map[con] = BoundType.LOWER
             elif has_ub:
                 # move upper bound to body.
                 con.set_value(con.body - con.upper <= 0)
-                sep_priority_map[con] = ub_priority
+                con_to_bound_type_map[con] = BoundType.UPPER
             else:
                 # unbounded constraint: deactivate
                 con.deactivate()
+
+    return std_ineq_con_map
 
 
 def standardize_equality_constraints(model):
@@ -818,10 +850,18 @@ def standardize_equality_constraints(model):
     Standardize equality constraints of model.
     That is, constraint of form ``g(v) == a`` is cast to
     ``g(v) - a == 0``.
+
+    Returns
+    -------
+    equality_cons : list of _ConstraintData
+        Active equality constraints.
     """
+    equality_cons = []
     for con in model.component_data_objects(Constraint, active=True):
         if con.equality:
             con.set_value((0, con.body - con.lower, 0))
+            equality_cons.append(con)
+    return equality_cons
 
 
 def reformulate_objective(blk, obj):
@@ -1926,6 +1966,11 @@ def standardize_objective(model_data, config):
         Main model data object.
     config : ConfigDict
         PyROS solver options.
+
+    Returns
+    -------
+    active_obj : _ObjectiveData
+        Active objective of the working model.
     """
     working_model = model_data.working_model
     active_obj = next(
@@ -1943,17 +1988,7 @@ def standardize_objective(model_data, config):
         blk_for_obj_exprs=working_model.util,
     )
 
-    # map objective separation priority to epigraph constraint
-    epigraph_con = working_model.util.epigraph_con
-    sep_priority_map = working_model.util.separation_priority_map
-    sep_priority_std = _SeparationPriorityStandardizer()
-    sep_priority_map[epigraph_con] = sep_priority_std(
-        component=active_obj,
-        priority=sep_priority_map.get(active_obj, None),
-        logger=config.progress_logger,
-    )
-    del sep_priority_map[active_obj]
-    working_model.util.constraint_inferred_from[epigraph_con] = active_obj
+    return active_obj
 
 
 class _SeparationPriorityStandardizer:
@@ -2241,11 +2276,12 @@ def standardize_separation_priorities(model_data, config):
 
 def finalize_separation_priorities(model_data, config):
     """
-    Clean up separation priority mapping.
+    Finalize separation priority mapping.
 
-    Once this routine is complete, the only
-    entries of the mapping should be the performance
-    constraints and their separation priorities.
+    Once this routine is complete, the separation priority map
+    at `model_data.working_model.util.working_model` should
+    map all performance constraints to ints specifying their
+    (upper bound) separation priorities.
 
     Parameters
     ----------
@@ -2255,13 +2291,62 @@ def finalize_separation_priorities(model_data, config):
         PyROS solver options.
     """
     working_model = model_data.working_model
+    var_to_bound_con_map = working_model.util.var_to_bound_con_map
     sep_priority_map = working_model.util.separation_priority_map
-    perf_cons_set = working_model.util.performance_constraints
+    sep_priority_std = _SeparationPriorityStandardizer()
 
+    # map bound inequality constraints to priorities of
+    # corresponding variable bounds
+    for var, con_to_type_map in var_to_bound_con_map.items():
+        var_sep_priority = sep_priority_map.get(var, None)
+        var_sep_priority_dict = {
+            BoundType.LOWER: var_sep_priority[0],
+            BoundType.UPPER: var_sep_priority[1],
+            BoundType.EQ: None,
+        }
+        for con, bound_type in con_to_type_map.items():
+            sep_priority_map[con] = sep_priority_std(
+                component=con,
+                priority=var_sep_priority_dict[bound_type],
+                logger=config.progress_logger,
+            )
+        del sep_priority_map[var]
+
+    # map standardized inequality constraints to priorities of
+    # corresponding original inequality constraints
+    con_to_std_con_map = working_model.util.con_to_std_con_map
+    for con, std_con_bound_type_map in con_to_std_con_map.items():
+        sep_priority = sep_priority_map.get(con, None)
+        con_sep_priority_dict = {
+            BoundType.LOWER: sep_priority[0],
+            BoundType.UPPER: sep_priority[1],
+            BoundType.EQ: None,
+        }
+        for std_con, bound_type in std_con_bound_type_map.items():
+            sep_priority_map[con] = sep_priority_std(
+                component=con,
+                priority=con_sep_priority_dict[bound_type],
+                logger=config.progress_logger,
+            )
+
+    # map epigraph constraint to priority of active objective
+    epigraph_con = working_model.util.epigraph_con
+    sep_priority_map[epigraph_con] = sep_priority_std(
+        component=working_model.util.epigraph_con,
+        priority=sep_priority_map.get(model_data.active_obj, None),
+        logger=config.progress_logger,
+    )
+    del sep_priority_map[model_data.active_obj]
+
+    # simplify separation priority mapping: we only care
+    # about performance constraints
     priority_map_items = list(sep_priority_map.items())
+    perf_cons_set = ComponentSet(working_model.util.performance_constraints)
     for comp, priority in priority_map_items:
         if comp not in perf_cons_set:
             del sep_priority_map[comp]
+        else:
+            sep_priority_map[comp] = int(sep_priority_map[comp][1])
 
 
 def preprocess_model_data(model_data, config):
@@ -2312,27 +2397,24 @@ def preprocess_model_data(model_data, config):
     # separation priority specifications.
     # once done, priority suffix should be a mapping from
     # inequality constraints to ints
-    working_model.util.constraint_inferred_from = ComponentMap()
-    turn_bounds_to_constraints(working_model, logger=config.progress_logger)
-    standardize_inequality_constraints(
+    working_model.util.var_to_bound_con_map = turn_bounds_to_constraints(
         working_model,
         logger=config.progress_logger,
     )
-    standardize_equality_constraints(working_model)
-    standardize_objective(model_data, config)
-    working_model.util.original_model_equality_cons = [
-        con
-        for con in working_model.component_data_objects(
-            Constraint, active=True
-        )
-        if con.equality
-    ]
+    working_model.util.con_to_std_con_map = standardize_inequality_constraints(
+        working_model,
+        logger=config.progress_logger,
+    )
+    working_model.util.original_model_equality_cons = (
+        standardize_equality_constraints(working_model)
+    )
+    model_data.active_obj = standardize_objective(model_data, config)
     identify_performance_constraints(working_model, config)
-
-    finalize_separation_priorities(model_data, config)
 
     add_decision_rule_variables(model_data, config)
     add_decision_rule_constraints(model_data, config)
+
+    finalize_separation_priorities(model_data, config)
 
     robust_infeasible = coefficient_matching(working_model, config)
 
