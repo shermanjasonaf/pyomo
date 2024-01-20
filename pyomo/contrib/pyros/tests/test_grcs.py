@@ -7,7 +7,7 @@ import pyomo.common.unittest as unittest
 from pyomo.common.log import LoggingIntercept
 from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.common.config import ConfigDict, ConfigValue, Path
-from pyomo.core.base.set_types import NonNegativeIntegers
+from pyomo.core.base.set_types import NonNegativeIntegers, NonNegativeReals
 from pyomo.core.expr import (
     identify_variables,
     identify_mutable_parameters,
@@ -634,166 +634,117 @@ class testAddDecisionRuleConstraints(unittest.TestCase):
                 )
 
 
-class testTurnBoundsToConstraints(unittest.TestCase):
-    def test_bounds_to_constraints(self):
+class TestTurnBoundsToConstraints(unittest.TestCase):
+    """
+    Test methods for casting variable bounds specifications
+    to explicit bound inequality constraints.
+    """
+    def test_turn_bounds_to_constraints(self):
+        """
+        Test method for turning variable bounds to constraints.
+        """
         m = ConcreteModel()
-        m.x = Var(initialize=1, bounds=(0, 1))
-        m.y = Var(initialize=0, bounds=(None, 1))
+        m.u = Param(initialize=1, mutable=True)
+        m.u2 = Param(initialize=2, mutable=True)
+        m.t = Var(initialize=1)
+        m.t.fix()
+        m.v = Var(initialize=1, bounds=(m.u, 0), domain=NonNegativeReals)
         m.w = Var(initialize=0, bounds=(1, None))
+        m.x = Var(initialize=1, bounds=(0, 1))
+        m.y = Var(initialize=0, bounds=(None, m.u2 ** 2))
         m.z = Var(initialize=0, bounds=(None, None))
-        turn_bounds_to_constraints(m.z, m)
+        m.con = Constraint(expr=m.x + m.y + m.w <= m.u)
+        m.obj = Objective(expr=m.z + m.v + m.t)
+
+        # no active Objective/Constraints -> no vars acted upon
+        m.con.deactivate()
+        m.obj.deactivate()
+        var_to_bound_con_map_no_cons = turn_bounds_to_constraints(
+            model=m,
+            uncertain_params=[m.u],
+            variables=None,
+        )
         self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
+            len(var_to_bound_con_map_no_cons),
             0,
-            msg="Inequality constraints were written for bounds on a variable with no bounds.",
-        )
-        turn_bounds_to_constraints(m.y, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            1,
-            msg="Inequality constraints were not "
-            "written correctly for a variable with an upper bound and no lower bound.",
-        )
-        turn_bounds_to_constraints(m.w, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            2,
-            msg="Inequality constraints were not "
-            "written correctly for a variable with a lower bound and no upper bound.",
-        )
-        turn_bounds_to_constraints(m.x, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            4,
-            msg="Inequality constraints were not "
-            "written correctly for a variable with both lower and upper bound.",
+            msg=(
+                "Var to bound constraint map returned is nonempty when "
+                "model has no active obj/constraints and default `variables` "
+                "argument value passed."
+            ),
         )
 
-    def test_uncertain_bounds_to_constraints(self):
-        # test model
-        m = ConcreteModel()
-        # parameters
-        m.p = Param(initialize=8, mutable=True)
-        m.r = Param(initialize=-5, mutable=True)
-        m.q = Param(initialize=1, mutable=False)
-        m.s = Param(initialize=1, mutable=True)
-        m.n = Param(initialize=1, mutable=True)
-
-        # variables, with bounds contingent on params
-        m.u = Var(initialize=0, bounds=(0, m.p))
-        m.v = Var(initialize=1, bounds=(m.r, m.p))
-        m.w = Var(initialize=1, bounds=(None, None))
-        m.x = Var(initialize=1, bounds=(0, exp(-1 * m.p / 8) * m.q * m.s))
-        m.y = Var(initialize=-1, bounds=(m.r * m.p, 0))
-        m.z = Var(initialize=1, bounds=(0, m.s))
-        m.t = Var(initialize=1, bounds=(0, m.p**2))
-
-        # objective
-        m.obj = Objective(sense=maximize, expr=m.x**2 - m.y + m.t**2 + m.v)
-
-        # clone model
-        mod = m.clone()
-        uncertain_params = [mod.n, mod.p, mod.r]
-
-        # check variable replacement without any active objective
-        # or active performance constraints
-        mod.obj.deactivate()
-        replace_uncertain_bounds_with_constraints(mod, uncertain_params)
-        self.assertTrue(
-            hasattr(mod, 'uncertain_var_bound_cons'),
-            msg='Uncertain variable bounds erroneously added. '
-            'Check only variables participating in active '
-            'objective and constraints are added.',
-        )
-        self.assertFalse(mod.uncertain_var_bound_cons)
-        mod.obj.activate()
-
-        # add performance constraints
-        constraints_m = ConstraintList()
-        m.add_component('perf_constraints', constraints_m)
-        constraints_m.add(m.w == 2 * m.x + m.y)
-        constraints_m.add(m.v + m.x + m.y >= 0)
-        constraints_m.add(m.y**2 + m.z >= 0)
-        constraints_m.add(m.x**2 + m.u <= 1)
-        constraints_m[4].deactivate()
-
-        # clone model with constraints added
-        mod_2 = m.clone()
-
-        # manually replace uncertain parameter bounds with explicit constraints
-        uncertain_cons = ConstraintList()
-        m.add_component('uncertain_var_bound_cons', uncertain_cons)
-        uncertain_cons.add(m.x - m.x.upper <= 0)
-        uncertain_cons.add(m.y.lower - m.y <= 0)
-        uncertain_cons.add(m.v - m.v._ub <= 0)
-        uncertain_cons.add(m.v.lower - m.v <= 0)
-        uncertain_cons.add(m.t - m.t.upper <= 0)
-
-        # remove corresponding variable bounds
-        m.x.setub(None)
-        m.y.setlb(None)
-        m.v.setlb(None)
-        m.v.setub(None)
-        m.t.setub(None)
-
-        # check that vars participating in
-        # active objective and activated constraints correctly determined
-        svars_con = ComponentSet(get_vars_from_component(mod_2, Constraint))
-        svars_obj = ComponentSet(get_vars_from_component(mod_2, Objective))
-        vars_in_active_cons = ComponentSet(
-            [mod_2.z, mod_2.w, mod_2.y, mod_2.x, mod_2.v]
-        )
-        vars_in_active_obj = ComponentSet([mod_2.x, mod_2.y, mod_2.t, mod_2.v])
-        self.assertEqual(
-            svars_con,
-            vars_in_active_cons,
-            msg='Mismatch of variables participating in activated constraints.',
+        # in this case, the unfixed variables are treated
+        m.con.activate()
+        m.obj.activate()
+        var_to_bound_con_map = turn_bounds_to_constraints(
+            model=m,
+            uncertain_params=[m.u],
+            variables=None,
         )
         self.assertEqual(
-            svars_obj,
-            vars_in_active_obj,
-            msg='Mismatch of variables participating in activated objectives.',
+            len(var_to_bound_con_map),
+            5,
+            msg="Length of Var to bound constraint map not as expected.",
         )
 
-        # replace bounds in model with performance constraints
-        uncertain_params = [mod_2.p, mod_2.r]
-        replace_uncertain_bounds_with_constraints(mod_2, uncertain_params)
-
-        # check that same number of constraints added to model
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            len(list(mod_2.component_data_objects(Constraint))),
-            msg='Mismatch between number of explicit variable '
-            'bound inequality constraints added '
-            'automatically and added manually.',
+        # expected number of bound constraints added for each variable
+        var_to_expected_num_cons_map = ComponentMap(
+           [(m.x, 2), (m.y, 1), (m.w, 1), (m.z, 0), (m.v, 2)],
         )
+        for var, con_map in var_to_bound_con_map.items():
+            self.assertEqual(
+                len(con_map),
+                var_to_expected_num_cons_map[var],
+                msg=(
+                    f"Length of bound constraint map for Var {var.name} "
+                    "does not match expected value."
+                ),
+            )
+            self.assertTrue(
+                var.bounds == (None, None),
+                msg=f"Bounds for var {var.name!r} have not been stripped.",
+            )
+            self.assertTrue(
+                var.domain is Reals,
+                msg=(
+                    f"Domain for var {var.name!r} not set to NonNegativeReals "
+                    "by standardization routine."
+                ),
+            )
+            for con in con_map:
+                vars_in_con = ComponentSet(identify_variables(con.body))
+                self.assertEqual(
+                    vars_in_con,
+                    ComponentSet((var,)),
+                    msg=(
+                        f"Vars in body of bounding constraint {con.name!r}"
+                        f"for variable {var.name!r} not as expected. "
+                        f"(vars in body: "
+                        f"{', '.join(var.name for var in vars_in_con)})"
+                    )
+                )
+                self.assertEqual(
+                    con.upper,
+                    0,
+                    msg=(
+                        f"Upper bound for bound constraint {con.name!r} "
+                        f"of variable should be 0 (for standard form)."
+                    ),
+                )
 
-        # check that explicit constraints contain correct vars and params
-        vars_in_cons = ComponentSet()
-        params_in_cons = ComponentSet()
-
-        # get variables, mutable params in the explicit constraints
-        cons = mod_2.uncertain_var_bound_cons
-        for idx in cons:
-            for p in identify_mutable_parameters(cons[idx].expr):
-                params_in_cons.add(p)
-            for v in identify_variables(cons[idx].expr):
-                vars_in_cons.add(v)
-        # reduce only to uncertain mutable params found
-        params_in_cons = params_in_cons & uncertain_params
-
-        # expected participating variables
-        vars_with_bounds_removed = ComponentSet([mod_2.x, mod_2.y, mod_2.v, mod_2.t])
-        # complete the check
-        self.assertEqual(
-            params_in_cons,
-            ComponentSet([mod_2.p, mod_2.r]),
-            msg='Mismatch of parameters added to explicit inequality constraints.',
+        # check uncertain bound constraint is as expected
+        uncertain_bound_con = m.v_lower_bound_con
+        params_in_uncertain_con = ComponentSet(
+            identify_mutable_parameters(uncertain_bound_con.body)
         )
         self.assertEqual(
-            vars_in_cons,
-            vars_with_bounds_removed,
-            msg='Mismatch of variables added to explicit inequality constraints.',
+            params_in_uncertain_con,
+            ComponentSet((m.u,)),
+            msg=(
+                "Set of mutable params in uncertain bound constraint for "
+                f"Var {m.v.name!r} is not as expeted."
+            ),
         )
 
 
