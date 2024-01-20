@@ -29,9 +29,7 @@ from pyomo.core.expr.visitor import replace_expressions, identify_variables
 from pyomo.common.collections import ComponentMap, ComponentSet
 from pyomo.repn.standard_repn import generate_standard_repn
 from pyomo.core import TransformationFactory
-import itertools as it
 import os
-from copy import deepcopy
 from pyomo.common.errors import ApplicationError
 from pyomo.common.modeling import unique_component_name
 
@@ -39,7 +37,7 @@ from pyomo.common.timing import TicTocTimer
 from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR, enforce_dr_degree
 
 
-def initial_construct_master(model_data):
+def initial_construct_master(model_data, config):
     """
     Constructs the iteration 0 master problem
     return: a MasterProblemData object containing the master_model object
@@ -51,6 +49,21 @@ def initial_construct_master(model_data):
     master_data.original = model_data.working_model.clone()
     master_data.master_model = m
     master_data.timing = model_data.timing
+    master_data.iteration = 0
+
+    # set up nominal block
+    add_scenario_to_master(
+        master_data=master_data,
+        scenario_idx=(0, 0),
+        param_realization=config.nominal_uncertain_param_vals,
+        from_block=master_data.original,
+        clone_first_stage_vars=True,
+    )
+
+    # set up main epigraph objective
+    master_data.master_model.epigraph_obj = Objective(
+        expr=master_data.master_model.scenarios[0, 0].util.epigraph_var,
+    )
 
     return master_data
 
@@ -572,7 +585,13 @@ def add_p_robust_constraint(model_data, config):
     return
 
 
-def add_scenario_to_master(master_data, scenario_idx, param_realization):
+def add_scenario_to_master(
+        master_data,
+        scenario_idx,
+        param_realization,
+        from_block=None,
+        clone_first_stage_vars=None,
+        ):
     """
     Add new scenario block to the master model.
 
@@ -583,32 +602,44 @@ def add_scenario_to_master(master_data, scenario_idx, param_realization):
     scenario_idx : tuple
         Index of ``master_data.master_model.scenarios`` at
         which to place the new scenario block.
-    param_realization : Iterable of float
-        Uncertain parameter realization for the new scenario
-        block.
+    param_realization : Iterable of numeric type
+        Uncertain parameter realization for new parameter block.
+    from_block : _BlockData or None, optional
+        Block from which to transfer attributes.
+        If `None` is passed, then this is set to
+        ``master_data.master_model.scenarios[0, 0]``.
+    clone_first_stage_vars : bool, optional
+        True to clone first-stage variables, DR variables,
+        and the epigraph variable when transferring attributes
+        to the new block (as opposed to using the objects as
+        they are in `from_block`), False otherwise.
+        If `None` is passed, then this is set to True
+        provided `from_block` is resolved to
+        ``master_data.master_model.scenarios[0, 0]``,
+        and False otherwise.
     """
+    # resolve optional arguments
     master_model = master_data.master_model
+    if from_block is None:
+        from_block = master_model.scenarios[0, 0]
+    if clone_first_stage_vars is None:
+        clone_first_stage_vars = from_block is not master_model.scenarios[0, 0]
 
-    # clone new block from the nominal block,
-    # ensuring first-stage, DR, and epigraph variables
-    # are not copied.
     # Note for any of the Vars not copied:
     # - if Var is not a member of an indexed var, then
     #   the 'name' attribute changes from
-    #   'scenarios[0, 0].<<local var name>>'
-    #   to 'scenarios[scenario_idx].<<local var name>>'
+    #   '{from_block.name}.{var.name}'
+    #   to 'scenarios[{scenario_idx}].{var.name}'
     # - otherwise, the name stays the same
-    # Either way, variable can be referenced from any of
-    # the used scenario blocks.
-    nominal_master_block = master_data.master_model.scenarios[0, 0]
-    effective_first_stage_vars = (
-        [nominal_master_block.util.epigraph_var]
-        + nominal_master_block.util.first_stage_variables
-        + list(generate_all_decision_rule_vars(nominal_master_block))
-    )
-    new_block = nominal_master_block.clone(
-        memo={id(var): var for var in effective_first_stage_vars},
-    )
+    memo = dict()
+    if not clone_first_stage_vars:
+        effective_first_stage_vars = (
+            [from_block.util.epigraph_var]
+            + from_block.util.first_stage_variables
+            + list(generate_all_decision_rule_vars(from_block))
+        )
+        memo = {id(var): var for var in effective_first_stage_vars}
+    new_block = from_block.clone(memo=memo)
     master_model.scenarios[scenario_idx].transfer_attributes_from(new_block)
 
     # update uncertain parameter values in new block

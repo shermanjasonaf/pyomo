@@ -216,7 +216,7 @@ def ROSolver_iterative_solve(model_data, config):
     :config: ConfigBlock for the instance being solved
     '''
     # === Build the master problem and master problem data container object
-    master_data = master_problem_methods.initial_construct_master(model_data)
+    master_data = master_problem_methods.initial_construct_master(model_data, config)
 
     # === If using p_robustness, add ConstraintList for additional constraints
     if config.p_robustness:
@@ -224,18 +224,6 @@ def ROSolver_iterative_solve(model_data, config):
 
     # set up nominal scenario block
     nominal_master_block = master_data.master_model.scenarios[0, 0]
-    nominal_master_block.transfer_attributes_from(master_data.original.clone())
-    nominal_param_vals = list(p for p in config.nominal_uncertain_param_vals)
-    for param, nom_val in zip(
-            nominal_master_block.util.uncertain_params,
-            nominal_param_vals,
-            ):
-        param.set_value(nom_val)
-
-    # set up epigraph objective
-    master_data.master_model.epigraph_obj = Objective(
-        expr=nominal_master_block.util.epigraph_var,
-    )
 
     # === Make separation problem model once before entering the solve loop
     separation_model = separation_problem_methods.make_separation_problem(

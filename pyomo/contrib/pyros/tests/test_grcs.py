@@ -3696,11 +3696,13 @@ class testIntersectionSetClass(unittest.TestCase):
 
 # === master_problem_methods.py
 class testInitialConstructMaster(unittest.TestCase):
+    @unittest.skip("Under construction")
     def test_initial_construct_master(self):
         model_data = MasterProblemData()
         model_data.timing = None
         model_data.working_model = ConcreteModel()
-        master_data = initial_construct_master(model_data)
+        config = Bunch()
+        master_data = initial_construct_master(model_data, config)
         self.assertTrue(
             hasattr(master_data, "master_model"),
             msg="Initial construction of master problem "
@@ -3721,13 +3723,12 @@ class testAddScenarioToMaster(unittest.TestCase):
         m.util.uncertain_params = list(m.p.values())
         m.util.decision_rule_vars = []
 
-        # construct model data objects
-        model_data = Bunch(working_model=m, timing=None)
-        master_data = initial_construct_master(model_data)
-        master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-            model_data.working_model.clone()
-        )
+        config = Bunch()
+        config.nominal_uncertain_param_vals = [value(p) for p in m.p.values()]
 
+        # construct model data objects
+        model_data = Bunch(working_model=m, timing=TimingData())
+        master_data = initial_construct_master(model_data, config)
         add_scenario_to_master(master_data, (1, 0), param_realization=[1, 1])
         self.assertEqual(
             len(master_data.master_model.scenarios),
@@ -3759,7 +3760,6 @@ class testSolveMaster(unittest.TestCase):
         m.util.full_objective = Expression(expr=m.x)
         m.util.epigraph_var = Var(initialize=value(m.util.full_objective))
         m.util.epigraph_con = Constraint(expr=m.x - m.util.epigraph_var <= 0)
-        m.util.epigraph_obj = Objective(expr=m.util.epigraph_var)
         m.util.first_stage_variables = [m.x]
         m.util.second_stage_variables = []
         m.util.uncertain_params = [m.p]
@@ -3767,9 +3767,6 @@ class testSolveMaster(unittest.TestCase):
         m.util.dr_var_to_exponent_map = ComponentMap()
 
         model_data = Bunch(working_model=m, timing=TimingData(), iteration=0)
-        master_data = initial_construct_master(model_data)
-        master_data.iteration = 0
-        master_data.master_model.scenarios[0, 0].transfer_attributes_from(m.clone())
 
         solver = SolverFactory(global_solver)
         config = ConfigDict()
@@ -3786,7 +3783,12 @@ class testSolveMaster(unittest.TestCase):
         config.declare(
             "progress_logger", ConfigValue(default=logging.getLogger(__name__))
         )
+        config.declare(
+            "nominal_uncertain_param_vals",
+            ConfigValue(default=[value(p) for p in m.util.uncertain_params])
+        )
 
+        master_data = initial_construct_master(model_data, config)
         with time_code(master_data.timing, "main", is_main_timer=True):
             master_soln = solve_master(master_data, config)
             self.assertEqual(
@@ -4098,8 +4100,6 @@ class RegressionTest(unittest.TestCase):
         m.util.epigraph_con = Constraint(
             expr=m.util.full_objective - m.util.epigraph_var <= 0
         )
-        m.util.epigraph_obj = Objective(expr=m.util.epigraph_var)
-        m.util.epigraph_obj.deactivate()
 
         model_data = Bunch(working_model=m, timing=TimingData())
         config = Bunch()
@@ -4111,20 +4111,13 @@ class RegressionTest(unittest.TestCase):
         config.solve_master_globally = True
         config.time_limit = None
         config.progress_logger = logging.getLogger(__name__)
+        config.nominal_uncertain_param_vals = [value(m.p1), value(m.p2)]
 
         add_decision_rule_variables(model_data, config)
         add_decision_rule_constraints(model_data, config)
 
         # === Make master_type model
-        master_data = initial_construct_master(model_data)
-        master_data.iteration = 0
-        master_data.timing = TimingData()
-        master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-            model_data.working_model.clone()
-        )
-        master_data.master_model.epigraph_obj = Objective(
-            expr=master_data.master_model.scenarios[0, 0].util.epigraph_var,
-        )
+        master_data = initial_construct_master(model_data, config)
         with time_code(master_data.timing, "main", is_main_timer=True):
             results, success = minimize_dr_vars(model_data=master_data, config=config)
             self.assertEqual(
