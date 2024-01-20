@@ -559,11 +559,11 @@ class BoundType(Enum):
     def generate_bound_constraint_expr(self, body, bound):
         """
         Generate bound constraint expression depending on
-        bound type.
+        bound type indicated by `self`.
 
         Parameters
         ----------
-        body : NumericExpression
+        body : _VarData or NumericExpression
             Body of the constraint.
         bound : NumericExpression or numeric type
             Bound for the body expression.
@@ -572,38 +572,136 @@ class BoundType(Enum):
 
         Returns
         -------
-        ExpressionData
+        InequalityExpression
+            If bound type indicated by self is `BoundType.LOWER`
+            or `BoundType.UPPER`.
+        EqualityExpression
+            If bound type indicated by `self` is `BoundType.EQ`.
+
+        Raises
+        ------
+        ValueError
+            If bound type indicated by `self` is currently
+            not supported.
         """
         if self == self.LOWER:
-            return (None, bound - body, 0)
+            return bound - body <= 0
         elif self == self.UPPER:
-            return (None, body - bound, 0)
+            return body - bound <= 0
         elif self == self.EQ:
             return body - bound == 0
         else:
             raise ValueError(f"Bound type {self!r} not supported.")
 
 
-def turn_bounds_to_constraints(working_model, logger=None):
+def _resolve_component_bounds(var_or_con, uncertain_params):
     """
-    Cast bounds of all first-stage, second-stage, and state
-    variables to inequality constraints.
+    Determine effective lower, upper, and/or equality bounds
+    on a Var or Constraint component data object.
 
     Parameters
     ----------
-    working_model : ConcreteModel
-        Working model object.
-    logger : logging.Logger, optional
-        Logger used for warning/error messages when
-        separation priorities are mappped.
+    var_or_con : _VarData or _ConstraintData
+        Variable or constraint whose bounds are to be
+        treated.
+    uncertain_params : Iterable of _ParamData
+        Mutable Param objects in the bounds expressions
+        of `var_or_con` considered uncertain.
+
+    Returns
+    -------
+    dict
+        Maps each member of `BoundType` is to a list of
+        bounds of the corresponding type.
+    """
+    uncertain_params_set = uncertain_params
+    if not isinstance(uncertain_params, ComponentSet):
+        uncertain_params_set = ComponentSet(uncertain_params)
+
+    lb_expr = var_or_con.lower
+    ub_expr = var_or_con.upper
+
+    # lb (ub) can be a max (min) expression due to, say
+    # Var domain specifications.
+    # capture all the arguments of the max (min)
+    # to address them separately
+    lb_args = [lb_expr] if lb_expr is not None else []
+    if isinstance(lb_expr, NPV_MaxExpression):
+        lb_args = list(lb_expr.args)
+    ub_args = [ub_expr] if ub_expr is not None else []
+    if isinstance(ub_expr, NPV_MinExpression):
+        ub_args = list(ub_expr.args)
+
+    # we only care about dependence of bounds on the uncertain params,
+    # so we evaluate all the other mutable params
+    bound_type_to_args_map = {BoundType.LOWER: lb_args, BoundType.UPPER: ub_args}
+    for bound_type, args_list in bound_type_to_args_map.items():
+        for idx, arg in enumerate(args_list):
+            certain_params_in_arg = (
+                ComponentSet(identify_mutable_parameters(arg))
+                - uncertain_params_set
+            )
+            args_list[idx] = replace_expressions(
+                expr=arg,
+                substitution_map={
+                    id(param): value(param) for param in certain_params_in_arg
+                },
+            )
+
+    # in case upper bound and lower bound share identical args,
+    # we consider that an equality bound instead of separate
+    # lower/upper bounds
+    final_lb_args = []
+    final_eq_args = []
+    matched_ub_args_idx_set = set()
+    for lb_idx, lb_arg in enumerate(lb_args):
+        matching_ub_arg_idxs = set(
+            ub_idx for ub_idx, ub_arg in enumerate(ub_args)
+            if lb_arg is ub_arg
+        )
+        if not matching_ub_arg_idxs:
+            final_lb_args.append(lb_arg)
+        else:
+            final_eq_args.append(lb_arg)
+        matched_ub_args_idx_set.update(matching_ub_arg_idxs)
+
+    unmatched_ub_args_idx_set = set(range(len(ub_args))) - matched_ub_args_idx_set
+    final_ub_args = [ub_args[idx] for idx in unmatched_ub_args_idx_set]
+
+    return {
+        BoundType.LOWER: final_lb_args,
+        BoundType.UPPER: final_ub_args,
+        BoundType.EQ: final_eq_args,
+    }
+
+
+def turn_bounds_to_constraints(model, uncertain_params, variables=None):
+    """
+    Cast model variable bound/domain specifications to inequality
+    constraints.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Model on which to act.
+    uncertain_params : Iterable of _ParamData
+        Mutable parameters considered uncertain.
+    variables : None or list of _VarData, optional
+        Variables for which bound specifications are to be
+        turned to constraints. All variables are assumed
+        to have continuous domains. If `None` is passed, then
+        all unfixed variables participating in expressions of
+        all the active Objective and Constraint component expressions
+        (including components found in sub-Blocks) are considered.
 
     Returns
     -------
     var_to_bound_con_map : ComponentMap
-        Each entry maps a first-stage, second-stage, or
-        state variable to a ComponentMap which matches
-        a derived bound constraint to a BoundType
-        instance indicating the nature of the constraint.
+        Maps the variables to ComponentMap objects containing
+        the bound constraints. Each inner component map
+        matches a bound constraint to a BoundType instance
+        indicating whether the constraint specifies a lower bound,
+        upper bound, or bound by equality.
 
     Note
     ----
@@ -615,100 +713,37 @@ def turn_bounds_to_constraints(working_model, logger=None):
 
     All Vars are assumed to have continuous domains.
     """
-    if logger is None:
-        logger = logging.getLogger(DEFAULT_LOGGER_NAME)
-
-    all_model_vars = (
-        working_model.util.first_stage_variables
-        + working_model.util.second_stage_variables
-        + working_model.util.state_vars
-    )
-    uncertain_params_set = ComponentSet(working_model.util.uncertain_params)
-
+    if variables is not None:
+        variables = get_vars_from_component(
+            block=model,
+            ctype=(Objective, Constraint),
+        )
+    uncertain_params_set = ComponentSet(uncertain_params)
     var_to_bound_con_map = ComponentMap()
-    for var in all_model_vars:
+    for var in variables:
         var_to_bound_con_map[var] = std_con_to_bound_map = ComponentMap()
-        # use upper/lower to get bounds expressions,
-        # rather than just their values,
-        # in case the expression contains uncertain parameters
-        lb = var.lower
-        ub = var.upper
-
-        uncertain_params_in_lb = (
-            ComponentSet(identify_mutable_parameters(lb))
-            & uncertain_params_set
+        resolved_bounds_map = _resolve_component_bounds(
+            var,
+            uncertain_params=uncertain_params_set,
         )
-        uncertain_params_in_ub = (
-            ComponentSet(identify_mutable_parameters(ub))
-            & uncertain_params_set
-        )
-
-        lb_args = [lb] if lb is not None else []
-        ub_args = [ub] if ub is not None else []
-
-        # lb (ub) could be a max (min) of expressions due to, say,
-        # custom Var domain specifications.
-        # if the lb (ub) is contingent on the uncertain params,
-        # then we will treat each arguemnt of the max (min) separately
-        if isinstance(lb, NPV_MaxExpression):
-            lb_args = list(lb.args) if uncertain_params_in_lb else lb
-        if isinstance(ub, NPV_MinExpression):
-            ub_args = list(ub.args) if uncertain_params_in_ub else ub
-
-        # lb args and ub args may have identical entries.
-        # for every occurrence of an identical entry,
-        # we cast the bound arg requirement to an equality
-        # constraint instead of separate lower bound and
-        # upper bound inequality constraints.
-        # ----
-        # args could be numeric type, expression, or
-        # mutable param, so instead of using set.in/ComponentSet.in,
-        # we use this custom approach to separate
-        # identical lb/ub args from the rest
-        matched_lb_arg_idxs = []
-        matching_lb_ub_args = []
-        for lb_idx, lb_arg in enumerate(lb_args):
-            # look for matching upper bound args
-            matching_ub_arg_idxs = [
-                idx for idx, ub_arg in enumerate(ub_args) if lb_arg is ub_arg
-            ]
-            if matching_ub_arg_idxs:
-                matched_lb_arg_idxs.append(lb_idx)
-                matching_lb_ub_args.append(lb_arg)
-
-            # remove matched upper bound args to prevent
-            # addition of redundant upper bound constraints
-            for ub_idx in matching_ub_arg_idxs:
-                ub_args.pop(ub_idx)
-
-        # remove matched lower bound args to prevent
-        # addition of redundant lower bound constraints
-        for lb_idx in matched_lb_arg_idxs:
-            lb_args.pop(lb_idx)
-
-        # finally, perform the bound -> constraint reformulations
-        bound_zip = zip(
-            (lb_args, ub_args, matching_lb_ub_args),
-            (BoundType.LOWER, BoundType.UPPER, BoundType.EQ),
-        )
-        for bound_args_list, bound_type in bound_zip:
-            for arg in bound_args_list:
-                con = Constraint(
+        for bound_type, bounds_list in resolved_bounds_map.items():
+            for arg in bounds_list:
+                bound_con = Constraint(
                     expr=bound_type.generate_bound_constraint_expr(
                         body=var,
                         bound=arg,
                     )
                 )
-                working_model.add_component(
-                    unique_component_name(
-                        instance=working_model,
+                model.add_component(
+                    name=unique_component_name(
+                        instance=model,
                         name=f"{var.local_name}_{bound_type.value}_bound_con",
                     ),
-                    con,
+                    val=bound_con,
                 )
-                std_con_to_bound_map[con] = bound_type
+                std_con_to_bound_map[bound_con] = bound_type
 
-        # remove variable domain and bound specifications
+        # finally, remove variable domain and bound specifications
         var.domain = Reals
         var.setlb(None)
         var.setub(None)
@@ -756,25 +791,22 @@ def get_time_from_solver(results):
     return float("nan") if solve_time is None else solve_time
 
 
-def standardize_inequality_constraints(model, logger=None):
+def standardize_inequality_constraints(model, uncertain_params):
     """
-    Recast all model inequality constraints of the form `a <= g(v)` (`<= b`)
-    to the 'standard' form `a - g(v) <= 0` (and `g(v) - b <= 0`),
-    in which `v` denotes all model variables and `a` and `b` are
-    contingent on model parameters.
-
-    This method also maps the separation priorities for the
-    standardized constraints to the priorities of the
-    constraints from which they were derived.
+    Recast all active model inequality constraints of the form
+    `a <= g(v)` (`<= b`) to the 'standard' form `a - g(v) <= 0`
+    (and `g(v) - b <= 0`), in which `v` denotes all model variables
+    and `a` and `b` are contingent on model parameters.
+    If `a` and `b` are identical objects, then the constraint
+    is recast to `g(v) - a == 0`.
 
     Parameters
     ----------
     model : ConcreteModel
         The model to search for constraints. This will descend into all
         active Blocks and sub-Blocks as well.
-    logger : logging.Logger, optional
-        Logger for outputting warning/error messages during
-        management of separation priorities.
+    uncertain_params : Iterable of _ParamData
+        Mutable parameters considered uncertain.
 
     Returns
     -------
@@ -784,19 +816,10 @@ def standardize_inequality_constraints(model, logger=None):
         inequality constraint of `model` to a BoundType depending
         on whether the standardized constraint was derived from
         the lower bound, upper bound, or deduced to be an equality.
-
-    Note
-    ----
-    If `a` and `b` are identical and the constraint is not classified as an
-    equality (i.e. the `equality` attribute of the constraint object
-    is `False`), then the constraint is recast to the equality `g(v) == a`.
     """
-    if logger is None:
-        logger = logging.getLogger(DEFAULT_LOGGER_NAME)
+    uncertain_params_set = ComponentSet(uncertain_params)
 
     # keeping track of separation priorities
-    sep_priority_std = _SeparationPriorityStandardizer()
-    sep_priority_map = model.util.separation_priority_map
     std_ineq_con_map = ComponentMap()
 
     # Note: because we will be adding / modifying the number of
@@ -806,41 +829,42 @@ def standardize_inequality_constraints(model, logger=None):
         model.component_data_objects(Constraint, descend_into=True, active=True)
     )
     for con in cons:
-        std_ineq_con_map[con] = con_to_bound_type_map = ComponentMap()
+        std_ineq_con_map[con] = std_con_to_bound_map = ComponentMap()
         if not con.equality:
-            has_lb = con.lower is not None
-            has_ub = con.upper is not None
-
-            lb_priority, ub_priority = sep_priority_std(
-                component=con,
-                priority=sep_priority_map.get(con, None),
-                logger=logger,
+            resolved_bounds_map = _resolve_component_bounds(
+                var_or_con=con,
+                uncertain_params=uncertain_params_set,
             )
-            if has_lb and has_ub:
-                if con.lower is con.upper:
-                    # recast as equality Constraint
-                    con.set_value(con.lower == con.body)
-                    con_to_bound_type_map[con] = BoundType.EQ
-                else:
-                    # range inequality; split into two Constraints.
-                    uniq_name = unique_component_name(model, con.name + '_lb')
-                    lb_con = Constraint(expr=con.lower - con.body <= 0)
-                    model.add_component(uniq_name, lb_con)
-                    con.set_value(con.body - con.upper <= 0)
-
-                    con_to_bound_type_map[lb_con] = BoundType.LOWER
-                    con_to_bound_type_map[con] = BoundType.UPPER
-            elif has_lb:
-                # not in standard form; recast.
-                con.set_value(con.lower - con.body <= 0)
-                con_to_bound_type_map[con] = BoundType.LOWER
-            elif has_ub:
-                # move upper bound to body.
-                con.set_value(con.body - con.upper <= 0)
-                con_to_bound_type_map[con] = BoundType.UPPER
+            btype_bound_pairs = [
+                (btype, bound)
+                for btype, bound_list in resolved_bounds_map.items()
+                for bound in bound_list
+            ]
+            num_bounds = len(btype_bound_pairs)
+            if num_bounds == 1:
+                btype, bound = btype_bound_pairs[0]
+                con.set_value(btype.generate_bound_constraint_expr(
+                    body=con.body,
+                    bound=bound,
+                ))
+                std_con_to_bound_map[con] = btype
             else:
-                # unbounded constraint: deactivate
                 con.deactivate()
+                for btype, bound in btype_bound_pairs:
+                    bound_con = Constraint(
+                        expr=btype.generate_bound_constraint_expr(
+                            body=con.body,
+                            bound=bound,
+                        )
+                    )
+                    model.add_component(
+                        name=unique_component_name(
+                            instance=model,
+                            name=f"{con.name}_{type.value}_bound",
+                        ),
+                        val=bound_con,
+                    )
+                    std_con_to_bound_map[bound_con] = btype
 
     return std_ineq_con_map
 
@@ -2398,12 +2422,17 @@ def preprocess_model_data(model_data, config):
     # once done, priority suffix should be a mapping from
     # inequality constraints to ints
     working_model.util.var_to_bound_con_map = turn_bounds_to_constraints(
-        working_model,
-        logger=config.progress_logger,
+        model=working_model,
+        uncertain_params=working_model.util.uncertain_params,
+        variables=(
+            working_model.util.first_stage_variables
+            + working_model.util.second_stage_variables
+            + working_model.util.state_vars
+        ),
     )
     working_model.util.con_to_std_con_map = standardize_inequality_constraints(
-        working_model,
-        logger=config.progress_logger,
+        model=working_model,
+        uncertain_params=working_model.util.uncertain_params,
     )
     working_model.util.original_model_equality_cons = (
         standardize_equality_constraints(working_model)
