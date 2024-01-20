@@ -517,15 +517,18 @@ def recast_to_min_obj(model, obj):
 
 def get_state_vars(blk, first_stage_variables, second_stage_variables):
     """
-    Get state variables of block.
-    based on degree-of-freedom specification.
+    Get state variables of a modeling block.
+
+    A state variable is any unfixed Var which:
+
+    - is not a first-stage variable or a second-stage variable
+    - participates in an active Objective or Constraint expression
+      declared on `blk` or any of its active sub-blocks.
 
     Parameters
     ----------
     blk : ScalarBlock
-        Block with structure of, say, a determinstic model
-        passed to PyROS solver, or a master problem scenario
-        block.
+        Block of interest.
     first_stage_variables : Iterable of VarData
         First-stage variables.
     second_stage_variables : Iterable of VarData
@@ -536,14 +539,13 @@ def get_state_vars(blk, first_stage_variables, second_stage_variables):
     _VarData
         State variable.
     """
-    dof_var_set = ComponentSet(first_stage_variables) | ComponentSet(
-        second_stage_variables
+    dof_var_set = (
+        ComponentSet(first_stage_variables)
+        | ComponentSet(second_stage_variables)
     )
-    seen = set()
-    for var in blk.component_data_objects(Var, active=True, descend_into=True):
+    for var in get_vars_from_component(blk, (Objective, Constraint)):
         is_state_var = not var.fixed and var not in dof_var_set
-        if is_state_var and id(var) not in seen:
-            seen.add(id(var))
+        if is_state_var:
             yield var
 
 
