@@ -694,7 +694,8 @@ def turn_bounds_to_constraints(model, uncertain_params, variables=None):
         to have continuous domains. If `None` is passed, then
         all unfixed variables participating in expressions of
         all the active Objective and Constraint component expressions
-        (including components found in sub-Blocks) are considered.
+        (including components found in active sub-Blocks) are
+        acted upon.
 
     Returns
     -------
