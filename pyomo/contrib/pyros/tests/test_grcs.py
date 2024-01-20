@@ -3695,39 +3695,68 @@ class testIntersectionSetClass(unittest.TestCase):
 
 
 # === master_problem_methods.py
-class testInitialConstructMaster(unittest.TestCase):
-    @unittest.skip("Under construction")
-    def test_initial_construct_master(self):
-        model_data = MasterProblemData()
-        model_data.timing = None
-        model_data.working_model = ConcreteModel()
+class TestMasterConstruction(unittest.TestCase):
+    """
+    Test routine for initial master problem construction.
+    """
+    def setup_model_data_and_config(self):
+        """
+        Set up working model for tests.
+        """
+        m = ConcreteModel()
+        m.x1 = Var(initialize=0, bounds=(0, None))
+        m.x2 = Var(initialize=0, bounds=(0, None))
+        m.u = Param(initialize=1.125, mutable=True)
+        m.con = Constraint(expr=m.u ** (0.5) * m.x1 - m.u * m.x2 <= 2)
+        m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - 1) ** 2)
+        m.obj.deactivate()
+
+        m.util = Block()
+        m.util.first_stage_variables = [m.x1]
+        m.util.second_stage_variables = [m.x2]
+        m.util.uncertain_params = [m.u]
+        m.util.first_stage_objective = Expression(expr=(m.x1 - 4) ** 2)
+        m.util.second_stage_objective = Expression(expr=(m.x2 - 1) ** 2)
+        m.util.full_objective = Expression(expr=m.obj.expr)
+        m.util.epigraph_var = Var(initialize=value(m.util.full_objective))
+        m.util.epigraph_con = Constraint(
+            expr=m.util.full_objective - m.util.epigraph_var <= 0
+        )
+        model_data = Bunch(working_model=m, timing=TimingData())
         config = Bunch()
+        config.nominal_uncertain_param_vals = [
+            value(p) for p in model_data.working_model.util.uncertain_params
+        ]
+        config.decision_rule_order = 1
+        add_decision_rule_variables(model_data, config)
+        add_decision_rule_constraints(model_data, config)
+
+        return model_data, config
+
+    def test_initial_construct_master(self):
+        """
+        Test initial master construction routine works
+        as expected.
+        """
+        model_data, config = self.setup_model_data_and_config()
         master_data = initial_construct_master(model_data, config)
         self.assertTrue(
             hasattr(master_data, "master_model"),
             msg="Initial construction of master problem "
             "did not create a master problem ConcreteModel object.",
         )
+        self.assertEqual(
+            len(master_data.master_model.scenarios),
+            1,
+            msg="Number of scenario blocks in initial master not as expected.",
+        )
 
-
-class testAddScenarioToMaster(unittest.TestCase):
     def test_add_scenario_to_master(self):
-        # construct working model
-        m = ConcreteModel()
-        m.p = Param([1, 2], initialize=0, mutable=True)
-        m.x = Var()
-        m.util = Block()
-        m.util.first_stage_variables = [m.x]
-        m.util.second_stage_variables = []
-        m.util.epigraph_var = Var()
-        m.util.uncertain_params = list(m.p.values())
-        m.util.decision_rule_vars = []
-
-        config = Bunch()
-        config.nominal_uncertain_param_vals = [value(p) for p in m.p.values()]
-
-        # construct model data objects
-        model_data = Bunch(working_model=m, timing=TimingData())
+        """
+        Test routine for adding new scenario block to master
+        model (beyond initial construction) works as expected.
+        """
+        model_data, config = self.setup_model_data_and_config()
         master_data = initial_construct_master(model_data, config)
         add_scenario_to_master(master_data, (1, 0), param_realization=[1, 1])
         self.assertEqual(
