@@ -6,7 +6,7 @@ One class per function being tested, minimum one test per class
 import pyomo.common.unittest as unittest
 from pyomo.common.log import LoggingIntercept
 from pyomo.common.collections import ComponentSet, ComponentMap
-from pyomo.common.config import ConfigBlock, ConfigValue, Path
+from pyomo.common.config import ConfigDict, ConfigValue, Path
 from pyomo.core.base.set_types import NonNegativeIntegers
 from pyomo.core.expr import (
     identify_variables,
@@ -3710,30 +3710,29 @@ class testInitialConstructMaster(unittest.TestCase):
 
 class testAddScenarioToMaster(unittest.TestCase):
     def test_add_scenario_to_master(self):
-        working_model = ConcreteModel()
-        working_model.p = Param([1, 2], initialize=0, mutable=True)
-        working_model.x = Var()
-        model_data = MasterProblemData()
-        model_data.working_model = working_model
-        model_data.timing = None
+        # construct working model
+        m = ConcreteModel()
+        m.p = Param([1, 2], initialize=0, mutable=True)
+        m.x = Var()
+        m.util = Block()
+        m.util.first_stage_variables = [m.x]
+        m.util.second_stage_variables = []
+        m.util.epigraph_var = Var()
+        m.util.uncertain_params = list(m.p.values())
+        m.util.decision_rule_vars = []
+
+        # construct model data objects
+        model_data = Bunch(working_model=m, timing=None)
         master_data = initial_construct_master(model_data)
         master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-            working_model.clone()
+            model_data.working_model.clone()
         )
-        master_data.master_model.scenarios[0, 0].util = Block()
-        master_data.master_model.scenarios[0, 0].util.first_stage_variables = [
-            master_data.master_model.scenarios[0, 0].x
-        ]
-        master_data.master_model.scenarios[0, 0].util.uncertain_params = [
-            master_data.master_model.scenarios[0, 0].p[1],
-            master_data.master_model.scenarios[0, 0].p[2],
-        ]
-        add_scenario_to_master(master_data, violations=[1, 1])
 
+        add_scenario_to_master(master_data, (1, 0), param_realization=[1, 1])
         self.assertEqual(
             len(master_data.master_model.scenarios),
             2,
-            msg="Scenario not added to master correctly. Expected 2 scenarios.",
+            msg="Number of scenario blocks is not as expected."
         )
 
 
@@ -3743,43 +3742,37 @@ global_solver = "baron"
 class testSolveMaster(unittest.TestCase):
     @unittest.skipUnless(baron_available, "Global NLP solver is not available.")
     def test_solve_master(self):
-        working_model = m = ConcreteModel()
+        # construct working model
+        m = ConcreteModel()
         m.x = Var(initialize=0.5, bounds=(0, 10))
         m.y = Var(initialize=1.0, bounds=(0, 5))
         m.z = Var(initialize=0, bounds=(None, None))
         m.p = Param(initialize=1, mutable=True)
-        m.obj = Objective(expr=m.x)
         m.con = Constraint(expr=m.x + m.y + m.z <= 3)
-        model_data = MasterProblemData()
-        model_data.working_model = working_model
-        model_data.timing = None
-        model_data.iteration = 0
-        master_data = initial_construct_master(model_data)
-        master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-            working_model.clone()
-        )
-        master_data.master_model.scenarios[0, 0].util = Block()
-        master_data.master_model.scenarios[0, 0].util.first_stage_variables = [
-            master_data.master_model.scenarios[0, 0].x
-        ]
-        master_data.master_model.scenarios[0, 0].util.decision_rule_vars = []
-        master_data.master_model.scenarios[0, 0].util.second_stage_variables = []
-        master_data.master_model.scenarios[0, 0].util.uncertain_params = [
-            master_data.master_model.scenarios[0, 0].p
-        ]
-        master_data.master_model.scenarios[0, 0].first_stage_objective = 0
-        master_data.master_model.scenarios[0, 0].second_stage_objective = Expression(
-            expr=master_data.master_model.scenarios[0, 0].x
-        )
-        master_data.master_model.scenarios[
-            0, 0
-        ].util.dr_var_to_exponent_map = ComponentMap()
-        master_data.iteration = 0
-        master_data.timing = TimingData()
+        m.obj = Objective(expr=m.x)
+        m.obj.deactivate()
 
-        box_set = BoxSet(bounds=[(0, 2)])
+        # add util block
+        m.util = Block()
+        m.util.first_stage_objective = Expression(expr=m.x)
+        m.util.second_stage_objective = Expression(expr=0)
+        m.util.full_objective = Expression(expr=m.x)
+        m.util.epigraph_var = Var(initialize=value(m.util.full_objective))
+        m.util.epigraph_con = Constraint(expr=m.x - m.util.epigraph_var <= 0)
+        m.util.epigraph_obj = Objective(expr=m.util.epigraph_var)
+        m.util.first_stage_variables = [m.x]
+        m.util.second_stage_variables = []
+        m.util.uncertain_params = [m.p]
+        m.util.decision_rule_vars = []
+        m.util.dr_var_to_exponent_map = ComponentMap()
+
+        model_data = Bunch(working_model=m, timing=TimingData(), iteration=0)
+        master_data = initial_construct_master(model_data)
+        master_data.iteration = 0
+        master_data.master_model.scenarios[0, 0].transfer_attributes_from(m.clone())
+
         solver = SolverFactory(global_solver)
-        config = ConfigBlock()
+        config = ConfigDict()
         config.declare("backup_global_solvers", ConfigValue(default=[]))
         config.declare("backup_local_solvers", ConfigValue(default=[]))
         config.declare("solve_master_globally", ConfigValue(default=True))
@@ -3787,14 +3780,7 @@ class testSolveMaster(unittest.TestCase):
         config.declare("tee", ConfigValue(default=False))
         config.declare("decision_rule_order", ConfigValue(default=1))
         config.declare("objective_focus", ConfigValue(default=ObjectiveType.worst_case))
-        config.declare(
-            "second_stage_variables",
-            ConfigValue(
-                default=master_data.master_model.scenarios[
-                    0, 0
-                ].util.second_stage_variables
-            ),
-        )
+        config.declare("second_stage_variables", ConfigValue(default=[]))
         config.declare("subproblem_file_directory", ConfigValue(default=None))
         config.declare("time_limit", ConfigValue(default=None))
         config.declare(
@@ -4087,51 +4073,58 @@ class RegressionTest(unittest.TestCase):
         baron_license_is_valid, "Global NLP solver is not available and licensed."
     )
     def test_minimize_dr_norm(self):
+        """
+        Test DR polishing routine works as expected.
+        """
         m = ConcreteModel()
         m.p1 = Param(initialize=0, mutable=True)
         m.p2 = Param(initialize=0, mutable=True)
         m.z1 = Var(initialize=0, bounds=(0, 1))
         m.z2 = Var(initialize=0, bounds=(0, 1))
 
-        m.working_model = ConcreteModel()
-        m.working_model.util = Block()
+        m.util = Block()
+        m.util.first_stage_variables = []
+        m.util.second_stage_variables = [m.z1, m.z2]
+        m.util.state_vars = []
+        m.util.uncertain_params = [m.p1, m.p2]
+        m.util.first_stage_objective = Expression(expr=0)
+        m.util.second_stage_objective = Expression(
+            expr=(m.z1 - 1) ** 2 + (m.z2 - 1) ** 2
+        )
+        m.util.full_objective = Expression(
+            expr=m.util.first_stage_objective + m.util.second_stage_objective
+        )
+        m.util.epigraph_var = Var(initialize=value(m.util.full_objective))
+        m.util.epigraph_con = Constraint(
+            expr=m.util.full_objective - m.util.epigraph_var <= 0
+        )
+        m.util.epigraph_obj = Objective(expr=m.util.epigraph_var)
+        m.util.epigraph_obj.deactivate()
 
-        m.working_model.util.second_stage_variables = [m.z1, m.z2]
-        m.working_model.util.uncertain_params = [m.p1, m.p2]
-        m.working_model.util.first_stage_variables = []
-        m.working_model.util.state_vars = []
-
-        m.working_model.util.first_stage_variables = []
+        model_data = Bunch(working_model=m, timing=TimingData())
         config = Bunch()
         config.decision_rule_order = 1
         config.objective_focus = ObjectiveType.nominal
         config.global_solver = SolverFactory('baron')
-        config.uncertain_params = m.working_model.util.uncertain_params
+        config.uncertain_params = m.util.uncertain_params
         config.tee = False
         config.solve_master_globally = True
         config.time_limit = None
         config.progress_logger = logging.getLogger(__name__)
 
-        add_decision_rule_variables(model_data=m, config=config)
-        add_decision_rule_constraints(model_data=m, config=config)
+        add_decision_rule_variables(model_data, config)
+        add_decision_rule_constraints(model_data, config)
 
         # === Make master_type model
-        master = ConcreteModel()
-        master.scenarios = Block(NonNegativeIntegers, NonNegativeIntegers)
-        master.scenarios[0, 0].transfer_attributes_from(m.working_model.clone())
-        master.scenarios[0, 0].first_stage_objective = 0
-        master.scenarios[0, 0].second_stage_objective = Expression(
-            expr=(master.scenarios[0, 0].util.second_stage_variables[0] - 1) ** 2
-            + (master.scenarios[0, 0].util.second_stage_variables[1] - 1) ** 2
-        )
-        master.obj = Objective(expr=master.scenarios[0, 0].second_stage_objective)
-        master_data = MasterProblemData()
-        master_data.master_model = master
-        master_data.master_model.const_efficiency_applied = False
-        master_data.master_model.linear_efficiency_applied = False
+        master_data = initial_construct_master(model_data)
         master_data.iteration = 0
-
         master_data.timing = TimingData()
+        master_data.master_model.scenarios[0, 0].transfer_attributes_from(
+            model_data.working_model.clone()
+        )
+        master_data.master_model.epigraph_obj = Objective(
+            expr=master_data.master_model.scenarios[0, 0].util.epigraph_var,
+        )
         with time_code(master_data.timing, "main", is_main_timer=True):
             results, success = minimize_dr_vars(model_data=master_data, config=config)
             self.assertEqual(
