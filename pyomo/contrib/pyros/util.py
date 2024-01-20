@@ -1191,13 +1191,13 @@ def is_certain_parameter(uncertain_param_index, config):
         return False  # cannot be determined without bounds
 
 
-def coefficient_matching(working_model, config):
+def coefficient_matching(model_data, config):
     """
     Perform coefficient matching.
 
     Parameters
     ----------
-    model_data : ModelData
+    model_data : ROSolveResults
         PyROS model data object.
 
     Returns
@@ -1207,6 +1207,7 @@ def coefficient_matching(working_model, config):
         False otherwise.
     """
     # initialize coefficient matching constraints
+    working_model = model_data.working_model
     working_model.util.coefficient_matching_constraints = ConstraintList()
 
     # cast component lists to sets
@@ -2452,7 +2453,7 @@ def preprocess_model_data(model_data, config):
 
     finalize_separation_priorities(model_data, config)
 
-    robust_infeasible = coefficient_matching(working_model, config)
+    robust_infeasible = coefficient_matching(model_data, config)
 
     model_data.timing.stop_timer("main.preprocessing")
     preprocessing_time = model_data.timing.get_total_time("main.preprocessing")
