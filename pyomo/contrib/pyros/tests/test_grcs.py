@@ -19,7 +19,7 @@ from pyomo.contrib.pyros.util import (
     add_decision_rule_variables,
     add_decision_rule_constraints,
     turn_bounds_to_constraints,
-    transform_to_standard_form,
+    standardize_inequality_constraints,
     ObjectiveType,
     pyrosTerminationCondition,
     coefficient_matching,
@@ -40,6 +40,7 @@ from pyomo.contrib.pyros.config import (
     mutable_param_validator,
     resolve_keyword_arguments,
     validate_model,
+    pyros_config,
 )
 from pyomo.common.collections import Bunch
 import time
@@ -3812,16 +3813,30 @@ class testSolveMaster(unittest.TestCase):
             )
 
 
-# === regression test for the solver
 class coefficientMatchingTests(unittest.TestCase):
-    def test_coefficient_matching_correct_num_constraints_added(self):
-        # Write the deterministic Pyomo model
+    """
+    Unit tests for PyROS coefficient matching routine.
+    """
+    def setup_test_model(self):
+        """
+        Set up simple test model for coefficient matching
+        tests.
+        """
         m = ConcreteModel()
         m.x1 = Var(initialize=0, bounds=(0, None))
         m.x2 = Var(initialize=0, bounds=(0, None))
         m.u = Param(initialize=1.125, mutable=True)
-
         m.con = Constraint(expr=m.u ** (0.5) * m.x1 - m.u * m.x2 <= 2)
+        m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - 1) ** 2)
+
+        return m
+
+    def test_coefficient_matching_correct_num_constraints_added(self):
+        """
+        Test coefficient matching adds correct number of constraints
+        in event of sucessful use.
+        """
+        m = self.setup_test_model()
         m.eq_con = Constraint(
             expr=m.u**2 * (m.x2 - 1)
             + m.u * (m.x1**3 + 0.5)
@@ -3829,73 +3844,86 @@ class coefficientMatchingTests(unittest.TestCase):
             + m.u * (m.x1 + 2)
             == 0
         )
-        m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - 1) ** 2)
-
-        config = Block()
-        config.uncertainty_set = Block()
-        config.uncertainty_set.parameter_bounds = [(0.25, 2)]
-
         m.util = Block()
         m.util.first_stage_variables = [m.x1, m.x2]
         m.util.second_stage_variables = []
+        m.util.state_vars = []
         m.util.uncertain_params = [m.u]
 
-        config.decision_rule_order = 0
-
-        m.util.h_x_q_constraints = ComponentSet()
-
-        coeff_matching_success, robust_infeasible = coefficient_matching(
-            m, m.eq_con, [m.u], config
-        )
-
-        self.assertEqual(
-            coeff_matching_success, True, msg="Coefficient matching was unsuccessful."
-        )
-        self.assertEqual(
-            robust_infeasible,
-            False,
-            msg="Coefficient matching detected a robust infeasible constraint (1 == 0).",
-        )
-        self.assertEqual(
-            len(m.coefficient_matching_constraints),
-            2,
-            msg="Coefficient matching produced incorrect number of h(x,q)=0 constraints.",
-        )
-
+        config = Bunch()
         config.decision_rule_order = 1
-        model_data = Block()
-        model_data.working_model = m
+        config.uncertainty_set = BoxSet([[0.25, 2]])
+        config.progress_logger = default_pyros_solver_logger
 
-        m.util.first_stage_variables = [m.x1]
-        m.util.second_stage_variables = [m.x2]
+        model_data = Bunch(working_model=m, config=config)
 
         add_decision_rule_variables(model_data=model_data, config=config)
         add_decision_rule_constraints(model_data=model_data, config=config)
 
-        coeff_matching_success, robust_infeasible = coefficient_matching(
-            m, m.eq_con, [m.u], config
-        )
-        self.assertEqual(
-            coeff_matching_success,
-            False,
-            msg="Coefficient matching should have been "
-            "unsuccessful for higher order polynomial expressions.",
-        )
-        self.assertEqual(
+        robust_infeasible = coefficient_matching(model_data, config)
+
+        self.assertFalse(
             robust_infeasible,
-            False,
-            msg="Coefficient matching is not successful, "
-            "but should not be proven robust infeasible.",
+            msg=(
+                "Coefficient matching unexpectedly detected"
+                "a robust infeasible constraint"
+            ),
+        )
+        self.assertEqual(
+            len(m.util.coefficient_matching_constraints),
+            2,
+            msg="Number of coefficient matching constraints not as expected."
+        )
+
+    def test_coefficient_matching_error_nonlinear(self):
+        """
+        Test coefficient matching raises exception in event
+        of encountering unsupported nonlinearities.
+        """
+        m = self.setup_test_model()
+        m.eq_con = Constraint(
+            expr=m.u**2 * (m.x2 - 1)
+            + m.u * (m.x1**3 + 0.5)
+            - 5 * m.u * m.x1 * m.x2
+            + m.u * (m.x1 + 2)
+            == 0
+        )
+        m.util = Block()
+        m.util.first_stage_variables = [m.x1]
+        m.util.second_stage_variables = [m.x2]
+        m.util.state_vars = []
+        m.util.uncertain_params = [m.u]
+
+        config = Bunch()
+        config.decision_rule_order = 1
+        config.uncertainty_set = BoxSet([[0.25, 2]])
+        config.progress_logger = default_pyros_solver_logger
+
+        model_data = Bunch(working_model=m, config=config)
+
+        add_decision_rule_variables(model_data=model_data, config=config)
+        add_decision_rule_constraints(model_data=model_data, config=config)
+
+        with LoggingIntercept(level=logging.ERROR) as LOG:
+            exc_str = (
+                r"Coefficient matching unsuccessful\. "
+                r"See the solver logs."
+            )
+            with self.assertRaisesRegex(ValueError, exc_str):
+                # if DR order > 0, then coefficient matching
+                # will pick up a polynomial of degree > 2,
+                # currently not supported.
+                coefficient_matching(model_data, config)
+
+        err_msg = LOG.getvalue()
+        self.assertRegex(
+            text=err_msg,
+            expected_regex="Equality constraint 'eq_con' cannot be.*",
         )
 
     def test_coefficient_matching_robust_infeasible_proof(self):
         # Write the deterministic Pyomo model
-        m = ConcreteModel()
-        m.x1 = Var(initialize=0, bounds=(0, None))
-        m.x2 = Var(initialize=0, bounds=(0, None))
-        m.u = Param(initialize=1.125, mutable=True)
-
-        m.con = Constraint(expr=m.u ** (0.5) * m.x1 - m.u * m.x2 <= 2)
+        m = self.setup_test_model()
         m.eq_con = Constraint(
             expr=m.u * (m.x1**3 + 0.5)
             - 5 * m.u * m.x1 * m.x2
@@ -3903,34 +3931,36 @@ class coefficientMatchingTests(unittest.TestCase):
             + m.u**2
             == 0
         )
-        m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - 1) ** 2)
-
-        config = Block()
-        config.uncertainty_set = Block()
-        config.uncertainty_set.parameter_bounds = [(0.25, 2)]
-
         m.util = Block()
         m.util.first_stage_variables = [m.x1, m.x2]
         m.util.second_stage_variables = []
+        m.util.state_vars = []
         m.util.uncertain_params = [m.u]
 
+        config = Bunch()
+        config.progress_logger = default_pyros_solver_logger
+        config.uncertainty_set = BoxSet([[0.25, 2]])
         config.decision_rule_order = 0
 
-        m.util.h_x_q_constraints = ComponentSet()
+        model_data = Bunch(working_model=m, config=config)
 
-        coeff_matching_success, robust_infeasible = coefficient_matching(
-            m, m.eq_con, [m.u], config
-        )
+        add_decision_rule_variables(model_data=model_data, config=config)
+        add_decision_rule_constraints(model_data=model_data, config=config)
 
-        self.assertEqual(
-            coeff_matching_success,
-            False,
-            msg="Coefficient matching should have been unsuccessful.",
-        )
-        self.assertEqual(
+        with LoggingIntercept(level=logging.INFO) as LOG:
+            robust_infeasible = coefficient_matching(model_data, config)
+
+        self.assertTrue(
             robust_infeasible,
-            True,
             msg="Coefficient matching should be proven robust infeasible.",
+        )
+        robust_infeasible_msg = LOG.getvalue()
+        self.assertRegex(
+            text=robust_infeasible_msg,
+            expected_regex=(
+                r"PyROS has determined that the model is robust infeasible\. "
+                r"One reason for this.*equality constraint 'eq_con'.*"
+            )
         )
 
 
