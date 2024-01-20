@@ -3574,7 +3574,7 @@ class testIntersectionSetClass(unittest.TestCase):
         Q2 = AxisAlignedEllipsoidalSet(center=[0, 0], half_lengths=[2, 1])
         Q = IntersectionSet(Q1=Q1, Q2=Q2)
 
-        config = ConfigBlock()
+        config = ConfigDict()
         solver = SolverFactory("ipopt")
         config.declare("global_solver", ConfigValue(default=solver))
 
@@ -3620,7 +3620,7 @@ class testIntersectionSetClass(unittest.TestCase):
         Q = IntersectionSet(Q1=Q1, Q2=Q2)
 
         solver = SolverFactory("ipopt")
-        config = ConfigBlock()
+        config = ConfigDict()
         config.declare("global_solver", ConfigValue(default=solver))
 
         m.uncertainty_set_contr = Q.set_as_constraint(
