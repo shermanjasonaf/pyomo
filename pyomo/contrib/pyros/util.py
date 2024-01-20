@@ -716,10 +716,13 @@ def turn_bounds_to_constraints(model, uncertain_params, variables=None):
 
     All Vars are assumed to have continuous domains.
     """
-    if variables is not None:
-        variables = get_vars_from_component(
-            block=model,
-            ctype=(Objective, Constraint),
+    if variables is None:
+        variables = (
+            var for var in get_vars_from_component(
+                block=model,
+                ctype=(Objective, Constraint),
+            )
+            if not var.fixed
         )
     uncertain_params_set = ComponentSet(uncertain_params)
     var_to_bound_con_map = ComponentMap()
