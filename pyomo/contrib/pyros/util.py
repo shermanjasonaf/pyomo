@@ -871,9 +871,13 @@ def standardize_inequality_constraints(model, uncertain_params):
 
 def standardize_equality_constraints(model):
     """
-    Standardize equality constraints of model.
-    That is, constraint of form ``g(v) == a`` is cast to
-    ``g(v) - a == 0``.
+    Recast equality constraints from ``g(v) == a`` to ``g(v) - a == 0``.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Model of interest. All active equality constraints,
+        including those in sub-blocks, are acted upon.
 
     Returns
     -------
