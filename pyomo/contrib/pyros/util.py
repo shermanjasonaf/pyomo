@@ -643,6 +643,8 @@ def _resolve_component_bounds(var_or_con, uncertain_params):
                 ComponentSet(identify_mutable_parameters(arg))
                 - uncertain_params_set
             )
+
+            # any potential for precision loss here?
             args_list[idx] = replace_expressions(
                 expr=arg,
                 substitution_map={
@@ -797,7 +799,7 @@ def get_time_from_solver(results):
     return float("nan") if solve_time is None else solve_time
 
 
-def standardize_inequality_constraints(model, uncertain_params):
+def standardize_active_constraints(model, uncertain_params):
     """
     Recast all active model inequality constraints of the form
     `a <= g(v)` (`<= b`) to the 'standard' form `a - g(v) <= 0`
@@ -866,36 +868,16 @@ def standardize_inequality_constraints(model, uncertain_params):
                     model.add_component(
                         name=unique_component_name(
                             instance=model,
-                            name=f"{con.name}_{type.value}_bound",
+                            name=f"{con.name}_{btype.value}_bound",
                         ),
                         val=bound_con,
                     )
                     std_con_to_bound_map[bound_con] = btype
+        else:
+            std_con_to_bound_map[con] = BoundType.EQ
+            con.set_value(con.body - con.upper == 0)
 
     return std_ineq_con_map
-
-
-def standardize_equality_constraints(model):
-    """
-    Recast equality constraints from ``g(v) == a`` to ``g(v) - a == 0``.
-
-    Parameters
-    ----------
-    model : ConcreteModel
-        Model of interest. All active equality constraints,
-        including those in sub-blocks, are acted upon.
-
-    Returns
-    -------
-    equality_cons : list of _ConstraintData
-        Active equality constraints.
-    """
-    equality_cons = []
-    for con in model.component_data_objects(Constraint, active=True):
-        if con.equality:
-            con.set_value((0, con.body - con.lower, 0))
-            equality_cons.append(con)
-    return equality_cons
 
 
 def reformulate_objective(blk, obj):
@@ -2441,12 +2423,14 @@ def preprocess_model_data(model_data, config):
             + working_model.util.state_vars
         ),
     )
-    working_model.util.con_to_std_con_map = standardize_inequality_constraints(
+    working_model.util.con_to_std_con_map = standardize_active_constraints(
         model=working_model,
         uncertain_params=working_model.util.uncertain_params,
     )
-    working_model.util.original_model_equality_cons = (
-        standardize_equality_constraints(working_model)
+    working_model.util.original_model_equality_cons = list(
+        con for con in
+        working_model.component_data_objects(Constraint, active=True)
+        if con.equality
     )
     model_data.active_obj = standardize_objective(model_data, config)
     identify_performance_constraints(working_model, config)
