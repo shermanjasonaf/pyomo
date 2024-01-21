@@ -716,8 +716,7 @@ def solver_call_master(model_data, config, solver, solve_data):
     Parameters
     ----------
     model_data : MasterProblemData
-            Container for current master problem and related data.
-
+        Container for current master problem and related data.
     config : ConfigDict
         PyROS solver settings.
     solver : solver type
