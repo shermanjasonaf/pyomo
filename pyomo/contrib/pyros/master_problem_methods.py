@@ -68,34 +68,6 @@ def initial_construct_master(model_data, config):
     return master_data
 
 
-def get_state_vars(model, iterations):
-    """
-    Obtain the state variables of a two-stage model
-    for a given (sequence of) iterations corresponding
-    to model blocks.
-
-    Parameters
-    ----------
-    model : ConcreteModel
-        PyROS model.
-    iterations : iterable
-        Iterations to consider.
-
-    Returns
-    -------
-    iter_state_var_map : dict
-        Mapping from iterations to list(s) of state vars.
-    """
-    iter_state_var_map = dict()
-    for itn in iterations:
-        state_vars = [
-            var for blk in model.scenarios[itn, :] for var in blk.util.state_vars
-        ]
-        iter_state_var_map[itn] = state_vars
-
-    return iter_state_var_map
-
-
 def construct_master_feasibility_problem(model_data, config):
     """
     Construct a slack-variable based master feasibility model.
