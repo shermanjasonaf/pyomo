@@ -25,7 +25,6 @@ from pyomo.contrib.pyros.util import (
     coefficient_matching,
     TimingData,
     IterationLogRecord,
-    replace_uncertain_bounds_with_constraints,
     get_vars_from_component,
     identify_objective_functions,
     time_code,
