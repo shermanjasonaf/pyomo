@@ -2238,7 +2238,7 @@ def finalize_separation_priorities(model_data, config):
             BoundType.EQ: None,
         }
         for std_con, bound_type in std_con_bound_type_map.items():
-            sep_priority_map[con] = sep_priority_std(
+            sep_priority_map[std_con] = sep_priority_std(
                 component=con,
                 priority=con_sep_priority_dict[bound_type],
                 logger=config.progress_logger,
