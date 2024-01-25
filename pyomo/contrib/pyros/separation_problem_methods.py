@@ -639,6 +639,29 @@ def perform_separation_loop(model_data, config, solve_globally):
                 worst_case_perf_con=None,
             )
 
+        # separate second-stage variable bound constraints first.
+        # this will help circumvent potential evaluation errors.
+        # note: initialization of master problems will be affected
+        violated_bound_cons_results = discrete_bound_constraint_loop(
+            model_data=model_data,
+            config=config,
+            solve_globally=solve_globally,
+        )
+        worst_case_bound_con = get_argmax_sum_violations(
+            solver_call_results_map=violated_bound_cons_results,
+            perf_cons_to_evaluate=violated_bound_cons_results.keys(),
+        )
+        if worst_case_bound_con is not None:
+            worst_case_res = violated_bound_cons_results[worst_case_bound_con]
+            model_data.idxs_of_master_scenarios.append(
+                worst_case_res.discrete_set_scenario_index
+            )
+            return SeparationLoopResults(
+                solved_globally=solve_globally,
+                solver_call_results=violated_bound_cons_results,
+                worst_case_perf_con=worst_case_bound_con,
+            )
+
         perf_con_to_maximize = sorted_priority_groups[
             max(sorted_priority_groups.keys())
         ][0]
@@ -942,9 +965,9 @@ def initialize_separation(perf_con_to_maximize, model_data, config):
         if master_var in fsv_set:
             sep_var.fix()
 
-    # initialize uncertain parameter variables to most recent
-    # point added to master
     if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
+        # initialize uncertain parameter variables
+        # from master block with max con violation
         param_vars = sep_model.util.uncertain_param_vars
         latest_param_values = model_data.points_added_to_master[block_num]
         for param_var, val in zip(param_vars.values(), latest_param_values):
@@ -1200,6 +1223,135 @@ def solver_call_separation(
     separation_obj.deactivate()
 
     return solve_call_results
+
+
+def discrete_bound_constraint_loop(model_data, config, solve_globally):
+    """
+    Additional bound constraint separation loop for
+    discrete uncertainty.
+
+    Parameters
+    ----------
+    model_data : SeparationProblemData
+        Separation problem data.
+    config : ConfigDict
+        PyROS solve results.
+    solve_globally : bool
+        True to solve globally, False otherwise.
+        No optimizer is invoked here; this argument
+        is used for bookkeeping in results objects.
+
+    Returns
+    -------
+    con_to_worst_res_map : ComponentMap
+        Mapping from violated bound performance constraints
+        to corresponding separation call results.
+    """
+    from pyomo.opt import SolverResults, TerminationCondition as tc
+
+    uncertain_param_vars = list(
+        model_data.separation_model.util.uncertain_param_vars.values()
+    )
+    second_stage_vars = model_data.separation_model.util.second_stage_variables
+    state_vars = model_data.separation_model.util.state_vars
+    latest_master_state_vars = model_data.master_model.scenarios[
+        model_data.iteration, 0
+    ].util.state_vars
+    dr_equations = model_data.separation_model.util.decision_rule_eqns
+    perf_con_set = ComponentSet(model_data.separation_model.util.performance_constraints)
+
+    # skip scenarios already added to most recent master problem
+    master_scenario_idxs = model_data.idxs_of_master_scenarios
+    scenario_idxs_to_separate = [
+        idx
+        for idx, _ in enumerate(config.uncertainty_set.scenarios)
+        if idx not in master_scenario_idxs
+    ]
+
+    # scope of interest
+    var_to_bound_con_map = (
+        model_data.separation_model.util.var_to_bound_con_map
+    )
+    second_stage_var_bound_perf_cons = []
+    for var in second_stage_vars:
+        conlist = var_to_bound_con_map[var]
+        second_stage_var_bound_perf_cons.extend(
+            [con for con in conlist if con in perf_con_set]
+        )
+
+    # can occur if there are no second-stage Vars
+    if not second_stage_var_bound_perf_cons:
+        return ComponentMap()
+
+    # prevent evaluation errors later...
+    # note: state var values are carried over from the
+    #       master block which violates `first_con` most
+    first_con = second_stage_var_bound_perf_cons[0]
+
+    violating_solve_results = ComponentMap()
+    for scenario_idx in scenario_idxs_to_separate:
+        scenario = config.uncertainty_set.scenarios[scenario_idx]
+        for param, coord_val in zip(uncertain_param_vars, scenario):
+            param.fix(coord_val)
+
+        initialize_separation(first_con, model_data, config)
+
+        # set second-stage variable values (evaluate DR)
+        for ss_var, dr_eq in zip(second_stage_vars, dr_equations):
+            ss_var.set_value(sum(dr_eq.body.args[:-1]))
+
+        # ensure state vars for next master problem are initialized
+        # to values from last scenario block added
+        for state_var, master_var in zip(state_vars, latest_master_state_vars):
+            state_var.set_value(value(master_var))
+
+        for con in second_stage_var_bound_perf_cons:
+            point, violations, con_violated = evaluate_performance_constraint_violations(
+                model_data=model_data,
+                config=config,
+                perf_con_to_maximize=con,
+                perf_cons_to_evaluate=second_stage_var_bound_perf_cons,
+            )
+
+            if con_violated:
+                simple_results = SolverResults()
+                simple_results.solver.termination_condition = tc.optimal
+                setattr(simple_results.solver, TIC_TOC_SOLVE_TIME_ATTR, 0)
+
+                variable_values = ComponentMap(
+                    (var, value(var))
+                    for var in second_stage_vars + state_vars
+                )
+                violating_solve_results.setdefault(con, {})[scenario_idx] = (
+                    SeparationSolveCallResults(
+                        solved_globally=solve_globally,
+                        results_list=[simple_results],
+                        scaled_violations=violations,
+                        violating_param_realization=point,
+                        variable_values=variable_values,
+                        found_violation=con_violated,
+                        time_out=False,
+                        subsolver_error=False,
+                        discrete_set_scenario_index=scenario_idx,
+                    )
+                )
+
+    con_to_worst_res_map = ComponentMap()
+    for con, res_dict in violating_solve_results.items():
+        discrete_sep_res = DiscreteSeparationSolveCallResults(
+            solved_globally=solve_globally,
+            solver_call_results=res_dict,
+            performance_constraint=con,
+        )
+        con_to_worst_res_map[con] = get_worst_discrete_separation_solution(
+            performance_constraint=con,
+            model_data=model_data,
+            config=config,
+            perf_cons_to_evaluate=second_stage_var_bound_perf_cons,
+            discrete_solve_results=discrete_sep_res,
+        )
+
+    return con_to_worst_res_map
 
 
 def discrete_solve(

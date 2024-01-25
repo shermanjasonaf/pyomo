@@ -12,7 +12,7 @@
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
 import logging
 from textwrap import indent, dedent, wrap
-from pyomo.common.collections import Bunch, ComponentSet
+from pyomo.common.collections import Bunch, ComponentSet, ComponentMap
 from pyomo.common.config import ConfigDict, ConfigValue, In, NonNegativeFloat
 from pyomo.core.base.block import Block
 from pyomo.core.expr import value
@@ -957,6 +957,11 @@ class PyROS(object):
             setattr(model_data.original_model, cname, src_vars)
             model_data.working_model = model_data.original_model.clone()
 
+            # track variable bound constraints
+            var_to_bound_con_map = (
+                model_data.working_model.util.var_to_bound_con_map
+            ) = ComponentMap()
+
             # identify active objective function
             # (there should only be one at this point)
             # recast to minimization if necessary
@@ -979,9 +984,10 @@ class PyROS(object):
 
             # === Replace variable bounds depending on uncertain params with
             #     explicit inequality constraints
-            replace_uncertain_bounds_with_constraints(
+            uncertain_bound_con_map = replace_uncertain_bounds_with_constraints(
                 model_data.working_model, model_data.working_model.util.uncertain_params
             )
+            var_to_bound_con_map.update(uncertain_bound_con_map)
 
             # === Add decision rule information
             add_decision_rule_variables(model_data, config)
@@ -1004,10 +1010,12 @@ class PyROS(object):
             # Bounds on second stage variables and state variables are separation objectives,
             #  they are brought in this was as explicit constraints
             for c in model_data.working_model.util.second_stage_variables:
-                turn_bounds_to_constraints(c, wm_util, config)
+                var_bound_cons = turn_bounds_to_constraints(c, wm_util, config)
+                var_to_bound_con_map.setdefault(c, []).extend(var_bound_cons)
 
             for c in model_data.working_model.util.state_vars:
-                turn_bounds_to_constraints(c, wm_util, config)
+                var_bound_cons = turn_bounds_to_constraints(c, wm_util, config)
+                var_to_bound_con_map.setdefault(c, []).extend(var_bound_cons)
 
             # === Make control_variable_bounds array
             wm_util.ssv_bounds = []

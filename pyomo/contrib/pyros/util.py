@@ -572,6 +572,8 @@ def turn_bounds_to_constraints(variable, model, config=None):
     :param config: solver config
     :return: the list of inequality constraints that are the bounds
     '''
+    bound_constraints = []
+
     lb, ub = variable.lower, variable.upper
     if variable.domain is not Reals:
         variable.domain = Reals
@@ -592,7 +594,9 @@ def turn_bounds_to_constraints(variable, model, config=None):
             name = unique_component_name(
                 model, variable.name + f"_lower_bound_con_{count}"
             )
-            model.add_component(name, Constraint(expr=arg - variable <= 0))
+            bound_con = Constraint(expr=arg - variable <= 0)
+            model.add_component(name, bound_con)
+            bound_constraints.append(bound_con)
             count += 1
             variable.setlb(None)
 
@@ -602,9 +606,13 @@ def turn_bounds_to_constraints(variable, model, config=None):
             name = unique_component_name(
                 model, variable.name + f"_upper_bound_con_{count}"
             )
-            model.add_component(name, Constraint(expr=variable - arg <= 0))
+            bound_con = Constraint(expr=variable - arg <= 0)
+            model.add_component(name, bound_con)
+            bound_constraints.append(bound_con)
             count += 1
             variable.setub(None)
+
+    return bound_constraints
 
 
 def get_time_from_solver(results):
@@ -831,11 +839,15 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
         uncertain_var_bound_constrs,
     )
 
+    bound_to_constraint_map = ComponentMap()
+
     # get all variables in active objective and constraint expression(s)
     vars_in_cons = ComponentSet(get_vars_from_component(model, Constraint))
     vars_in_obj = ComponentSet(get_vars_from_component(model, Objective))
 
     for v in vars_in_cons | vars_in_obj:
+        bound_con_list = bound_to_constraint_map[v] = []
+
         # get mutable parameters in variable bounds expressions
         ub = v.upper
         mutable_params_ub = ComponentSet(identify_mutable_parameters(ub))
@@ -850,6 +862,11 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
                 upper_bounds = (ub,)
             for u_bnd in upper_bounds:
                 uncertain_var_bound_constrs.add(v - u_bnd <= 0)
+                bound_con_list.append(
+                    uncertain_var_bound_constrs[
+                        uncertain_var_bound_constrs.index_set().last()
+                    ]
+                )
             v.setub(None)
         if mutable_params_lb & uncertain_param_set:
             if type(ub) is NPV_MaxExpression:
@@ -858,7 +875,14 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
                 lower_bounds = (lb,)
             for l_bnd in lower_bounds:
                 uncertain_var_bound_constrs.add(l_bnd - v <= 0)
+                bound_con_list.append(
+                    uncertain_var_bound_constrs[
+                        uncertain_var_bound_constrs.index_set().last()
+                    ]
+                )
             v.setlb(None)
+
+    return bound_to_constraint_map
 
 
 def validate_kwarg_inputs(model, config):
