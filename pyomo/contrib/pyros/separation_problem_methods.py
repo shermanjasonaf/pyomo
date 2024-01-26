@@ -631,6 +631,12 @@ def perform_separation_loop(model_data, config, solve_globally):
             config.uncertainty_set.scenarios
         )
         if all_scenarios_exhausted:
+            config.progress_logger.debug(
+                "Uncertainty set is discrete and all scenarios have "
+                "already been accounted for in "
+                "the most recent master problem. "
+                "Skipping separation loop."
+            )
             # robustness certified: entire uncertainty set already
             # accounted for in master
             return SeparationLoopResults(
@@ -652,14 +658,39 @@ def perform_separation_loop(model_data, config, solve_globally):
             perf_cons_to_evaluate=violated_bound_cons_results.keys(),
         )
         if worst_case_bound_con is not None:
-            worst_case_res = violated_bound_cons_results[worst_case_bound_con]
+            violated_bound_con_names = "\n ".join(
+                f"{viol_con.name!r}"
+                for viol_con in violated_bound_cons_results
+            )
+            config.progress_logger.debug(
+                f"Violated bound constraints:\n {violated_bound_con_names}"
+            )
+            worst_case_bound_res = violated_bound_cons_results[worst_case_bound_con]
             model_data.idxs_of_master_scenarios.append(
-                worst_case_res.discrete_set_scenario_index
+                worst_case_bound_res.discrete_set_scenario_index
+            )
+            config.progress_logger.debug(
+                "Worst-case bound constraint: "
+                f"{get_con_name_repr(model_data.separation_model, worst_case_bound_con)} "
+                "under realization "
+                f"{worst_case_bound_res.violating_param_realization}."
+            )
+            config.progress_logger.debug(
+                f"Maximal scaled violation "
+                f"{worst_case_bound_res.scaled_violations[worst_case_bound_con]} "
+                "of this constraint "
+                "exceeds the robust feasibility tolerance "
+                f"{config.robust_feasibility_tolerance}"
             )
             return SeparationLoopResults(
                 solved_globally=solve_globally,
                 solver_call_results=violated_bound_cons_results,
                 worst_case_perf_con=worst_case_bound_con,
+            )
+        else:
+            config.progress_logger.debug(
+                "No violated second-stage var bound "
+                "performance constraints found."
             )
 
         perf_con_to_maximize = sorted_priority_groups[
@@ -1279,6 +1310,11 @@ def discrete_bound_constraint_loop(model_data, config, solve_globally):
             [con for con in conlist if con in perf_con_set]
         )
 
+    config.progress_logger.debug(
+        f"Found {len(second_stage_var_bound_perf_cons)} second-stage var "
+        "bound performance constraints to separate."
+    )
+
     # can occur if there are no second-stage Vars
     if not second_stage_var_bound_perf_cons:
         return ComponentMap()
@@ -1294,6 +1330,8 @@ def discrete_bound_constraint_loop(model_data, config, solve_globally):
         for param, coord_val in zip(uncertain_param_vars, scenario):
             param.fix(coord_val)
 
+        # ensure master iterate loaded to separation model before
+        # evaluation of the DR
         initialize_separation(first_con, model_data, config)
 
         # set second-stage variable values (evaluate DR)
