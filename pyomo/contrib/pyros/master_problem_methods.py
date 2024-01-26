@@ -1771,7 +1771,12 @@ def solver_call_master(model_data, config, solver, solve_data):
         optimal_termination = check_optimal_termination(results)
         infeasible = results.solver.termination_condition == tc.infeasible
 
-        if optimal_termination:
+        feasible_and_ok = (
+            results.solver.termination_condition == tc.feasible
+            and not config.solve_master_globally
+        )
+
+        if optimal_termination or feasible_and_ok:
             nlp_model.solutions.load_from(results)
 
         # record master problem termination conditions
@@ -1791,6 +1796,8 @@ def solver_call_master(model_data, config, solver, solve_data):
         master_soln.nominal_block = nlp_model.scenarios[0, 0]
         master_soln.results = results
         master_soln.master_model = nlp_model
+
+        try_backup = not try_backup if feasible_and_ok else try_backup
 
         # if model was solved successfully, update/record the results
         # (nominal block DOF variable and objective values)
@@ -1856,7 +1863,10 @@ def solver_call_master(model_data, config, solver, solve_data):
                 )
 
         if not try_backup:
-            return master_soln
+            if infeasible:
+                break
+            else:
+                return master_soln
 
     # all solvers have failed to return an acceptable status.
     # we will terminate PyROS with subsolver error status.
