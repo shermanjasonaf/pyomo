@@ -1288,7 +1288,16 @@ def discrete_bound_constraint_loop(model_data, config, solve_globally):
     latest_master_state_vars = model_data.master_model.scenarios[
         model_data.iteration, 0
     ].util.state_vars
-    dr_equations = model_data.separation_model.util.decision_rule_eqns
+
+    con_to_new_con_map = ComponentMap(
+        (con, new_con)
+        for new_con, con
+        in model_data.separation_model.util.map_new_constraint_list_to_original_con.items()
+    )
+    dr_equations = [
+        con_to_new_con_map.get(dr_eq, dr_eq)
+        for dr_eq in model_data.separation_model.util.decision_rule_eqns
+    ]
     perf_con_set = ComponentSet(model_data.separation_model.util.performance_constraints)
 
     # skip scenarios already added to most recent master problem
