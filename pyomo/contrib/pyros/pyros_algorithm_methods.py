@@ -418,7 +418,7 @@ def ROSolver_iterative_solve(model_data, config):
     # for discrete set types, keep track of scenarios added to master
     if config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS:
         separation_data.idxs_of_master_scenarios = [
-            config.uncertainty_set.scenarios.index(pt)
+            config.uncertainty_set.scenarios.index(tuple(pt))
             for (pt, _) in config.initial_discretization
         ]
     else:
