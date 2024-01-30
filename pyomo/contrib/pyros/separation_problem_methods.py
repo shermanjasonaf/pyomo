@@ -1000,12 +1000,30 @@ def initialize_separation(perf_con, model_data, config):
         )
 
     # check: initial point feasible?
+    perf_con_name_repr = get_con_name_repr(
+        separation_model=model_data.separation_model,
+        con=perf_con,
+        with_orig_name=True,
+        with_obj_name=True,
+    )
+    tol = ABS_CON_CHECK_FEAS_TOL
     for con in sep_model.component_data_objects(Constraint, active=True):
         lb, val, ub = value(con.lb), value(con.body), value(con.ub)
-        lb_viol = val < lb - ABS_CON_CHECK_FEAS_TOL if lb is not None else False
-        ub_viol = val > ub + ABS_CON_CHECK_FEAS_TOL if ub is not None else False
+        lb_viol = val < lb - tol if lb is not None else False
+        ub_viol = val > ub + tol if ub is not None else False
         if lb_viol or ub_viol:
-            config.progress_logger.debug(con.name, lb, val, ub)
+            con_name_repr = get_con_name_repr(
+                separation_model=model_data.separation_model,
+                con=con,
+                with_orig_name=True,
+                with_obj_name=False,
+            )
+            config.progress_logger.debug(
+                f"Initial point for separation of performance constraint "
+                f"{perf_con_name_repr} violates the model constraint "
+                f"{con_name_repr} by more than {tol}. "
+                f"(lslack={con.lslack()}, uslack={con.uslack()})"
+            )
 
 
 locally_acceptable = {tc.optimal, tc.locallyOptimal, tc.globallyOptimal}
