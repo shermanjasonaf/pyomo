@@ -20,6 +20,7 @@ class PyROSSolverResults(SolverResults):
         "final_objective_value",
         "pyros_termination_condition",
         "final_decision_rule",
+        "final_master_discretization",
         "worst_case_param_realization",
     ]
 

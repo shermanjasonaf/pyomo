@@ -55,17 +55,12 @@ def get_dr_var_to_scaled_expr_map(
     to their terms in a model's DR expression.
     """
     var_to_scaled_expr_map = ComponentMap()
-    ssv_dr_eq_zip = zip(second_stage_vars, decision_rule_eqns)
-    for ssv_idx, (ssv, dr_eq) in enumerate(ssv_dr_eq_zip):
-        for term in dr_eq.body.args:
-            is_ssv_term = (
-                isinstance(term.args[0], int)
-                and term.args[0] == -1
-                and isinstance(term.args[1], VarData)
-            )
-            if not is_ssv_term:
-                dr_var = term.args[1]
-                var_to_scaled_expr_map[dr_var] = term
+    ssv_dr_eq_zip = zip(second_stage_vars, decision_rule_eqns, decision_rule_vars)
+    for ssv_idx, (ssv, dr_eq, indexed_dr_var) in enumerate(ssv_dr_eq_zip):
+        for dr_var, term in zip(indexed_dr_var.values(), dr_eq.body.args[1:]):
+            var_to_scaled_expr_map[dr_var] = term
+            assert dr_var is term.args[-1]
+            print(dr_var.name, term.args[-1])
 
     return var_to_scaled_expr_map
 
@@ -334,11 +329,6 @@ def ROSolver_iterative_solve(model_data, config):
     :config: ConfigBlock for the instance being solved
     '''
 
-    # === The "violation" e.g. uncertain parameter values added to the master problem are nominal in iteration 0
-    #     User can supply a nominal_uncertain_param_vals if they want to set nominal to a certain point,
-    #     Otherwise, the default init value for the params is used as nominal_uncertain_param_vals
-    violation = list(p for p in config.nominal_uncertain_param_vals)
-
     # === Do coefficient matching
     constraints = [
         c
@@ -382,54 +372,15 @@ def ROSolver_iterative_solve(model_data, config):
         c.deactivate()
 
     # === Build the master problem and master problem data container object
-    master_data = master_problem_methods.initial_construct_master(model_data)
+    master_data = master_problem_methods.initial_construct_master(model_data, config)
 
     # === If using p_robustness, add ConstraintList for additional constraints
     if config.p_robustness:
         master_data.master_model.p_robust_constraints = ConstraintList()
 
-    # === Add scenario_0
-    master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-        master_data.original.clone()
-    )
-    if len(master_data.master_model.scenarios[0, 0].util.uncertain_params) != len(
-        violation
-    ):
-        raise ValueError
-
-    # === Set the nominal uncertain parameters to the violation values
-    for i, v in enumerate(violation):
-        master_data.master_model.scenarios[0, 0].util.uncertain_params[i].value = v
-
-    # === Add objective function (assuming minimization of costs) with nominal second-stage costs
-    if config.objective_focus is ObjectiveType.nominal:
-        master_data.master_model.obj = Objective(
-            expr=master_data.master_model.scenarios[0, 0].first_stage_objective
-            + master_data.master_model.scenarios[0, 0].second_stage_objective
-        )
-    elif config.objective_focus is ObjectiveType.worst_case:
-        # === Worst-case cost objective
-        master_data.master_model.zeta = Var(
-            initialize=value(
-                master_data.master_model.scenarios[0, 0].first_stage_objective
-                + master_data.master_model.scenarios[0, 0].second_stage_objective,
-                exception=False,
-            )
-        )
-        master_data.master_model.obj = Objective(expr=master_data.master_model.zeta)
-        master_data.master_model.scenarios[0, 0].epigraph_constr = Constraint(
-            expr=master_data.master_model.scenarios[0, 0].first_stage_objective
-            + master_data.master_model.scenarios[0, 0].second_stage_objective
-            <= master_data.master_model.zeta
-        )
-        master_data.master_model.scenarios[0, 0].util.first_stage_variables.append(
-            master_data.master_model.zeta
-        )
-
     # === Add deterministic constraints to ComponentSet on original so that these become part of separation model
     master_data.original.util.deterministic_constraints = ComponentSet(
-        c
-        for c in master_data.original.component_data_objects(
+        c for c in master_data.original.component_data_objects(
             Constraint, descend_into=True
         )
     )
@@ -449,9 +400,10 @@ def ROSolver_iterative_solve(model_data, config):
     separation_data.points_separated = (
         []
     )  # contains last point separated in the separation problem
-    separation_data.points_added_to_master = [
-        config.nominal_uncertain_param_vals
-    ]  # explicitly robust against in master
+    separation_data.points_added_to_master = {
+        idx: [value(param) for param in blk.util.uncertain_params]
+        for idx, blk in master_data.master_model.scenarios.items()
+    }  # explicitly robust against in master
     separation_data.constraint_violations = (
         []
     )  # list of constraint violations for each iteration
@@ -466,9 +418,8 @@ def ROSolver_iterative_solve(model_data, config):
     # for discrete set types, keep track of scenarios added to master
     if config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS:
         separation_data.idxs_of_master_scenarios = [
-            config.uncertainty_set.scenarios.index(
-                tuple(config.nominal_uncertain_param_vals)
-            )
+            config.uncertainty_set.scenarios.index(pt)
+            for (pt, _) in config.initial_discretization
         ]
     else:
         separation_data.idxs_of_master_scenarios = None
@@ -528,12 +479,8 @@ def ROSolver_iterative_solve(model_data, config):
     )
 
     nom_master_util_blk = master_data.master_model.scenarios[0, 0].util
-    dr_var_scaled_expr_map = get_dr_var_to_scaled_expr_map(
-        decision_rule_vars=nom_master_util_blk.decision_rule_vars,
-        decision_rule_eqns=nom_master_util_blk.decision_rule_eqns,
-        second_stage_vars=nom_master_util_blk.second_stage_variables,
-        uncertain_params=nom_master_util_blk.uncertain_params,
-    )
+    dr_var_lists_original
+    dr_var_scaled_expr_map = nom_master_util_blk.dr_var_to_scaled_expr_map
     dr_var_to_ssv_map = ComponentMap()
     dr_ssv_zip = zip(
         nom_master_util_blk.decision_rule_vars,
@@ -548,6 +495,13 @@ def ROSolver_iterative_solve(model_data, config):
     master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
         master_data.iteration = k
+        master_problem_methods.enforce_objective_focus(
+            master_data.master_model, config
+        )
+
+        # if k > 0:
+        #     import pdb
+        #     pdb.set_trace()
 
         # === Add p-robust constraint if iteration > 0
         if k > 0 and config.p_robustness:
@@ -883,13 +837,13 @@ def ROSolver_iterative_solve(model_data, config):
             model_data=master_data,
             violations=separation_results.violating_param_realization,
         )
-        separation_data.points_added_to_master.append(
+        separation_data.points_added_to_master[k + 1, 0] = (
             separation_results.violating_param_realization
         )
 
         config.progress_logger.debug("Points added to master:")
         config.progress_logger.debug(
-            np.array([pt for pt in separation_data.points_added_to_master])
+            np.array([pt for pt in separation_data.points_added_to_master.values()])
         )
 
         # initialize second-stage and state variables

@@ -595,14 +595,23 @@ def validate_uncertainty_set(config):
     Give warning that the nominal point (default value in the model) is not in the specified uncertainty set.
     :param config: solver config
     '''
-    # === Check that q in UncertaintySet object constraint expression is referencing q in model.uncertain_params
-    uncertain_params = config.uncertain_params
-
     # === Non-zero number of uncertain parameters
+    uncertain_params = config.uncertain_params
     if len(uncertain_params) == 0:
         raise AttributeError(
             "Must provide uncertain params, uncertain_params list length is 0."
         )
+
+    if not config.nominal_uncertain_param_vals:
+        config.nominal_uncertain_param_vals = [
+            value(param) for param in uncertain_params
+        ]
+    elif len(config.nominal_uncertain_param_vals) != len(uncertain_params):
+        raise AttributeError(
+            "The nominal_uncertain_param_vals list must be the same length"
+            "as the uncertain_params list"
+        )
+
     # === No duplicate parameters
     if len(uncertain_params) != len(ComponentSet(uncertain_params)):
         raise AttributeError("No duplicates allowed for uncertain param objects.")
@@ -928,7 +937,15 @@ def validate_kwarg_inputs(model, config):
     if len(config.uncertain_params) == 0:
         raise ValueError("User must designate at least one uncertain parameter.")
 
-    return
+    validate_uncertainty_set(config)
+
+    # standardize and validate initial discretization
+    if not config.initial_discretization:
+        config.initial_discretization = [
+            (config.nominal_uncertain_param_vals, ComponentMap()),
+        ]
+    for pt, var_val_map in config.initial_discretization:
+        assert config.uncertainty_set.point_in_set(pt)
 
 
 def substitute_ssv_in_dr_constraints(model, constraint):
@@ -1261,86 +1278,27 @@ def add_decision_rule_variables(model_data, config):
     second_stage_variables = model_data.working_model.util.second_stage_variables
     first_stage_variables = model_data.working_model.util.first_stage_variables
     uncertain_params = model_data.working_model.util.uncertain_params
+
+    num_dr_vars_per_ssv = sp.special.comb(
+        N=len(uncertain_params) + config.decision_rule_order,
+        k=config.decision_rule_order,
+        exact=True,
+        repetition=False,
+    )
+
     decision_rule_vars = []
-    degree = config.decision_rule_order
-    bounds = (None, None)
-    if degree == 0:
-        for i in range(len(second_stage_variables)):
-            model_data.working_model.add_component(
-                "decision_rule_var_" + str(i),
-                Var(
-                    initialize=value(second_stage_variables[i], exception=False),
-                    bounds=bounds,
-                    domain=Reals,
-                ),
-            )
-            first_stage_variables.extend(
-                getattr(
-                    model_data.working_model, "decision_rule_var_" + str(i)
-                ).values()
-            )
-            decision_rule_vars.append(
-                getattr(model_data.working_model, "decision_rule_var_" + str(i))
-            )
-    elif degree == 1:
-        for i in range(len(second_stage_variables)):
-            index_set = list(range(len(uncertain_params) + 1))
-            model_data.working_model.add_component(
-                "decision_rule_var_" + str(i),
-                Var(index_set, initialize=0, bounds=bounds, domain=Reals),
-            )
-            # === For affine drs, the [0]th constant term is initialized to the control variable values, all other terms are initialized to 0
-            getattr(model_data.working_model, "decision_rule_var_" + str(i))[
-                0
-            ].set_value(
-                value(second_stage_variables[i], exception=False), skip_validation=True
-            )
-            first_stage_variables.extend(
-                list(
-                    getattr(
-                        model_data.working_model, "decision_rule_var_" + str(i)
-                    ).values()
-                )
-            )
-            decision_rule_vars.append(
-                getattr(model_data.working_model, "decision_rule_var_" + str(i))
-            )
-    elif degree == 2 or degree == 3 or degree == 4:
-        for i in range(len(second_stage_variables)):
-            num_vars = int(sp.special.comb(N=len(uncertain_params) + degree, k=degree))
-            dict_init = {}
-            for r in range(num_vars):
-                if r == 0:
-                    dict_init.update(
-                        {r: value(second_stage_variables[i], exception=False)}
-                    )
-                else:
-                    dict_init.update({r: 0})
-            model_data.working_model.add_component(
-                "decision_rule_var_" + str(i),
-                Var(
-                    list(range(num_vars)),
-                    initialize=dict_init,
-                    bounds=bounds,
-                    domain=Reals,
-                ),
-            )
-            first_stage_variables.extend(
-                list(
-                    getattr(
-                        model_data.working_model, "decision_rule_var_" + str(i)
-                    ).values()
-                )
-            )
-            decision_rule_vars.append(
-                getattr(model_data.working_model, "decision_rule_var_" + str(i))
-            )
-    else:
-        raise ValueError(
-            "Decision rule order "
-            + str(config.decision_rule_order)
-            + " is not yet supported. PyROS supports polynomials of degree 0 (static approximation), 1, 2."
+    for idx, ssv in enumerate(second_stage_variables):
+        dr_var = Var(
+            range(num_dr_vars_per_ssv),
+            initialize=value(ssv, exception=False),
+            domain=Reals,
         )
+        model_data.working_model.add_component(
+            f"decision_rule_var_{idx}", dr_var
+        )
+        first_stage_variables.extend(dr_var.values())
+        decision_rule_vars.append(dr_var)
+
     model_data.working_model.util.decision_rule_vars = decision_rule_vars
 
 
@@ -1402,12 +1360,17 @@ def add_decision_rule_constraints(model_data, config):
 
     dr_var_to_stage_map = ComponentMap()
     dr_var_to_exponent_map = ComponentMap()
+    dr_var_to_scaled_expr_map = ComponentMap()
+    dr_var_to_param_idx_map = ComponentMap()
 
     # set up uncertain parameter combinations for
     # construction of the monomials of the DR expressions
     monomial_terms_list = []
     for power in range(degree + 1):
-        power_combos = combinations_with_replacement(uncertain_params, power)
+        power_combos = combinations_with_replacement(
+            range(len((uncertain_params))),
+            power,
+        )
         monomial_terms_list.extend(power_combos)
 
     # ensure there are as many parameter combinations
@@ -1426,8 +1389,12 @@ def add_decision_rule_constraints(model_data, config):
     for idx, (ss_var, indexed_dr_var) in enumerate(second_stage_dr_var_zip):
         # construct the DR expression
         dr_expression = 0
-        for dr_var, param_combo in zip(indexed_dr_var.values(), monomial_terms_list):
-            dr_expression += dr_var * prod(param_combo)
+        for dr_var, param_idx_combo in zip(indexed_dr_var.values(), monomial_terms_list):
+            param_combo = list(uncertain_params[idx] for idx in param_idx_combo)
+            monomial = dr_var * prod(param_combo)
+            dr_expression += monomial
+            dr_var_to_scaled_expr_map[dr_var] = monomial
+            dr_var_to_param_idx_map[dr_var] = param_idx_combo
 
             # map decision rule var to stage of decision making
             dr_var_to_stage_map[dr_var] = max(
@@ -1440,7 +1407,7 @@ def add_decision_rule_constraints(model_data, config):
             dr_var_to_exponent_map[dr_var] = len(param_combo)
 
         # declare constraint on model
-        dr_eqn = Constraint(expr=dr_expression == ss_var)
+        dr_eqn = Constraint(expr=dr_expression - ss_var == 0)
         model_data.working_model.add_component(
             f"decision_rule_eqn_{idx}",
             dr_eqn,
@@ -1453,6 +1420,8 @@ def add_decision_rule_constraints(model_data, config):
     model_data.working_model.util.decision_rule_eqns = decision_rule_eqns
     model_data.working_model.util.dr_var_to_stage_map = dr_var_to_stage_map
     model_data.working_model.util.dr_var_to_exponent_map = dr_var_to_exponent_map
+    model_data.working_model.util.dr_var_to_scaled_expr_map = dr_var_to_scaled_expr_map
+    model_data.working_model.util.dr_var_to_param_idx_map = dr_var_to_param_idx_map
 
 
 def enforce_dr_degree(blk, config, degree):

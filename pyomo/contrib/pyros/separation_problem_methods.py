@@ -133,19 +133,20 @@ def make_separation_problem(model_data, config):
 
     if config.objective_focus is ObjectiveType.worst_case:
         separation_model.util.zeta = Param(initialize=0, mutable=True)
-        constr = Constraint(
-            expr=separation_model.first_stage_objective
+        separation_model.epigraph_constr.set_value(
+            separation_model.first_stage_objective
             + separation_model.second_stage_objective
             - separation_model.util.zeta
             <= 0
         )
-        separation_model.add_component("epigraph_constr", constr)
-        separation_model.pyros_separation_priority[constr] = (
+        separation_model.pyros_separation_priority[separation_model.epigraph_constr] = (
             None,
             separation_model.pyros_separation_priority[
                 separation_model.first_stage_objective
             ],
         )
+    else:
+        separation_model.del_component(separation_model.epigraph_constr)
 
     substitution_map = {}
     # Separation problem initialized to nominal uncertain parameter values
@@ -929,18 +930,18 @@ def initialize_separation(perf_con, model_data, config):
         else:
             sep_con = perf_con
         master_con = (
-            model_data.master_model.scenarios[block_idx, 0].find_component(
+            model_data.master_model.scenarios[block_idx].find_component(
                     sep_con,
             )
         )
         return value(master_con)
 
-    block_num = max(
-        range(model_data.iteration + 1),
+    block_idx = max(
+        model_data.master_model.scenarios,
         key=eval_master_violation,
     )
 
-    master_blk = model_data.master_model.scenarios[block_num, 0]
+    master_blk = model_data.master_model.scenarios[block_idx]
     master_blks = list(model_data.master_model.scenarios.values())
     fsv_set = ComponentSet(master_blk.util.first_stage_variables)
     sep_model = model_data.separation_model
@@ -976,7 +977,7 @@ def initialize_separation(perf_con, model_data, config):
     # point added to master
     if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
         param_vars = sep_model.util.uncertain_param_vars
-        latest_param_values = model_data.points_added_to_master[block_num]
+        latest_param_values = model_data.points_added_to_master[block_idx]
         for param_var, val in zip(param_vars.values(), latest_param_values):
             param_var.set_value(val)
 

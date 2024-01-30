@@ -732,6 +732,20 @@ def pyros_config():
         ),
     ))
 
+    # 'warm start' parameters
+    CONFIG.declare("initial_discretization", PyROSConfigValue(
+        default=[],
+        domain=list,
+        description=(
+            "Initial uncertainty set discretization for master problem. "
+        )
+    ))
+    CONFIG.declare("initial_dr_policy", PyROSConfigValue(
+        default=None,
+        domain=None,
+        description="Initial DR policy",
+    ))
+
     return CONFIG
 
 
@@ -932,17 +946,6 @@ class PyROS(object):
                 "This model structure is not currently handled by the ROSolver."
             )
 
-        # === Define nominal point if not specified
-        if len(config.nominal_uncertain_param_vals) == 0:
-            config.nominal_uncertain_param_vals = list(
-                p.value for p in config.uncertain_params
-            )
-        elif len(config.nominal_uncertain_param_vals) != len(config.uncertain_params):
-            raise AttributeError(
-                "The nominal_uncertain_param_vals list must be the same length"
-                "as the uncertain_params list"
-            )
-
         # === Create data containers
         model_data = ROSolveResults()
 
@@ -991,7 +994,7 @@ class PyROS(object):
             # Note:  model.component(model_data.util_block) is util
 
             # === Validate uncertainty set happens here, requires util block for Cardinality and FactorModel sets
-            validate_uncertainty_set(config=config)
+            # validate_uncertainty_set(config=config)
 
             # === Leads to a logger warning here for inactive obj when cloning
             model_data.original_model = model
@@ -1076,9 +1079,18 @@ class PyROS(object):
             active_obj_original_sense = active_obj.sense
             recast_to_min_obj(model_data.working_model, active_obj)
 
-            # === Determine first and second-stage objectives
+            # standardize objective
             identify_objective_functions(model_data.working_model, active_obj)
             active_obj.deactivate()
+            model_data.working_model.util.zeta_var = Var(
+                initialize=value(active_obj, exception=False),
+            )
+            model_data.working_model.epigraph_constr = Constraint(
+                expr=active_obj.expr - model_data.working_model.util.zeta_var <= 0
+            )
+            model_data.working_model.util.first_stage_variables.append(
+                model_data.working_model.util.zeta_var
+            )
 
             # === Put model in standard form
             transform_to_standard_form(model_data.working_model)
@@ -1092,6 +1104,23 @@ class PyROS(object):
             # === Add decision rule information
             add_decision_rule_variables(model_data, config)
             add_decision_rule_constraints(model_data, config)
+
+            # initialize DR if policy provided
+            dr_vars = model_data.working_model.util.decision_rule_vars
+            if config.initial_dr_policy is not None:
+                param_idx_to_coeff_map = (
+                    config.initial_dr_policy.get_param_idx_to_coeff_map()
+                )
+                dr_var_to_param_idx_map = (
+                    model_data.working_model.util.dr_var_to_param_idx_map
+                )
+                for ss_idx, indexed_dr_var in enumerate(dr_vars):
+                    for idx, dr_var in indexed_dr_var.items():
+                        dr_var.set_value(
+                            param_idx_to_coeff_map[ss_idx][
+                                dr_var_to_param_idx_map[dr_var]
+                            ]
+                        )
 
             # === Move bounds on control variables to explicit ineq constraints
             wm_util = model_data.working_model
@@ -1153,6 +1182,28 @@ class PyROS(object):
                     config=config,
                     tmp_var_list_name=cname,
                 )
+
+                return_soln.final_master_discretization = []
+                for scenario_blk in pyros_soln.master_soln.master_model.scenarios.values():
+                    param_values = [
+                        value(param)
+                        for param in scenario_blk.util.uncertain_params
+                    ]
+                    rec_vars = (
+                        scenario_blk.util.second_stage_variables
+                        + scenario_blk.util.state_vars
+                    )
+                    var_values = ComponentMap()
+                    for var in rec_vars:
+                        orig_var_name = var.getname(
+                            relative_to=scenario_blk,
+                            fully_qualified=True,
+                        )
+                        var_values[model.find_component(orig_var_name)] = value(var)
+                    return_soln.final_master_discretization.append(
+                        (param_values, var_values)
+                    )
+
                 return_soln.solution.insert(final_sol)
 
                 acceptable_termination = (

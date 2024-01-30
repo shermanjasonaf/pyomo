@@ -40,17 +40,86 @@ from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR
 from pyomo.contrib.pyros.util import enforce_dr_degree
 
 
-def initial_construct_master(model_data):
+def enforce_objective_focus(master_model, config):
+    """
+    Enforce master problem objective focus.
+    """
+    obj_focus = config.objective_focus
+    if obj_focus == ObjectiveType.nominal:
+        active_epi_con_blk_idxs = [(0, 0)]
+    elif obj_focus == ObjectiveType.worst_case:
+        active_epi_con_blk_idxs = list(master_model.scenarios.keys())
+    else:
+        raise ValueError(f"Obj focus {obj_focus} not supported.")
+
+    for idx, blk in master_model.scenarios.items():
+        if idx in active_epi_con_blk_idxs:
+            blk.epigraph_constr.activate()
+        else:
+            blk.epigraph_constr.deactivate()
+
+
+def initial_construct_master(model_data, config):
     """
     Constructs the iteration 0 master problem
     return: a MasterProblemData object containing the master_model object
     """
-    m = ConcreteModel()
-    m.scenarios = Block(NonNegativeIntegers, NonNegativeIntegers)
+    # construct the master model, with scenario blocks
+    # add one scenario block per realization
+    master_model = ConcreteModel()
+    master_model.scenarios = Block(NonNegativeIntegers, NonNegativeIntegers)
+    working_model = model_data.working_model
+    for idx, (pt, var_map) in enumerate(config.initial_discretization):
+        # add new scenario block
+        if idx == 0:
+            init_from_block = working_model
+            memo = None
+        else:
+            init_from_block = master_model.scenarios[0, 0]
+            memo = {
+                id(var): var
+                for var in init_from_block.util.first_stage_variables
+            }
+        wm_clone = init_from_block.clone(memo=memo)
+        master_model.scenarios[0, idx].transfer_attributes_from(wm_clone)
+
+        scenario_blk = master_model.scenarios[0, idx]
+        new_var_map = ComponentMap(
+            (scenario_blk.find_component(var), val)
+            for var, val in var_map.items()
+        )
+
+        for param, val in zip(scenario_blk.util.uncertain_params, pt):
+            param.set_value(val)
+
+        # initialize second-stage, state vars according to
+        # discretization specs
+        recourse_vars = (
+            scenario_blk.util.second_stage_variables
+            + scenario_blk.util.state_vars
+        )
+        for rec_var in recourse_vars:
+            rec_var.set_value(
+                new_var_map.get(rec_var, value(rec_var, exception=False))
+            )
+
+    if len(list(master_model.scenarios)) > 1:
+        config.progress_logger.debug("CHECKING VIOLATED INITIAL MASTER CONS")
+        for con in master_model.component_data_objects(Constraint, active=True):
+            con_violated = (
+                con.lslack() < -config.robust_feasibility_tolerance
+                or con.uslack() < -config.robust_feasibility_tolerance
+            )
+            if con_violated:
+                config.progress_logger.debug(
+                    f"Violated con: {con.name}, {con.lslack()}, {con.uslack()}"
+                )
+
+    master_model.obj = Objective(expr=scenario_blk.util.zeta_var)
 
     master_data = MasterProblemData()
     master_data.original = model_data.working_model.clone()
-    master_data.master_model = m
+    master_data.master_model = master_model
     master_data.timing = model_data.timing
 
     return master_data
@@ -783,7 +852,7 @@ def create_dr_polishing_nlp(model_data, config):
     # enforce optimality of the first-stage and DR variables
     polishing_model.obj.deactivate()
     if config.objective_focus == ObjectiveType.worst_case:
-        polishing_model.zeta.fix()
+        nominal_polishing_block.util.zeta_var.fix()
     else:
         optimal_master_obj_value = value(polishing_model.obj)
         polishing_model.nominal_optimality_con = Constraint(
@@ -1671,9 +1740,9 @@ def get_master_dr_degree(model_data, config):
     Determine DR order to enforce based on iteration
     number and model data.
     """
-    if model_data.iteration == 0:
+    if len(model_data.master_model.scenarios) == 1:
         return 0
-    elif model_data.iteration <= len(config.uncertain_params):
+    elif len(model_data.master_model.scenarios) <= len(config.uncertain_params):
         return min(1, config.decision_rule_order)
     else:
         return min(2, config.decision_rule_order)

@@ -142,12 +142,14 @@ class DecisionRuleInterface:
                     uncertain_param_idxs = (param_idx_1, param_idx_2)
                     assert len(uncertain_param_idxs) == 2
                     dr_var_value = term.args[1].value
-                    quadratic_dr_coeffs[ssv_idx, param_idx_1, param_idx_2] = (
-                        dr_var_value / 2
-                    )
-                    quadratic_dr_coeffs[ssv_idx, param_idx_2, param_idx_1] = (
-                        dr_var_value / 2
-                    )
+                    if param_idx_1 == param_idx_2:
+                        quadratic_dr_coeffs[ssv_idx, param_idx_1, param_idx_2] = (
+                            dr_var_value
+                        )
+                    else:
+                        quadratic_dr_coeffs[ssv_idx, param_idx_2, param_idx_1] = (
+                            dr_var_value / 2
+                        )
                 elif is_squared_term:
                     param = term.args[0].args[0]
                     param_idx = param_names.index(param.name)
