@@ -1002,7 +1002,7 @@ def initialize_separation(perf_con, model_data, config):
     # check: initial point feasible?
     perf_con_name_repr = get_con_name_repr(
         separation_model=model_data.separation_model,
-        con=perf_con,
+        perf_con=perf_con,
         with_orig_name=True,
         with_obj_name=True,
     )
