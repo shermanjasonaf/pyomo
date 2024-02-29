@@ -524,13 +524,30 @@ def recast_to_min_obj(model, obj):
 
 
 def turn_bounds_to_constraints(variable, model, config=None):
-    '''
-    Turn the variable in question's "bounds" into direct inequality constraints on the model.
-    :param variable: the variable with bounds to be turned to None and made into constraints.
-    :param model: the model in which the variable resides
-    :param config: solver config
-    :return: the list of inequality constraints that are the bounds
-    '''
+    """
+    Declare inequality constraints explicitly enforcing
+    that a variable satisfies its lower/upper bound requirements,
+    and then change the variable's bounds to None.
+
+    This method also accounts for bounds implicitly specified
+    through the variable's `domain` attribute.
+
+    Parameters
+    ----------
+    variable : _VarData
+        Variable to be treated.
+    model : ConcreteModel
+        Model on which to declare the constraints.
+    config : ConfigDict or None, optional
+        PyROS solver options.
+
+    Returns
+    -------
+    bound_constraints : list of _ConstraintData
+        Variable bound constraints.
+    """
+    bound_constraints = []
+
     lb, ub = variable.lower, variable.upper
     if variable.domain is not Reals:
         variable.domain = Reals
@@ -551,7 +568,9 @@ def turn_bounds_to_constraints(variable, model, config=None):
             name = unique_component_name(
                 model, variable.name + f"_lower_bound_con_{count}"
             )
-            model.add_component(name, Constraint(expr=arg - variable <= 0))
+            bound_con = Constraint(expr=arg - variable <= 0)
+            model.add_component(name, bound_con)
+            bound_constraints.append(bound_con)
             count += 1
             variable.setlb(None)
 
@@ -561,9 +580,13 @@ def turn_bounds_to_constraints(variable, model, config=None):
             name = unique_component_name(
                 model, variable.name + f"_upper_bound_con_{count}"
             )
-            model.add_component(name, Constraint(expr=variable - arg <= 0))
+            bound_con = Constraint(expr=variable - arg <= 0)
+            model.add_component(name, bound_con)
+            bound_constraints.append(bound_con)
             count += 1
             variable.setub(None)
+
+    return bound_constraints
 
 
 def get_time_from_solver(results):
@@ -737,14 +760,32 @@ def get_vars_from_component(block, ctype):
 
 def replace_uncertain_bounds_with_constraints(model, uncertain_params):
     """
-    For variables of which the bounds are dependent on the parameters
-    in the list `uncertain_params`, remove the bounds and add
-    explicit variable bound inequality constraints.
+    For variable bounds which are contingent on any of
+    the specified uncertain parameters, declare an inequality
+    constraint explicitly enforcing the bounding requirements
+    and change the variable bounds to None.
 
-    :param model: Model in which to make the bounds/constraint replacements
-    :type model: class:`pyomo.core.base.PyomoModel.ConcreteModel`
-    :param uncertain_params: List of uncertain model parameters
-    :type uncertain_params: list
+    Parameters
+    ----------
+    model : ConcreteModel
+        Model of interest.
+        All variables in the active Objective/Constraint data
+        components of model are treated. This currently
+        includes fixed variables.
+    uncertain_params : list of _ParamData
+        Uncertain parameters.
+
+    Returns
+    -------
+    bound_to_constraint_map : ComponentMap
+        Maps each variable for which there is at least one
+        uncertain bound to a list of the Constraints declared
+        for that variable's uncertain bounds.
+
+    Note
+    ----
+    Ensure this method is invoked in advance of using
+    `turn_bounds_to_constraints`.
     """
     uncertain_param_set = ComponentSet(uncertain_params)
 
@@ -755,11 +796,20 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
         uncertain_var_bound_constrs,
     )
 
-    # get all variables in active objective and constraint expression(s)
-    vars_in_cons = ComponentSet(get_vars_from_component(model, Constraint))
-    vars_in_obj = ComponentSet(get_vars_from_component(model, Objective))
+    bound_to_constraint_map = ComponentMap()
 
-    for v in vars_in_cons | vars_in_obj:
+    # get all variables in active objective and constraint expression(s)
+    vars_in_active_components = ComponentSet(
+        get_vars_from_components(
+            block=model,
+            ctype=(Constraint, Objective),
+            active=True,
+            include_fixed=False,
+        )
+    )
+    for v in vars_in_active_components:
+        bound_con_list = bound_to_constraint_map[v] = []
+
         # get mutable parameters in variable bounds expressions
         ub = v.upper
         mutable_params_ub = ComponentSet(identify_mutable_parameters(ub))
@@ -774,6 +824,11 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
                 upper_bounds = (ub,)
             for u_bnd in upper_bounds:
                 uncertain_var_bound_constrs.add(v - u_bnd <= 0)
+                bound_con_list.append(
+                    uncertain_var_bound_constrs[
+                        uncertain_var_bound_constrs.index_set().last()
+                    ]
+                )
             v.setub(None)
         if mutable_params_lb & uncertain_param_set:
             if type(ub) is NPV_MaxExpression:
@@ -782,7 +837,14 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
                 lower_bounds = (lb,)
             for l_bnd in lower_bounds:
                 uncertain_var_bound_constrs.add(l_bnd - v <= 0)
+                bound_con_list.append(
+                    uncertain_var_bound_constrs[
+                        uncertain_var_bound_constrs.index_set().last()
+                    ]
+                )
             v.setlb(None)
+
+    return bound_to_constraint_map
 
 
 def check_components_descended_from_model(model, components, components_name, config):
