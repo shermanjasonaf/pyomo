@@ -3066,6 +3066,45 @@ class testDiscreteUncertaintySetClass(unittest.TestCase):
             ),
         )
 
+    @unittest.skipUnless(
+        baron_license_is_valid, "Global NLP solver is not available and licensed."
+    )
+    def test_discrete_model_bounds_set(self):
+        """
+        Test PyROS works as expected for instance with discrete
+        uncertainty in which efficient separation of the second-stage
+        variable bound performance constraints is applicable.
+        """
+        m = ConcreteModel()
+        m.q = Param(initialize=1, mutable=True)
+        m.x = Var(bounds=(0, 1), initialize=0)
+        m.z = Var(bounds=(m.q, 10), initialize=value(m.q))
+        m.y = Var(initialize=value(m.q))
+        m.obj = Objective(expr=m.x + m.z + m.y)
+        m.con = Constraint(expr=m.y == m.z)
+
+        res = SolverFactory("pyros").solve(
+            model=m,
+            first_stage_variables=m.x,
+            second_stage_variables=m.z,
+            uncertain_params=m.q,
+            uncertainty_set=DiscreteScenarioSet(scenarios=[[1], [2]]),
+            local_solver=SolverFactory("baron"),
+            global_solver=SolverFactory("baron"),
+            decision_rule_order=1,
+            solve_master_globally=True,
+            bypass_local_separation=True,
+        )
+
+        self.assertEqual(
+            res.pyros_termination_condition,
+            pyrosTerminationCondition.robust_feasible,
+            msg=(
+                "Solver termination condition not as expected "
+                "for discrete set bounds separation test case."
+            )
+        )
+
 
 class testFactorModelUncertaintySetClass(unittest.TestCase):
     '''
