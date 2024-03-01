@@ -801,10 +801,7 @@ def replace_uncertain_bounds_with_constraints(model, uncertain_params):
     # get all variables in active objective and constraint expression(s)
     vars_in_active_components = ComponentSet(
         get_vars_from_components(
-            block=model,
-            ctype=(Constraint, Objective),
-            active=True,
-            include_fixed=False,
+            block=model, ctype=(Constraint, Objective), active=True, include_fixed=False
         )
     )
     for v in vars_in_active_components:

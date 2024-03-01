@@ -3102,7 +3102,7 @@ class testDiscreteUncertaintySetClass(unittest.TestCase):
             msg=(
                 "Solver termination condition not as expected "
                 "for discrete set bounds separation test case."
-            )
+            ),
         )
 
 

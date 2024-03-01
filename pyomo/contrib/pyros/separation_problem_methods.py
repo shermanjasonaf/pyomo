@@ -658,9 +658,7 @@ def perform_separation_loop(model_data, config, solve_globally):
         # are addressed first, and effectively prioritized
         # over all other performance constraints, as an efficiency
         violated_bound_cons_results = discrete_ssv_bound_constraint_loop(
-            model_data=model_data,
-            config=config,
-            solve_globally=solve_globally,
+            model_data=model_data, config=config, solve_globally=solve_globally
         )
         worst_case_bound_con = get_argmax_sum_violations(
             solver_call_results_map=violated_bound_cons_results,
@@ -668,8 +666,7 @@ def perform_separation_loop(model_data, config, solve_globally):
         )
         if worst_case_bound_con is not None:
             violated_bound_con_names = "\n ".join(
-                f"{viol_con.name!r}"
-                for viol_con in violated_bound_cons_results
+                f"{viol_con.name!r}" for viol_con in violated_bound_cons_results
             )
             config.progress_logger.debug(
                 f"Violated bound constraints:\n {violated_bound_con_names}"
@@ -701,8 +698,7 @@ def perform_separation_loop(model_data, config, solve_globally):
             )
         else:
             config.progress_logger.debug(
-                "No violated second-stage var bound "
-                "performance constraints found."
+                "No violated second-stage var bound " "performance constraints found."
             )
 
         perf_con_to_maximize = sorted_priority_groups[
@@ -1308,9 +1304,7 @@ def discrete_ssv_bound_constraint_loop(model_data, config, solve_globally):
         model_data.separation_model.util.map_new_constraint_list_to_original_con
     )
     con_to_new_con_map = ComponentMap(
-        (con, new_con)
-        for new_con, con
-        in con_list_to_orig_con.items()
+        (con, new_con) for new_con, con in con_list_to_orig_con.items()
     )
     dr_equations = [
         con_to_new_con_map.get(dr_eq, dr_eq)
@@ -1330,14 +1324,11 @@ def discrete_ssv_bound_constraint_loop(model_data, config, solve_globally):
     ]
 
     # get second-stage variable bound performance constraints
-    var_to_bound_con_map = (
-        model_data.separation_model.util.var_to_bound_con_map
-    )
+    var_to_bound_con_map = model_data.separation_model.util.var_to_bound_con_map
     second_stage_var_bound_perf_cons = []
     for var in second_stage_vars:
         conlist = [
-            con_to_new_con_map.get(con, con)
-            for con in var_to_bound_con_map[var]
+            con_to_new_con_map.get(con, con) for con in var_to_bound_con_map[var]
         ]
         second_stage_var_bound_perf_cons.extend(
             [con for con in conlist if con in perf_con_set]
@@ -1396,8 +1387,7 @@ def discrete_ssv_bound_constraint_loop(model_data, config, solve_globally):
 
             if con_violated:
                 variable_values = ComponentMap(
-                    (var, value(var))
-                    for var in second_stage_vars + state_vars
+                    (var, value(var)) for var in second_stage_vars + state_vars
                 )
                 violating_solve_results.setdefault(con, {})[scenario_idx] = (
                     SeparationSolveCallResults(
