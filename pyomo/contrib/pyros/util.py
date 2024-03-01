@@ -530,7 +530,8 @@ def turn_bounds_to_constraints(variable, model, config=None):
     and then change the variable's bounds to None.
 
     This method also accounts for bounds implicitly specified
-    through the variable's `domain` attribute.
+    through the variable's `domain` attribute, and sets the
+    domain to `Reals` during the course of the bounds reformulations.
 
     Parameters
     ----------
@@ -549,9 +550,6 @@ def turn_bounds_to_constraints(variable, model, config=None):
     bound_constraints = []
 
     lb, ub = variable.lower, variable.upper
-    if variable.domain is not Reals:
-        variable.domain = Reals
-
     if isinstance(lb, NPV_MaxExpression):
         lb_args = lb.args
     else:
@@ -561,6 +559,9 @@ def turn_bounds_to_constraints(variable, model, config=None):
         ub_args = ub.args
     else:
         ub_args = (ub,)
+
+    if variable.domain is not Reals:
+        variable.domain = Reals
 
     count = 0
     for arg in lb_args:

@@ -18,7 +18,11 @@ import pyomo.common.unittest as unittest
 from pyomo.common.log import LoggingIntercept
 from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.common.config import ConfigBlock, ConfigValue
-from pyomo.core.base.set_types import NonNegativeIntegers
+from pyomo.core.base.set_types import (
+    NonNegativeIntegers,
+    UnitInterval,
+    NonNegativeReals,
+)
 from pyomo.core.expr import (
     identify_variables,
     identify_mutable_parameters,
@@ -625,38 +629,41 @@ class testAddDecisionRuleConstraints(unittest.TestCase):
 
 class testTurnBoundsToConstraints(unittest.TestCase):
     def test_bounds_to_constraints(self):
+        """
+        Test variable bound to constraint translator
+        turns variable bounds to constraints as expected,
+        while properly accounting for variable domains.
+        """
         m = ConcreteModel()
         m.x = Var(initialize=1, bounds=(0, 1))
         m.y = Var(initialize=0, bounds=(None, 1))
         m.w = Var(initialize=0, bounds=(1, None))
         m.z = Var(initialize=0, bounds=(None, None))
-        turn_bounds_to_constraints(m.z, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            0,
-            msg="Inequality constraints were written for bounds on a variable with no bounds.",
+        m.u = Var(initialize=1, bounds=(2, 6), domain=UnitInterval)
+        m.t = Var(initialize=1, bounds=(1, 2), domain=NonNegativeReals)
+
+        vars_and_expected_num_bound_cons = (
+            (m.x, 2),
+            (m.y, 1),
+            (m.w, 1),
+            (m.z, 0),
+            (m.u, 4),
+            (m.t, 3),
         )
-        turn_bounds_to_constraints(m.y, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            1,
-            msg="Inequality constraints were not "
-            "written correctly for a variable with an upper bound and no lower bound.",
-        )
-        turn_bounds_to_constraints(m.w, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            2,
-            msg="Inequality constraints were not "
-            "written correctly for a variable with a lower bound and no upper bound.",
-        )
-        turn_bounds_to_constraints(m.x, m)
-        self.assertEqual(
-            len(list(m.component_data_objects(Constraint))),
-            4,
-            msg="Inequality constraints were not "
-            "written correctly for a variable with both lower and upper bound.",
-        )
+        for var, num_bound_cons in vars_and_expected_num_bound_cons:
+            self.assertEqual(
+                len(turn_bounds_to_constraints(var, m)),
+                num_bound_cons,
+                msg=(
+                    "Number of bound constraints for variable "
+                    f"{var.name!r} not as expected."
+                ),
+            )
+            self.assertIs(
+                var.domain,
+                Reals,
+                msg=f"Domain of {var.name!r} not as expected.",
+            )
 
     def test_uncertain_bounds_to_constraints(self):
         # test model
