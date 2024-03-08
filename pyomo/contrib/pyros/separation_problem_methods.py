@@ -269,6 +269,13 @@ def make_separation_problem(model_data, config):
     for c in separation_model.util.h_x_q_constraints:
         c.deactivate()
 
+    separation_model.util.sorted_priority_groups = (
+        group_performance_constraints_by_priority(
+            separation_model=separation_model,
+            config=config,
+        )
+    )
+
     return separation_model
 
 
@@ -474,14 +481,14 @@ def evaluate_violations_by_nominal_master(model_data, performance_cons):
     return nom_perf_con_violations
 
 
-def group_performance_constraints_by_priority(model_data, config):
+def group_performance_constraints_by_priority(separation_model, config):
     """
     Group model performance constraints by separation priority.
 
     Parameters
     ----------
-    model_data : SeparationProblemData
-        Separation problem data.
+    separation_model : ConcreteModel
+        Separation model.
     config : ConfigDict
         User-specified PyROS solve options.
 
@@ -494,11 +501,36 @@ def group_performance_constraints_by_priority(model_data, config):
         Keys are sorted in descending order
         (i.e. highest priority first).
     """
+    default_separation_priority = 0
+    config_sep_priority_dict = config.separation_priority_order.copy()
+    max_priority = (
+        max(config_sep_priority_dict.values())
+        if config_sep_priority_dict else default_separation_priority
+    )
+
+    # prioritize state variable independent constraints over all else
+    for perf_con in separation_model.util.state_var_independent_perf_cons:
+        if perf_con.name in config_sep_priority_dict:
+            orig_con_priority = config_sep_priority_dict[perf_con.name]
+            con_name_repr = get_con_name_repr(
+                separation_model=separation_model,
+                con=perf_con,
+                with_orig_name=True,
+                with_obj_name=True,
+            )
+            config.progress_logger.warning(
+                "Overriding separation priority for performance constraint "
+                f"with name {con_name_repr}, as the constraint is independent "
+                "of the model's state variables. Priority has been changed from "
+                f"{orig_con_priority} to {max_priority + 1}."
+            )
+        config_sep_priority_dict[perf_con.name] = max_priority + 1
+
     separation_priority_groups = dict()
-    config_sep_priority_dict = config.separation_priority_order
-    for perf_con in model_data.separation_model.util.performance_constraints:
-        # by default, priority set to 0
-        priority = config_sep_priority_dict.get(perf_con.name, 0)
+    for perf_con in separation_model.util.performance_constraints:
+        priority = config_sep_priority_dict.get(
+            perf_con.name, default_separation_priority
+        )
         cons_with_same_priority = separation_priority_groups.setdefault(priority, [])
         cons_with_same_priority.append(perf_con)
 
@@ -682,9 +714,7 @@ def perform_separation_loop(model_data, config, solve_globally):
     model_data.nom_perf_con_violations = evaluate_violations_by_nominal_master(
         model_data=model_data, performance_cons=all_performance_constraints
     )
-    sorted_priority_groups = group_performance_constraints_by_priority(
-        model_data, config
-    )
+    sorted_priority_groups = model_data.separation_model.util.sorted_priority_groups
     uncertainty_set_is_discrete = (
         config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS
     )
