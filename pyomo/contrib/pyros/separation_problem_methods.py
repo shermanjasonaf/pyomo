@@ -76,38 +76,90 @@ def add_uncertainty_set_constraints(model, config):
 
 def make_separation_objective_functions(model, config):
     """
-    Inequality constraints referencing control variables, state variables, or uncertain parameters
-    must be separated against in separation problem.
+    Assemble list of performance constraints as an attribute
+    of `model.util`. Map each performance constraint to a
+    new maximization Objective whose expression is that of the
+    contraint (of form expr <= upper_bound)
+
+    This method also tracks second-stage variable bound
+    performance constraints and all performance constraints
+    whose expressions are independent of the state variables.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Separation problem model.
+    config : ConfigDict
+        PyROS solver options.
+
+    Raises
+    ------
+    ValueError
+        If there is a performance constraint whose expression
+        (`.expr` attribute) contains a lower bound argument.
     """
-    performance_constraints = []
-    for c in model.component_data_objects(Constraint, active=True, descend_into=True):
-        _vars = ComponentSet(identify_variables(expr=c.expr))
-        uncertain_params_in_expr = list(
-            v for v in model.util.uncertain_param_vars.values() if v in _vars
-        )
-        state_vars_in_expr = list(v for v in model.util.state_vars if v in _vars)
-        second_stage_variables_in_expr = list(
-            v for v in model.util.second_stage_variables if v in _vars
-        )
-        if not c.equality and (
-            uncertain_params_in_expr
-            or state_vars_in_expr
-            or second_stage_variables_in_expr
-        ):
-            # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            performance_constraints.append(c)
-        elif not c.equality and not (
-            uncertain_params_in_expr
-            or state_vars_in_expr
-            or second_stage_variables_in_expr
-        ):
-            c.deactivate()  # These are x \in X constraints, not active in separation because x is fixed to x* from previous master
-    model.util.performance_constraints = performance_constraints
+    model.util.performance_constraints = performance_constraints = []
+
+    # performance constraints derived from second-stage variable
+    # bound specifications
+    model.util.second_stage_var_bound_perf_cons = second_stage_var_bound_perf_cons = []
+
+    # performance constraints whose expressions are independent
+    # of the state variables
+    model.util.state_var_independent_perf_cons = state_var_independent_perf_cons = []
+
+    second_stage_vars = model.util.second_stage_variables
+    state_vars = model.util.state_vars
+
+    con_list_to_orig_con = (
+        model.util.map_new_constraint_list_to_original_con
+    )
+    con_to_new_con_map = ComponentMap(
+        (con, new_con) for new_con, con in con_list_to_orig_con.items()
+    )
+    # get second-stage variable bound performance constraints
+    second_stage_var_bound_con_set = ComponentSet(
+        con_to_new_con_map.get(con, con)
+        for var in second_stage_vars
+        for con in model.util.var_to_bound_con_map[var]
+    )
+
+    for con in model.component_data_objects(Constraint, active=True, descend_into=True):
+        if not con.equality:
+            vars_in_con_expr = ComponentSet(identify_variables(expr=con.expr))
+            uncertain_params_in_expr = list(
+                v for v in model.util.uncertain_param_vars.values()
+                if v in vars_in_con_expr
+            )
+            state_vars_in_expr = list(v for v in state_vars if v in vars_in_con_expr)
+            second_stage_variables_in_expr = list(
+                v for v in model.util.second_stage_variables
+                if v in vars_in_con_expr
+            )
+            is_con_potentially_uncertain = (
+                second_stage_variables_in_expr
+                or state_vars_in_expr
+                or uncertain_params_in_expr
+            )
+            if is_con_potentially_uncertain:
+                # TODO: if DR is static, then exclude performance
+                #       constraints which depend only on the
+                #       first-stage and second-stage variables
+                performance_constraints.append(con)
+                if con in second_stage_var_bound_con_set:
+                    second_stage_var_bound_perf_cons.append(con)
+                if not state_vars_in_expr:
+                    state_var_independent_perf_cons.append(con)
+            else:
+                # first-stage vars of separation model will be fixed.
+                # hence, we deactivate all first-stage constraints
+                con.deactivate()
+
     model.util.separation_objectives = []
     map_obj_to_constr = ComponentMap()
-
     for idx, c in enumerate(performance_constraints):
-        # Separation objective constraints standardized to be MAXIMIZATION of <= constraints
+        # Separation objective constraints standardized to be
+        # MAXIMIZATION of <= constraints
         c.deactivate()
         if c.upper is not None:
             # This is an <= constraint, maximized in separation
@@ -124,8 +176,6 @@ def make_separation_objective_functions(model, config):
     model.util.map_obj_to_constr = map_obj_to_constr
     for obj in model.util.separation_objectives:
         obj.deactivate()
-
-    return
 
 
 def make_separation_problem(model_data, config):
@@ -1310,9 +1360,6 @@ def discrete_ssv_bound_constraint_loop(model_data, config, solve_globally):
         con_to_new_con_map.get(dr_eq, dr_eq)
         for dr_eq in model_data.separation_model.util.decision_rule_eqns
     ]
-    perf_con_set = ComponentSet(
-        model_data.separation_model.util.performance_constraints
-    )
 
     # skip scenarios already accounted for in
     # most recent master problem
@@ -1323,17 +1370,9 @@ def discrete_ssv_bound_constraint_loop(model_data, config, solve_globally):
         if idx not in master_scenario_idxs
     ]
 
-    # get second-stage variable bound performance constraints
-    var_to_bound_con_map = model_data.separation_model.util.var_to_bound_con_map
-    second_stage_var_bound_perf_cons = []
-    for var in second_stage_vars:
-        conlist = [
-            con_to_new_con_map.get(con, con) for con in var_to_bound_con_map[var]
-        ]
-        second_stage_var_bound_perf_cons.extend(
-            [con for con in conlist if con in perf_con_set]
-        )
-
+    second_stage_var_bound_perf_cons = (
+        model_data.separation_model.util.second_stage_var_bound_perf_cons
+    )
     config.progress_logger.debug(
         f"Found {len(second_stage_var_bound_perf_cons)} second-stage var "
         "bound performance constraints to separate."
