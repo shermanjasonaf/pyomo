@@ -6931,5 +6931,62 @@ class TestPyROSSolverAdvancedValidation(unittest.TestCase):
             )
 
 
+class TestPyROSSeparationPriorityOrder(unittest.TestCase):
+    """
+    Test PyROS custom separation priority ordering.
+    """
+    def build_simple_test_model(self):
+        """
+        Build simple valid test model.
+        """
+        m = ConcreteModel(name="test_model")
+
+        m.x1 = Var(initialize=0, bounds=(0, None))
+        m.x2 = Var(initialize=0, bounds=(0, None))
+        m.u = Param(initialize=1.125, mutable=True)
+
+        m.con1 = Constraint(expr=m.x1 * m.u ** (0.5) - m.x2 * m.u <= 2)
+
+        m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - 1) ** 2)
+
+        return m
+
+    @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
+    def test_state_var_independent_con_override(self):
+        """
+        Test state-variable independent performance constraints
+        priorities are overriden.
+        """
+        m = self.build_simple_test_model()
+        local_solver = SolverFactory("ipopt")
+        global_solver = SolverFactory("ipopt")
+        pyros = SolverFactory("pyros")
+
+        with LoggingIntercept(level=logging.WARNING) as LOG:
+            pyros.solve(
+                model=m,
+                first_stage_variables=[m.x1],
+                second_stage_variables=[m.x2],
+                uncertain_params=[m.u],
+                uncertainty_set=BoxSet([[1/4, 2]]),
+                local_solver=local_solver,
+                global_solver=global_solver,
+                separation_priority_order={
+                    "x2_lower_bound_con_0": 2,
+                },
+                bypass_global_separation=True,
+            )
+
+        log_str = LOG.getvalue()
+        self.assertRegex(
+            log_str,
+            "Overriding separation priority for performance.*changed from 2 to 3",
+            msg=(
+                "Solver log output does not contain "
+                "separation priority override message"
+            ),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
