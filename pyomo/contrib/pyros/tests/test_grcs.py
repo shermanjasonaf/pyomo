@@ -6980,7 +6980,7 @@ class TestPyROSSeparationPriorityOrder(unittest.TestCase):
         log_str = LOG.getvalue()
         self.assertRegex(
             log_str,
-            "Overriding separation priority for performance.*changed from 2 to 3",
+            "Overriding separation priority for performance.*changed from 2 to 4",
             msg=(
                 "Solver log output does not contain "
                 "separation priority override message"
