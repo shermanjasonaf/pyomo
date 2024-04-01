@@ -538,13 +538,54 @@ def group_performance_constraints_by_priority(separation_model, config):
                 with_orig_name=True,
                 with_obj_name=True,
             )
-            config.progress_logger.warning(
-                "Overriding separation priority for performance constraint "
-                f"with name {con_name_repr}, as the constraint is independent "
-                "of the model's state variables. Priority has been changed from "
-                f"{orig_con_priority} to {new_con_priority}."
-            )
+            if orig_con_priority != new_con_priority:
+                config.progress_logger.warning(
+                    "Overriding separation priority for performance constraint "
+                    f"with name {con_name_repr}, as the constraint is "
+                    "independent of the model's state variables. "
+                    "Priority has been changed from "
+                    f"{orig_con_priority} to {new_con_priority}."
+                )
         config_sep_priority_dict[perf_con.name] = new_con_priority
+
+    # epigraph constraint is separated last,
+    # provided it is dependent on state variables
+    if hasattr(separation_model, "epigraph_constr"):
+        # this list will be a singleton if the epigraph constraint
+        # is a performance constraint, and empty otherwise
+        epigraph_perf_cons = [
+            perf_con
+            for perf_con in separation_model.util.performance_constraints
+            if separation_model.util.map_new_constraint_list_to_original_con.get(
+                perf_con, perf_con
+            )
+            is separation_model.epigraph_constr
+        ]
+        if epigraph_perf_cons:
+            epigraph_con = epigraph_perf_cons[0]
+            is_epigraph_state_var_dependent = (
+                epigraph_con not in
+                ComponentSet(separation_model.util.state_var_independent_perf_cons)
+            )
+            if is_epigraph_state_var_dependent:
+                epigraph_con_priority = config_sep_priority_dict.get(
+                    epigraph_con.name,
+                    None,
+                )
+                new_epigraph_con_priority = -0.5
+                config_sep_priority_dict[epigraph_con.name] = new_epigraph_con_priority
+                if epigraph_con_priority is not None:
+                    con_name_repr = get_con_name_repr(
+                        separation_model=separation_model,
+                        con=epigraph_con,
+                        with_orig_name=True,
+                        with_obj_name=True,
+                    )
+                    config.progress_logger.warning(
+                        "Overriding separation priority for performance constraint "
+                        f"with name {con_name_repr}. Priority has been changed from "
+                        f"{epigraph_con_priority} to {new_epigraph_con_priority}."
+                    )
 
     separation_priority_groups = dict()
     for perf_con in separation_model.util.performance_constraints:

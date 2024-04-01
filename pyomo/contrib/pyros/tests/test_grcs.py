@@ -6987,6 +6987,50 @@ class TestPyROSSeparationPriorityOrder(unittest.TestCase):
             ),
         )
 
+    @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
+    def test_epigraph_state_var_dependent(self):
+        """
+        Test PyROS when epigraph variables are state variable
+        dependent.
+        """
+        m = self.build_simple_test_model()
+
+        # add a simple state variable and equation
+        # we will take x3 to be second-stage and x2 state,
+        # so that the objective depends on the state variable x2
+        m.x3 = Var(bounds=m.x2.bounds, initialize=m.x2.value)
+        m.x2_x3_eq_con = Constraint(expr=m.x2 == m.x3)
+
+        local_solver = SolverFactory("ipopt")
+        global_solver = SolverFactory("ipopt")
+        pyros = SolverFactory("pyros")
+
+        with LoggingIntercept(level=logging.WARNING) as LOG:
+            pyros.solve(
+                model=m,
+                first_stage_variables=[m.x1],
+                second_stage_variables=[m.x3],
+                uncertain_params=[m.u],
+                uncertainty_set=BoxSet([[1/4, 2]]),
+                local_solver=local_solver,
+                global_solver=global_solver,
+                separation_priority_order={
+                    "epigraph_constr": 2,
+                },
+                bypass_global_separation=True,
+                objective_focus=ObjectiveType.worst_case,
+            )
+
+        log_str = LOG.getvalue()
+        self.assertRegex(
+            log_str,
+            "Overriding separation priority for performance.*changed from 2 to -0.5",
+            msg=(
+                "Solver log output does not contain "
+                "separation priority override message"
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
