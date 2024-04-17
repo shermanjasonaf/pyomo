@@ -13,6 +13,7 @@
 Utility functions for the PyROS solver
 '''
 
+from collections import namedtuple
 import copy
 from enum import Enum, auto
 from pyomo.common.collections import ComponentSet, ComponentMap
@@ -857,38 +858,6 @@ def check_components_descended_from_model(model, components, components_name, co
         )
 
 
-def get_state_vars(blk, first_stage_variables, second_stage_variables):
-    """
-    Get state variables of a modeling block.
-
-    The state variables with respect to `blk` are the unfixed
-    `_VarData` objects participating in the active objective
-    or constraints descended from `blk` which are not
-    first-stage variables or second-stage variables.
-
-    Parameters
-    ----------
-    blk : ScalarBlock
-        Block of interest.
-    first_stage_variables : Iterable of VarData
-        First-stage variables.
-    second_stage_variables : Iterable of VarData
-        Second-stage variables.
-
-    Yields
-    ------
-    _VarData
-        State variable.
-    """
-    dof_var_set = ComponentSet(first_stage_variables) | ComponentSet(
-        second_stage_variables
-    )
-    for var in get_vars_from_component(blk, (Objective, Constraint)):
-        is_state_var = not var.fixed and var not in dof_var_set
-        if is_state_var:
-            yield var
-
-
 def check_variables_continuous(model, vars, config):
     """
     Check that all DOF and state variables of the model
@@ -969,6 +938,12 @@ def validate_model(model, config):
         )
 
 
+VariablePartitioning = namedtuple(
+    "VariablePartitioning",
+    ("first_stage_variables", "second_stage_variables", "state_variables"),
+)
+
+
 def validate_variable_partitioning(model, config):
     """
     Check that partitioning of the first-stage variables,
@@ -984,8 +959,14 @@ def validate_variable_partitioning(model, config):
 
     Returns
     -------
-    list of _VarData
-        State variables of the model.
+    VariablePartitioning
+        Named tuple containing a partitioning of the relevant model
+        variables, based on resolution and validation of user inputs.
+        Fields:
+
+        - first_stage_variables : First-stage variables.
+        - second_stage_variables : First-stage variables.
+        - state_variables : State variables.
 
     Raises
     ------
@@ -1017,27 +998,39 @@ def validate_variable_partitioning(model, config):
             "contain at least one common Var object."
         )
 
-    state_vars = list(
-        get_state_vars(
-            model,
-            first_stage_variables=config.first_stage_variables,
-            second_stage_variables=config.second_stage_variables,
+    active_model_vars = ComponentSet(
+        get_vars_from_components(
+            block=model,
+            active=True,
+            include_fixed=False,
+            descend_into=True,
+            ctype=(Objective, Constraint),
         )
     )
-    var_type_list_map = {
-        "first-stage variables": config.first_stage_variables,
-        "second-stage variables": config.second_stage_variables,
-        "state variables": state_vars,
-    }
-    for desc, vars in var_type_list_map.items():
-        check_components_descended_from_model(
-            model=model, components=vars, components_name=desc, config=config
-        )
+    check_components_descended_from_model(
+        model=model,
+        components=active_model_vars,
+        components_name=(
+            "Vars participating in the "
+            "active model Objective/Constraint expressions "
+        ),
+        config=config,
+    )
+    check_variables_continuous(model, active_model_vars, config)
 
-    all_vars = config.first_stage_variables + config.second_stage_variables + state_vars
-    check_variables_continuous(model, all_vars, config)
+    first_stage_vars = (
+        ComponentSet(config.first_stage_variables) & active_model_vars
+    )
+    second_stage_vars = (
+        ComponentSet(config.second_stage_variables) & active_model_vars
+    )
+    state_vars = active_model_vars - (first_stage_vars | second_stage_vars)
 
-    return state_vars
+    return VariablePartitioning(
+        list(first_stage_vars),
+        list(second_stage_vars),
+        list(state_vars),
+    )
 
 
 def validate_uncertainty_specification(model, config):
@@ -1149,11 +1142,11 @@ def validate_pyros_inputs(model, config):
         PyROS solver options.
     """
     validate_model(model, config)
-    state_vars = validate_variable_partitioning(model, config)
+    var_partitioning = validate_variable_partitioning(model, config)
     validate_uncertainty_specification(model, config)
     validate_separation_problem_options(model, config)
 
-    return state_vars
+    return var_partitioning
 
 
 def substitute_ssv_in_dr_constraints(model, constraint):
