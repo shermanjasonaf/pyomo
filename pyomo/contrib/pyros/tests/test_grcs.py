@@ -38,6 +38,7 @@ from pyomo.contrib.pyros.util import (
     add_decision_rule_constraints,
     turn_bounds_to_constraints,
     standardize_inequality_constraints,
+    standardize_equality_constraints,
     ObjectiveType,
     pyrosTerminationCondition,
     coefficient_matching,
@@ -943,6 +944,40 @@ class TestStandardizeConstraints(unittest.TestCase):
                         "should be deactivated."
                     ),
                 )
+
+    def test_standardize_equality_constraints(self):
+        """
+        Test methods for standardizing equality constraints.
+        """
+        m = ConcreteModel()
+        m.x = Var(initialize=1)
+        m.q = Param(initialize=1, mutable=True)
+        m.con1 = Constraint(expr=m.x - m.q == 0)
+        m.con2 = Constraint(expr=m.x - m.q <= 0)
+
+        standardize_equality_constraints(
+            block=m,
+            constraints=None,
+        )
+        for con in [m.con1, m.con2]:
+            self.assertEqual(
+                con.upper,
+                0,
+                msg=(
+                    f"Expression of constraint {con.name!r} cast to "
+                    f"{str(con.expr)}, which is not in standard form"
+                ),
+            )
+
+        exc_str = (
+            r"con2.*should be of type EqualityExpression, "
+            r"but is of type InequalityExpression"
+        )
+        with self.assertRaisesRegex(TypeError, exc_str):
+            standardize_equality_constraints(
+                block=m,
+                constraints=[m.con2],
+            )
 
 
 # === UncertaintySets.py

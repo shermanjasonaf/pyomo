@@ -905,6 +905,58 @@ def standardize_inequality_constraints(block, uncertain_params, constraints=None
     return orig_constraints_to_new_constraints_map
 
 
+def standardize_equality_constraints(block, constraints=None):
+    """
+    Standardize equality constraints.
+
+    This method casts equality constraints `h(v, q) == a(q)`,
+    in which `v` denotes the model variables and `q`
+    the uncertain model parameters, to `h(v, q) - a(q) == 0`.
+
+    Parameters
+    ----------
+    block : _BlockData
+        Block from which to obtain constraints.
+        Used only if `constraints` is None.
+    constraints : Iterable of _ConstraintData
+        Constraint data objects to be standardized.
+        Each entry must have an expression of type
+        `EqualityExpression`.
+        If `None` is passed, then `constraints`
+        is set to the list of active constraint data objects
+        declared on `block` or any of its active sub-Blocks.
+
+    Raises
+    ------
+    TypeError
+        If the expression of an entry of `constraints` is not
+        of type `EqualityExpression`.
+    """
+    if constraints is None:
+        constraints = [
+            con for con in
+            block.component_data_objects(
+                ctype=Constraint,
+                active=True,
+                descend_into=True,
+            )
+            if isinstance(con.expr, EqualityExpression)
+        ]
+
+    for con in constraints:
+        if not isinstance(con.expr, EqualityExpression):
+            raise TypeError(
+                f"Expression of constraint with name {con.name!r} "
+                f"should be of type {EqualityExpression.__name__}, "
+                f"but is of type {type(con.expr).__name__}."
+            )
+        con.set_value(
+            BoundType.EQ.generate_bound_constraint_expr(
+                body=con.body, bound=con.upper,
+            )
+        )
+
+
 def get_time_from_solver(results):
     """
     Obtain solver time from a Pyomo `SolverResults` object.
@@ -1395,6 +1447,10 @@ def preprocess_model_data(model_data, config, var_partitioning):
     standardize_inequality_constraints(
         block=working_model,
         uncertain_params=working_model.util.uncertain_params,
+    )
+    standardize_equality_constraints(
+        block=working_model,
+        constraints=None,
     )
 
     # standardize the objective
