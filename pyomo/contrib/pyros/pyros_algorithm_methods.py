@@ -343,103 +343,63 @@ def evaluate_dr_var_shift(
 
 
 def ROSolver_iterative_solve(model_data, config):
-    '''
-    GRCS algorithm implementation
-    :model_data: ROSolveData object with deterministic model information
-    :config: ConfigBlock for the instance being solved
-    '''
+    """
+    Solve preprocessed RO problem with the generalized robust
+    cutting set (GRCS) algorithm.
 
-    # === The "violation" e.g. uncertain parameter values added to the master problem are nominal in iteration 0
-    #     User can supply a nominal_uncertain_param_vals if they want to set nominal to a certain point,
-    #     Otherwise, the default init value for the params is used as nominal_uncertain_param_vals
-    violation = list(p for p in config.nominal_uncertain_param_vals)
-
-    # === Do coefficient matching
-    constraints = [
-        c
-        for c in model_data.working_model.component_data_objects(Constraint)
-        if c.equality
-        and c not in ComponentSet(model_data.working_model.util.decision_rule_eqns)
-    ]
-    model_data.working_model.util.h_x_q_constraints = ComponentSet()
-    for c in constraints:
-        coeff_matching_success, robust_infeasible = coefficient_matching(
-            model=model_data.working_model,
-            constraint=c,
-            uncertain_params=model_data.working_model.util.uncertain_params,
-            config=config,
-        )
-        if not coeff_matching_success and not robust_infeasible:
-            config.progress_logger.error(
-                f"Equality constraint {c.name!r} cannot be guaranteed to "
-                "be robustly feasible, given the current partitioning "
-                "among first-stage, second-stage, and state variables. "
-                "Consider editing this constraint to reference some "
-                "second-stage and/or state variable(s)."
-            )
-            raise ValueError("Coefficient matching unsuccessful. See the solver logs.")
-        elif not coeff_matching_success and robust_infeasible:
-            config.progress_logger.info(
-                "PyROS has determined that the model is robust infeasible. "
-                f"One reason for this is that the equality constraint {c.name} "
-                "cannot be satisfied against all realizations of uncertainty, "
-                "given the current partitioning between "
-                "first-stage, second-stage, and state variables. "
-                "Consider editing this constraint to reference some (additional) "
-                "second-stage and/or state variable(s)."
-            )
-            return None, None
-        else:
-            pass
-
-    # h(x,q) == 0 becomes h'(x) == 0
-    for c in model_data.working_model.util.h_x_q_constraints:
-        c.deactivate()
+    Parameters
+    ----------
+    model_data : ROSolveResults
+        Preprocessed model data object.
+    config : ConfigDict
+        PyROS solver options.
+    """
+    # constraints = [
+    #     c
+    #     for c in model_data.working_model.component_data_objects(Constraint)
+    #     if c.equality
+    #     and c not in ComponentSet(model_data.working_model.util.decision_rule_eqns)
+    # ]
+    # model_data.working_model.util.h_x_q_constraints = ComponentSet()
+    # for c in constraints:
+    #     coeff_matching_success, robust_infeasible = coefficient_matching(
+    #         model=model_data.working_model,
+    #         constraint=c,
+    #         uncertain_params=model_data.working_model.util.uncertain_params,
+    #         config=config,
+    #     )
+    #     if not coeff_matching_success and not robust_infeasible:
+    #         config.progress_logger.error(
+    #             f"Equality constraint {c.name!r} cannot be guaranteed to "
+    #             "be robustly feasible, given the current partitioning "
+    #             "among first-stage, second-stage, and state variables. "
+    #             "Consider editing this constraint to reference some "
+    #             "second-stage and/or state variable(s)."
+    #         )
+    #         raise ValueError("Coefficient matching unsuccessful. See the solver logs.")
+    #     elif not coeff_matching_success and robust_infeasible:
+    #         config.progress_logger.info(
+    #             "PyROS has determined that the model is robust infeasible. "
+    #             f"One reason for this is that the equality constraint {c.name} "
+    #             "cannot be satisfied against all realizations of uncertainty, "
+    #             "given the current partitioning between "
+    #             "first-stage, second-stage, and state variables. "
+    #             "Consider editing this constraint to reference some (additional) "
+    #             "second-stage and/or state variable(s)."
+    #         )
+    #         return None, None
+    #     else:
+    #         pass
 
     # === Build the master problem and master problem data container object
-    master_data = master_problem_methods.initial_construct_master(model_data)
+    master_data = master_problem_methods.initial_construct_master(
+        model_data, config
+    )
+    nominal_master_block = master_data.master_model.scenarios[0, 0]
 
     # === If using p_robustness, add ConstraintList for additional constraints
     if config.p_robustness:
         master_data.master_model.p_robust_constraints = ConstraintList()
-
-    # === Add scenario_0
-    master_data.master_model.scenarios[0, 0].transfer_attributes_from(
-        master_data.original.clone()
-    )
-    if len(master_data.master_model.scenarios[0, 0].util.uncertain_params) != len(
-        violation
-    ):
-        raise ValueError
-
-    # === Set the nominal uncertain parameters to the violation values
-    for i, v in enumerate(violation):
-        master_data.master_model.scenarios[0, 0].util.uncertain_params[i].value = v
-
-    # === Add objective function (assuming minimization of costs) with nominal second-stage costs
-    if config.objective_focus is ObjectiveType.nominal:
-        master_data.master_model.obj = Objective(
-            expr=master_data.master_model.scenarios[0, 0].first_stage_objective
-            + master_data.master_model.scenarios[0, 0].second_stage_objective
-        )
-    elif config.objective_focus is ObjectiveType.worst_case:
-        # === Worst-case cost objective
-        master_data.master_model.zeta = Var(
-            initialize=value(
-                master_data.master_model.scenarios[0, 0].first_stage_objective
-                + master_data.master_model.scenarios[0, 0].second_stage_objective,
-                exception=False,
-            )
-        )
-        master_data.master_model.obj = Objective(expr=master_data.master_model.zeta)
-        master_data.master_model.scenarios[0, 0].epigraph_constr = Constraint(
-            expr=master_data.master_model.scenarios[0, 0].first_stage_objective
-            + master_data.master_model.scenarios[0, 0].second_stage_objective
-            <= master_data.master_model.zeta
-        )
-        master_data.master_model.scenarios[0, 0].util.first_stage_variables.append(
-            master_data.master_model.zeta
-        )
 
     # === Add deterministic constraints to ComponentSet on original so that these become part of separation model
     master_data.original.util.deterministic_constraints = ComponentSet(
@@ -451,7 +411,7 @@ def ROSolver_iterative_solve(model_data, config):
 
     # === Make separation problem model once before entering the solve loop
     separation_model = separation_problem_methods.make_separation_problem(
-        model_data=master_data, config=config
+        model_data=model_data, config=config
     )
 
     evaluate_and_log_component_stats(
@@ -557,6 +517,7 @@ def ROSolver_iterative_solve(model_data, config):
     master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
         master_data.iteration = k
+        master_problem_methods.enforce_objective_focus(master_data, config)
 
         # === Add p-robust constraint if iteration > 0
         if k > 0 and config.p_robustness:
@@ -752,9 +713,6 @@ def ROSolver_iterative_solve(model_data, config):
         # === Provide master model scenarios to separation problem for initialization options
         separation_data.master_scenarios = master_data.master_model.scenarios
 
-        if config.objective_focus is ObjectiveType.worst_case:
-            separation_model.util.zeta = value(master_soln.master_model.obj)
-
         # === Solve Separation Problem
         separation_data.iteration = k
         separation_data.master_nominal_scenario = master_data.master_model.scenarios[
@@ -888,8 +846,11 @@ def ROSolver_iterative_solve(model_data, config):
 
         # === Add block to master at violation
         master_problem_methods.add_scenario_to_master(
-            model_data=master_data,
-            violations=separation_results.violating_param_realization,
+            master_data=master_data,
+            scenario_idx=(k + 1, 0),
+            param_realization=separation_results.violating_param_realization,
+            from_block=nominal_master_block,
+            clone_first_stage_vars=False,
         )
         separation_data.points_added_to_master.append(
             separation_results.violating_param_realization

@@ -52,7 +52,7 @@ from pyomo.common.timing import TicTocTimer
 from pyomo.contrib.pyros.util import TIC_TOC_SOLVE_TIME_ATTR, enforce_dr_degree
 
 
-def initial_construct_master(model_data):
+def initial_construct_master(model_data, config):
     """
     Constructs the iteration 0 master problem
     return: a MasterProblemData object containing the master_model object
@@ -64,6 +64,21 @@ def initial_construct_master(model_data):
     master_data.original = model_data.working_model.clone()
     master_data.master_model = m
     master_data.timing = model_data.timing
+    master_data.iteration = 0
+
+    # set up nominal block
+    add_scenario_to_master(
+        master_data=master_data,
+        scenario_idx=(0, 0),
+        param_realization=config.nominal_uncertain_param_vals,
+        from_block=master_data.original,
+        clone_first_stage_vars=True,
+    )
+
+    # set up main epigraph objective
+    master_data.master_model.obj = Objective(
+        expr=master_data.master_model.scenarios[0, 0].util.epigraph_var,
+    )
 
     return master_data
 
@@ -330,7 +345,7 @@ def construct_dr_polishing_problem(model_data, config):
 
     # ensure master optimality constraint enforced
     if config.objective_focus == ObjectiveType.worst_case:
-        polishing_model.zeta.fix()
+        polishing_model.scenarios[0, 0].util.epigraph_var.fix()
     else:
         optimal_master_obj_value = value(polishing_model.obj)
         polishing_model.nominal_optimality_con = Constraint(
@@ -584,26 +599,68 @@ def add_p_robust_constraint(model_data, config):
     return
 
 
-def add_scenario_to_master(model_data, violations):
+def add_scenario_to_master(
+        master_data,
+        scenario_idx,
+        param_realization,
+        from_block=None,
+        clone_first_stage_vars=None,
+        ):
     """
-    Add block to master, without cloning the master_model.first_stage_variables
+    Add new scenario block to the master model.
+
+    Parameters
+    ----------
+    master_data : MasterProblemData
+        Master problem data.
+    scenario_idx : tuple
+        Index of ``master_data.master_model.scenarios`` at
+        which to place the new scenario block.
+    param_realization : Iterable of numeric type
+        Uncertain parameter realization for new parameter block.
+    from_block : _BlockData or None, optional
+        Block from which to transfer attributes.
+        If `None` is passed, then this is set to
+        ``master_data.master_model.scenarios[0, 0]``.
+    clone_first_stage_vars : bool, optional
+        True to clone first-stage variables, DR variables,
+        and the epigraph variable when transferring attributes
+        to the new block (as opposed to using the objects as
+        they are in `from_block`), False otherwise.
+        If `None` is passed, then this is set to True
+        provided `from_block` is resolved to
+        ``master_data.master_model.scenarios[0, 0]``,
+        and False otherwise.
     """
+    # resolve optional arguments
+    master_model = master_data.master_model
+    if from_block is None:
+        from_block = master_model.scenarios[0, 0]
+    if clone_first_stage_vars is None:
+        clone_first_stage_vars = from_block is not master_model.scenarios[0, 0]
 
-    m = model_data.master_model
-    i = max(m.scenarios.keys())[0] + 1
+    # Note for any of the Vars not copied:
+    # - if Var is not a member of an indexed var, then
+    #   the 'name' attribute changes from
+    #   '{from_block.name}.{var.name}'
+    #   to 'scenarios[{scenario_idx}].{var.name}'
+    # - otherwise, the name stays the same
+    memo = dict()
+    if not clone_first_stage_vars:
+        effective_first_stage_vars = (
+            [from_block.util.epigraph_var]
+            + from_block.util.first_stage_variables
+        )
+        memo = {id(var): var for var in effective_first_stage_vars}
+    new_block = from_block.clone(memo=memo)
+    master_model.scenarios[scenario_idx].transfer_attributes_from(new_block)
 
-    # === Add a block to master for each violation
-    idx = 0  # Only supporting adding single violation back to master in v1
-    new_block = selective_clone(
-        m.scenarios[0, 0], m.scenarios[0, 0].util.first_stage_variables
+    # update uncertain parameter values in new block
+    new_uncertain_params = (
+        master_model.scenarios[scenario_idx].util.uncertain_params
     )
-    m.scenarios[i, idx].transfer_attributes_from(new_block)
-
-    # === Set uncertain params in new block(s) to correct value(s)
-    for j, p in enumerate(m.scenarios[i, idx].util.uncertain_params):
-        p.set_value(violations[j])
-
-    return
+    for param, val in zip(new_uncertain_params, param_realization):
+        param.set_value(val)
 
 
 def get_master_dr_degree(model_data, config):
@@ -664,6 +721,33 @@ def higher_order_decision_rule_efficiency(model_data, config):
         config=config,
         degree=order_to_enforce,
     )
+
+
+def _should_epigraph_con_be_active(master_scenario_idx, config):
+    """
+    Determine whether epigraph constraint of master model
+    should be active.
+    """
+    if config.objective_focus == ObjectiveType.worst_case:
+        return True
+    elif config.objective_focus == ObjectiveType.nominal:
+        return master_scenario_idx == (0, 0)
+    else:
+        raise ValueError(
+            f"Objective focus {config.objective_focus!r} not supported."
+        )
+
+
+def enforce_objective_focus(master_data, config):
+    """
+    Enforce master problem objective focus based on solver
+    settings.
+    """
+    for idx, blk in master_data.master_model.scenarios.items():
+        if _should_epigraph_con_be_active(idx, config):
+            blk.util.epigraph_con.activate()
+        else:
+            blk.util.epigraph_con.deactivate()
 
 
 def solver_call_master(model_data, config, solver, solve_data):

@@ -12,32 +12,24 @@
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
 import logging
 from pyomo.common.config import document_kwargs_from_configdict
-from pyomo.core.base.block import Block
 from pyomo.core.expr import value
 from pyomo.core.base.var import Var
-from pyomo.core.base.objective import Objective
 from pyomo.common.modeling import unique_component_name
 from pyomo.opt import SolverFactory
 from pyomo.contrib.pyros.config import pyros_config, logger_domain
 from pyomo.contrib.pyros.util import (
-    recast_to_min_obj,
-    add_decision_rule_constraints,
-    add_decision_rule_variables,
     load_final_solution,
     preprocess_model_data,
     pyrosTerminationCondition,
-    ObjectiveType,
-    identify_objective_functions,
     validate_pyros_inputs,
-    turn_bounds_to_constraints,
     IterationLogRecord,
     setup_pyros_logger,
     TimingData,
     time_code,
+    ObjectiveType,
 )
 from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
-from pyomo.core.base import Constraint
 
 from datetime import datetime
 
@@ -407,16 +399,10 @@ class PyROS(object):
                 # when reporting the final PyROS (master) objective,
                 # since maximization objective is changed to
                 # minimization objective during preprocessing
-                if config.objective_focus == ObjectiveType.nominal:
-                    return_soln.final_objective_value = (
-                        model_data.working_model.util.active_obj_original_sense
-                        * value(pyros_soln.master_soln.master_model.obj)
-                    )
-                elif config.objective_focus == ObjectiveType.worst_case:
-                    return_soln.final_objective_value = (
-                        model_data.working_model.util.active_obj_original_sense
-                        * value(pyros_soln.master_soln.master_model.zeta)
-                    )
+                return_soln.final_objective_value = (
+                    model_data.working_model.util.active_obj_original_sense
+                    * value(pyros_soln.master_soln.master_model.obj)
+                )
                 return_soln.pyros_termination_condition = (
                     pyros_soln.pyros_termination_condition
                 )

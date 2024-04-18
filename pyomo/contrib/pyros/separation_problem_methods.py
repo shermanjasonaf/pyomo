@@ -47,111 +47,125 @@ from copy import deepcopy
 from itertools import product
 
 
-def add_uncertainty_set_constraints(model, config):
+def add_uncertainty_set_constraints(separation_model, config):
     """
-    Add inequality constraint(s) representing the uncertainty set.
+    Add to the separation model constraints restricting
+    the uncertain parameter proxy variables to the user-provided
+    uncertainty set. Note that inferred interval enclosures
+    on the uncertain parameters are also imposed as bounds
+    specified on the proxy variables.
     """
-
-    model.util.uncertainty_set_constraint = config.uncertainty_set.set_as_constraint(
-        uncertain_params=model.util.uncertain_param_vars, model=model, config=config
+    separation_model.util.uncertainty_set_constraint = (
+        config.uncertainty_set.set_as_constraint(
+            uncertain_params=separation_model.util.uncertain_param_vars,
+            model=separation_model,
+            config=config,
+        )
     )
-
     config.uncertainty_set.add_bounds_on_uncertain_parameters(
-        model=model, config=config
+        model=separation_model,
+        config=config,
     )
 
-    # === Pre-process out any uncertain parameters which have q_LB = q_ub via (q_ub - q_lb)/max(1,|q_UB|) <= TOL
-    #     before building the uncertainty set constraint(s)
-    uncertain_params = config.uncertain_params
-    for i in range(len(uncertain_params)):
+    # preprocess uncertain parameters which have been fixed by bounds
+    # in order to simplify the separation problems
+    for i in range(len(separation_model.util.uncertain_params)):
         if is_certain_parameter(uncertain_param_index=i, config=config):
-            # This parameter is effectively certain for this set, can remove it from the uncertainty set
-            # We do this by fixing it in separation to its nominal value
-            model.util.uncertain_param_vars[i].fix(
+            separation_model.util.uncertain_param_vars[i].fix(
                 config.nominal_uncertain_param_vals[i]
             )
 
-    return
 
-
-def make_separation_objective_functions(model, config):
+def make_separation_objective_functions(separation_model, config):
     """
-    Inequality constraints referencing control variables, state variables, or uncertain parameters
-    must be separated against in separation problem.
+    Construct separation problem objectives derived from
+    the performance constraints, and map each performance
+    constraint to its corresponding separation objective.
     """
-    performance_constraints = []
-    for c in model.component_data_objects(Constraint, active=True, descend_into=True):
-        _vars = ComponentSet(identify_variables(expr=c.expr))
-        uncertain_params_in_expr = list(
-            v for v in model.util.uncertain_param_vars.values() if v in _vars
-        )
-        state_vars_in_expr = list(v for v in model.util.state_vars if v in _vars)
-        second_stage_variables_in_expr = list(
-            v for v in model.util.second_stage_variables if v in _vars
-        )
-        if not c.equality and (
-            uncertain_params_in_expr
-            or state_vars_in_expr
-            or second_stage_variables_in_expr
-        ):
-            # This inequality constraint depends on uncertain parameters therefore it must be separated against
-            performance_constraints.append(c)
-        elif not c.equality and not (
-            uncertain_params_in_expr
-            or state_vars_in_expr
-            or second_stage_variables_in_expr
-        ):
-            c.deactivate()  # These are x \in X constraints, not active in separation because x is fixed to x* from previous master
-    model.util.performance_constraints = performance_constraints
-    model.util.separation_objectives = []
+    performance_constraints = separation_model.util.performance_ineq_cons
+    separation_model.util.performance_constraints = performance_constraints
+    separation_model.util.separation_objectives = []
     map_obj_to_constr = ComponentMap()
 
-    for idx, c in enumerate(performance_constraints):
-        # Separation objective constraints standardized to be MAXIMIZATION of <= constraints
-        c.deactivate()
-        if c.upper is not None:
+    for idx, perf_con in enumerate(performance_constraints):
+        # performance constraints should all be of form
+        # expr <= RHS. hence, we declare a maximization
+        # objective for each performance constraint
+        if perf_con.upper is not None:
             # This is an <= constraint, maximized in separation
-            obj = Objective(expr=c.body - c.upper, sense=maximize)
-            map_obj_to_constr[c] = obj
-            model.add_component("separation_obj_" + str(idx), obj)
-            model.util.separation_objectives.append(obj)
-        elif c.lower is not None:
+            obj = Objective(expr=perf_con.body - perf_con.upper, sense=maximize)
+            map_obj_to_constr[perf_con] = obj
+            separation_model.add_component(f"separation_obj_{idx}", obj)
+            separation_model.util.separation_objectives.append(obj)
+        elif perf_con.lower is not None:
             # This is an >= constraint, not supported
             raise ValueError(
-                "All inequality constraints in model must be in standard form (<= RHS)"
+                "All inequality constraints in model "
+                "must be in standard form 'expr <= RHS'"
             )
+        perf_con.deactivate()
 
-    model.util.map_obj_to_constr = map_obj_to_constr
-    for obj in model.util.separation_objectives:
+    separation_model.util.map_obj_to_constr = map_obj_to_constr
+    for obj in separation_model.util.separation_objectives:
         obj.deactivate()
-
-    return
 
 
 def make_separation_problem(model_data, config):
     """
-    Swap out uncertain param Param objects for Vars
-    Add uncertainty set constraints and separation objectives
+    Construct separation model from working model.
+
+    Steps:
+
+    1. Clone the working model.
+    2. Fix the epigraph, first-stage, and decision rule variables.
+    3. Deactivate all first-stage equality and first-stage
+       inequality constraints.
+    4. Declare proxy variables for the uncertain parameters.
+    5. Declare new constraints restricting the proxy variables
+       for the uncertain parameters to the user-provided uncertainty
+       set.
+    6. Substitute the proxy variables for the uncertain parameters
+       in the expressions of all second-stage (performance)
+       equality, second-stage inequality, and decision rule equality
+       constraints, as necessary.
+    7. Construct a maximization objective for every performance
+       constraint. Deactivate all performance constraints and
+       maximization objectives. The objectives will be reactivated
+       on a subproblem basis as needed.
+
+    Once construction is complete, only the following components
+    should be active:
+
+    - the decision rule equations
+    - the second-stage equality constraints
+    - the uncertainty set constraints imposed on the proxy variables,
+
+    Moreover, the epigraph, first-stage, and decision rule variables
+    should be fixed.
+
+    Returns
+    -------
+    separation_model : ConcreteModel
+        Separation model.
     """
-    separation_model = model_data.original.clone()
-    separation_model.del_component("coefficient_matching_constraints")
-    separation_model.del_component("coefficient_matching_constraints_index")
+    separation_model = model_data.working_model.clone()
+
+    separation_model.util.epigraph_var.fix()
+    for var in separation_model.util.first_stage_variables:
+        var.fix()
+    for var in separation_model.util.decision_rule_vars:
+        var.fix()
+
+    for first_stg_con in separation_model.util.first_stage_ineq_cons:
+        first_stg_con.deactivate()
+    for first_stg_con in separation_model.util.first_stage_eq_cons:
+        first_stg_con.deactivate()
 
     uncertain_params = separation_model.util.uncertain_params
     separation_model.util.uncertain_param_vars = param_vars = Var(
         range(len(uncertain_params))
     )
-    map_new_constraint_list_to_original_con = ComponentMap()
-
-    if config.objective_focus is ObjectiveType.worst_case:
-        separation_model.util.zeta = Param(initialize=0, mutable=True)
-        constr = Constraint(
-            expr=separation_model.first_stage_objective
-            + separation_model.second_stage_objective
-            - separation_model.util.zeta
-            <= 0
-        )
-        separation_model.add_component("epigraph_constr", constr)
+    add_uncertainty_set_constraints(separation_model, config)
 
     substitution_map = {}
     # Separation problem initialized to nominal uncertain parameter values
@@ -160,64 +174,32 @@ def make_separation_problem(model_data, config):
         var.set_value(param.value, skip_validation=True)
         substitution_map[id(param)] = var
 
-    separation_model.util.new_constraints = constraints = ConstraintList()
+    # TODO: remove references to `new_constraints` from all separation
+    # problem routines.
+    separation_model.util.new_constraints = ConstraintList()
+    map_new_constraint_list_to_original_con = ComponentMap()
 
+    second_stage_cons = (
+        separation_model.util.performance_ineq_cons
+        + separation_model.util.performance_eq_cons
+        + separation_model.util.decision_rule_eqns
+    )
     uncertain_param_set = ComponentSet(uncertain_params)
-    for c in separation_model.component_data_objects(Constraint, active=True):
-        if any(v in uncertain_param_set for v in identify_mutable_parameters(c.expr)):
-            if c.equality:
-                if c in separation_model.util.h_x_q_constraints:
-                    # ensure that constraints subject to
-                    # coefficient matching are not involved in
-                    # separation problem.
-                    # keeping them may induce numerical sensitivity
-                    # issues, possibly leading to incorrect result
-                    c.deactivate()
-                else:
-                    constraints.add(
-                        replace_expressions(
-                            expr=c.lower, substitution_map=substitution_map
-                        )
-                        == replace_expressions(
-                            expr=c.body, substitution_map=substitution_map
-                        )
-                    )
-            elif c.lower is not None:
-                constraints.add(
-                    replace_expressions(expr=c.lower, substitution_map=substitution_map)
-                    <= replace_expressions(
-                        expr=c.body, substitution_map=substitution_map
-                    )
-                )
-            elif c.upper is not None:
-                constraints.add(
-                    replace_expressions(expr=c.upper, substitution_map=substitution_map)
-                    >= replace_expressions(
-                        expr=c.body, substitution_map=substitution_map
-                    )
-                )
-            else:
-                raise ValueError(
-                    "Unable to parse constraint for building the separation problem."
-                )
-            c.deactivate()
-            map_new_constraint_list_to_original_con[
-                constraints[constraints.index_set().last()]
-            ] = c
+    for con in second_stage_cons:
+        has_uncertain_params = any(
+            param in uncertain_param_set
+            for param in identify_mutable_parameters(con.expr)
+        )
+        if has_uncertain_params:
+            con.set_value(
+                replace_expressions(con.expr, substitution_map=substitution_map)
+            )
 
     separation_model.util.map_new_constraint_list_to_original_con = (
         map_new_constraint_list_to_original_con
     )
 
-    # === Add objectives first so that the uncertainty set
-    #     Constraints do not get picked up into the set
-    # 	  of performance constraints which become objectives
     make_separation_objective_functions(separation_model, config)
-    add_uncertainty_set_constraints(separation_model, config)
-
-    # === Deactivate h(x,q) == 0 constraints
-    for c in separation_model.util.h_x_q_constraints:
-        c.deactivate()
 
     return separation_model
 
@@ -397,25 +379,9 @@ def evaluate_violations_by_nominal_master(model_data, performance_cons):
         to floats equal to violations by nominal master
         problem variables.
     """
-    constraint_map_to_master = (
-        model_data.separation_model.util.map_new_constraint_list_to_original_con
-    )
-
-    # get deterministic model constraints (include epigraph)
-    set_of_deterministic_constraints = (
-        model_data.separation_model.util.deterministic_constraints
-    )
-    if hasattr(model_data.separation_model, "epigraph_constr"):
-        set_of_deterministic_constraints.add(
-            model_data.separation_model.epigraph_constr
-        )
     nom_perf_con_violations = {}
-
     for perf_con in performance_cons:
-        if perf_con in set_of_deterministic_constraints:
-            nom_constraint = perf_con
-        else:
-            nom_constraint = constraint_map_to_master[perf_con]
+        nom_constraint = perf_con
         nom_violation = value(
             model_data.master_nominal_scenario.find_component(nom_constraint)
         )
@@ -976,11 +942,6 @@ def initialize_separation(perf_con_to_maximize, model_data, config):
             v.deactivate()
         for v in model_data.separation_model.util.decision_rule_vars:
             v.fix()
-
-    if any(c.active for c in model_data.separation_model.util.h_x_q_constraints):
-        raise AttributeError(
-            "All h(x,q) type constraints must be deactivated in separation."
-        )
 
     # confirm the initial point is feasible for cases where
     # we expect it to be (i.e. non-discrete uncertainty sets).

@@ -37,7 +37,6 @@ from pyomo.core.base.var import IndexedVar
 from pyomo.core.base.set_types import Reals
 from pyomo.opt import TerminationCondition as tc
 from pyomo.core.expr import value, EqualityExpression
-from pyomo.core.expr.numeric_expr import NPV_MaxExpression, NPV_MinExpression
 from pyomo.repn.standard_repn import generate_standard_repn
 from pyomo.core.expr.visitor import (
     identify_variables,
@@ -1407,6 +1406,44 @@ def validate_pyros_inputs(model, config):
     return var_partitioning
 
 
+def construct_epigraph_reformulation_components(obj):
+    """
+    Construct components of the epigraph reformulation of a
+    minimization objective on a block.
+
+    Parameters
+    ----------
+    block : _BlockData
+        Block on which to declare the components of the
+        epigraph reformulation.
+    obj : _ObjectiveData
+        Objective for which the epigraph reformulation is to
+        be performed.
+
+    Returns
+    -------
+    epigraph_var : _VarData
+        Epigraph variable.
+    epigraph_con : _ConstraintData
+        Epigraph constraint.
+
+    Raises
+    ------
+    ValueError
+        If `obj` is a maximization objective.
+    """
+    if obj.sense != minimize:
+        raise ValueError(
+            f"Objective with name {obj.name!r} is of a maximization sense. "
+            "Epigraph reformulation not supported for maximization "
+            "objectives."
+        )
+    epigraph_var = Var(initialize=value(obj, exception=False))
+    epigraph_con = Constraint(expr=obj.expr - epigraph_var <= 0)
+
+    return epigraph_var, epigraph_con
+
+
 def standardize_active_objective(model_data, config):
     """
     Standardize active working model objective, keeping track
@@ -1444,6 +1481,10 @@ def standardize_active_objective(model_data, config):
         working_model=working_model,
         objective=active_obj,
     )
+    epi_var, epi_con = construct_epigraph_reformulation_components(active_obj)
+
+    working_model.util.epigraph_var = epi_var
+    working_model.util.epigraph_con = epi_con
 
     # now that we have captured the objective expression,
     # the objective will be reconstructed as necessary
@@ -1451,6 +1492,70 @@ def standardize_active_objective(model_data, config):
     active_obj.deactivate()
 
     return active_obj
+
+
+def classify_constraints(working_model, config):
+    """
+    Classify constraints of the working model as either
+    first-stage constraints, or performance (second-stage)
+    constraints.
+    """
+    working_model.util.first_stage_ineq_cons = first_stage_ineq_cons = []
+    working_model.util.first_stage_eq_cons = first_stage_eq_cons = []
+    working_model.util.performance_ineq_cons = perf_ineq_cons = []
+    working_model.util.performance_eq_cons = perf_eq_cons = []
+
+    uncertain_params_set = ComponentSet(working_model.util.uncertain_params)
+    state_vars_set = ComponentSet(working_model.util.state_vars)
+
+    # efficiency: under static DR (config.decision_rule_order == 0),
+    # the second-stage variables are taken to be first-stage,
+    # which potentially reduces the number of performance inequality
+    # constraints and thus separation problems
+    if config.decision_rule_order == 0:
+        effective_second_stage_vars_set = ComponentSet()
+    else:
+        effective_second_stage_vars_set = ComponentSet(
+            working_model.util.second_stage_variables
+        )
+
+    # objective focus needed for checking epigraph constraint
+    obj_focus_is_worst_case = config.objective_focus == ObjectiveType.worst_case
+
+    # now identify the constraints
+    active_cons = (
+        con for con
+        in working_model.component_data_objects(Constraint, active=True)
+    )
+    for con in active_cons:
+        vars_in_con = ComponentSet(identify_variables(con.body))
+        uncertain_params_in_con = uncertain_params_set & ComponentSet(
+            identify_mutable_parameters(con.body)
+        )
+        effective_second_stage_vars_in_con = (
+            effective_second_stage_vars_set & vars_in_con
+        )
+        state_vars_in_con = state_vars_set & vars_in_con
+        is_epigraph_con = con is working_model.util.epigraph_con
+        is_equality_con = isinstance(con.expr, EqualityExpression)
+
+        has_second_stage_components = bool(
+            uncertain_params_in_con
+            | effective_second_stage_vars_in_con
+            | state_vars_in_con
+        )
+
+        if is_equality_con:
+            if has_second_stage_components:
+                perf_eq_cons.append(con)
+            else:
+                first_stage_eq_cons.append(con)
+        else:
+            allow_based_on_obj_focus = not is_epigraph_con or obj_focus_is_worst_case
+            if has_second_stage_components & allow_based_on_obj_focus:
+                perf_ineq_cons.append(con)
+            else:
+                first_stage_ineq_cons.append(con)
 
 
 def preprocess_model_data(model_data, config, var_partitioning):
@@ -1502,6 +1607,7 @@ def preprocess_model_data(model_data, config, var_partitioning):
 
     # TODO: move identification of first-stage and
     #       performance constraints here?
+    classify_constraints(working_model, config)
 
     add_decision_rule_variables(model_data, config)
     add_decision_rule_constraints(model_data, config)
