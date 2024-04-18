@@ -1407,6 +1407,52 @@ def validate_pyros_inputs(model, config):
     return var_partitioning
 
 
+def standardize_active_objective(model_data, config):
+    """
+    Standardize active working model objective, keeping track
+    of the first-stage and second-stage summand expressions
+    and the original sense of the objective.
+
+    Returns
+    -------
+    active_obj : _ObjectiveData
+        Active working model objective.
+
+    TODO
+    ----
+    1. Perform epigraph reformulation here.
+       This will also need to be accounted for
+       throughout the codebase, as the epigraph constraint
+       is currently added only if the objective focus is worst-case.
+       Maybe perform this along with/after restructuring of the
+       working model.
+    2. Account for case of possible name clashes of attributes
+       `first_stage_objective` and `second_stage_objective`.
+    """
+    working_model = model_data.working_model
+    active_obj = next(
+        model_data.working_model.component_data_objects(
+            Objective, active=True, descend_into=True
+        )
+    )
+    working_model.util.active_obj_original_sense = active_obj.sense
+
+    recast_to_min_obj(working_model, active_obj)
+
+    # capture the first-stage and second-stage summand expressions
+    identify_objective_functions(
+        working_model=working_model,
+        objective=active_obj,
+    )
+
+    # now that we have captured the objective expression,
+    # the objective will be reconstructed as necessary
+    # on a subproblem basis
+    active_obj.deactivate()
+
+    return active_obj
+
+
 def preprocess_model_data(model_data, config, var_partitioning):
     """
     Preprocess user input.
@@ -1452,10 +1498,7 @@ def preprocess_model_data(model_data, config, var_partitioning):
         block=working_model,
         constraints=None,
     )
-
-    # standardize the objective
-    active_obj = next(working_model.component_data_objects(Objective, active=True))
-    working_model.util.active_obj_original_sense = active_obj.sense
+    standardize_active_objective(model_data, config)
 
 
 def substitute_ssv_in_dr_constraints(model, constraint):
@@ -1922,20 +1965,21 @@ def enforce_dr_degree(blk, config, degree):
                 dr_var.unfix()
 
 
-def identify_objective_functions(model, objective):
+def identify_objective_functions(working_model, objective):
     """
-    Identify the first and second-stage portions of an Objective
+    Identify the first-stage and second-stage summands of an Objective
     expression, subject to user-provided variable partitioning and
-    uncertain parameter choice. In doing so, the first and second-stage
-    objective expressions are added to the model as `Expression`
-    attributes.
+    uncertain parameters.
+
+    This method adds Expression attributes `first_stage_objective` and
+    `second_stage_objective` to the working model.
 
     Parameters
     ----------
-    model : ConcreteModel
-        Model of interest.
-    objective : Objective
-        Objective to be resolved into first and second-stage parts.
+    working_model : ConcreteModel
+        Working model, as arranged by the PyROS preprocessor.
+    objective : _ObjectiveData
+        Objective to be resolved into first and second-stage summands.
     """
     expr_to_split = objective.expr
 
@@ -1953,8 +1997,8 @@ def identify_objective_functions(model, objective):
     first_stage_cost_expr = 0
     second_stage_cost_expr = 0
 
-    first_stage_var_set = ComponentSet(model.util.first_stage_variables)
-    uncertain_param_set = ComponentSet(model.util.uncertain_params)
+    first_stage_var_set = ComponentSet(working_model.util.first_stage_variables)
+    uncertain_param_set = ComponentSet(working_model.util.uncertain_params)
 
     for term in obj_args:
         non_first_stage_vars_in_term = ComponentSet(
@@ -1971,8 +2015,8 @@ def identify_objective_functions(model, objective):
         else:
             first_stage_cost_expr += term
 
-    model.first_stage_objective = Expression(expr=first_stage_cost_expr)
-    model.second_stage_objective = Expression(expr=second_stage_cost_expr)
+    working_model.first_stage_objective = Expression(expr=first_stage_cost_expr)
+    working_model.second_stage_objective = Expression(expr=second_stage_cost_expr)
 
 
 def load_final_solution(model_data, master_soln, config):

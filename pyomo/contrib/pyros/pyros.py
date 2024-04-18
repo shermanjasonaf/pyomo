@@ -380,23 +380,6 @@ class PyROS(object):
             # this method
             preprocess_model_data(model_data, config, var_partitioning)
 
-            # identify active objective function
-            # (there should only be one at this point)
-            # recast to minimization if necessary
-            active_objs = list(
-                model_data.working_model.component_data_objects(
-                    Objective, active=True, descend_into=True
-                )
-            )
-            assert len(active_objs) == 1
-            active_obj = active_objs[0]
-            active_obj_original_sense = active_obj.sense
-            recast_to_min_obj(model_data.working_model, active_obj)
-
-            # === Determine first and second-stage objectives
-            identify_objective_functions(model_data.working_model, active_obj)
-            active_obj.deactivate()
-
             # === Add decision rule information
             add_decision_rule_variables(model_data, config)
             add_decision_rule_constraints(model_data, config)
@@ -430,12 +413,12 @@ class PyROS(object):
                 # minimization objective during preprocessing
                 if config.objective_focus == ObjectiveType.nominal:
                     return_soln.final_objective_value = (
-                        active_obj_original_sense
+                        model_data.working_model.util.active_obj_original_sense
                         * value(pyros_soln.master_soln.master_model.obj)
                     )
                 elif config.objective_focus == ObjectiveType.worst_case:
                     return_soln.final_objective_value = (
-                        active_obj_original_sense
+                        model_data.working_model.util.active_obj_original_sense
                         * value(pyros_soln.master_soln.master_model.zeta)
                     )
                 return_soln.pyros_termination_condition = (
