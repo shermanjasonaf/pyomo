@@ -28,6 +28,7 @@ from pyomo.core.base.var import _VarData
 from pyomo.core.expr import (
     identify_variables,
     identify_mutable_parameters,
+    EqualityExpression,
     MonomialTermExpression,
     SumExpression,
 )
@@ -36,7 +37,7 @@ from pyomo.contrib.pyros.util import (
     add_decision_rule_variables,
     add_decision_rule_constraints,
     turn_bounds_to_constraints,
-    transform_to_standard_form,
+    standardize_inequality_constraints,
     ObjectiveType,
     pyrosTerminationCondition,
     coefficient_matching,
@@ -758,153 +759,190 @@ class testTurnBoundsToConstraints(unittest.TestCase):
         )
 
 
-class testTransformToStandardForm(unittest.TestCase):
-    def test_transform_to_std_form(self):
-        """Check that `pyros.util.transform_to_standard_form` works
-        correctly for an example model. That is:
-        - all Constraints with a finite `upper` or `lower` attribute
-          are either equality constraints, or inequalities
-          of the standard form `expression(vars) <= upper`;
-        - every inequality Constraint for which the `upper` and `lower`
-          attribute are identical is converted to an equality constraint;
-        - every inequality Constraint with distinct finite `upper` and
-          `lower` attributes is split into two standard form inequality
-          Constraints.
+class TestStandardizeConstraints(unittest.TestCase):
+    """
+    Test constraint standardization routine(s).
+    """
+
+    def test_standardize_inequality_constraints(self):
+        """
+        Test that constraint standardization
+        routine functions work as expected. In particular,
+        routine should be such that:
+
+        - every constraint for which exactly one of
+          `lower` or `upper` is not None is modified in place
+        - every inequality constraint for which `lower` and `upper`
+          are not None is cast to an equality (by modification of
+          the expression in place) if `lower` and `upper` are
+          identical, or cast to two new inequalities and then
+          deactivated otherwise.
         """
 
         m = ConcreteModel()
 
         m.p = Param(initialize=1, mutable=True)
+        m.q = Param(initialize=2, mutable=True)
 
         m.x = Var(initialize=0)
         m.y = Var(initialize=1)
         m.z = Var(initialize=1)
 
         # example constraints
-        m.c1 = Constraint(expr=m.x >= 1)
+        m.c1 = Constraint(expr=m.x >= m.q)
         m.c2 = Constraint(expr=-m.y <= 0)
-        m.c3 = Constraint(rule=(None, m.x + m.y, None))
-        m.c4 = Constraint(rule=(1, m.x + m.y, 2))
-        m.c5 = Constraint(rule=(m.p, m.x, m.p))
-        m.c6 = Constraint(rule=(1.0000, m.z, 1.0))
+        m.c3 = Constraint(expr=(None, m.x + m.y, None))
+        m.c4 = Constraint(expr=(1, m.x + m.y, 2))
+        m.c5 = Constraint(expr=(m.p, m.x, m.p))
+        m.c6 = Constraint(expr=(m.q ** 2, m.z, 4))
+        m.c7 = Constraint(expr=(m.p ** 2, m.x + m.y, m.p ** 2))
+        m.c8 = Constraint(expr=m.x + m.z ** 2 == m.q)
+        m.c9 = Constraint(expr=m.x ** 2 - 1 == 0)
+        m.c9.deactivate()
 
-        # example ConstraintList
+        # previous implementations of constraint standardization
+        # were prone to issues with ConstraintList entries
         clist = ConstraintList()
         m.add_component('clist', clist)
         clist.add(m.y <= 0)
         clist.add(m.x >= 1)
-        clist.add((0, m.x, 1))
+        clist.add((0, m.x, m.p))
 
-        num_orig_cons = len(
-            [
-                con
-                for con in m.component_data_objects(
-                    Constraint, active=True, descend_into=True
-                )
-            ]
+        # map each active constraint to 2-tuple
+        # first entry is expected length of the constraint.
+        # second entry is whether the constraint is
+        # expected to be deemed an equality (through .equality)
+        con_to_expected_num_cons_map = ComponentMap((
+            (m.c1, 1),
+            (m.c2, 1),
+            (m.c3, 0),
+            (m.c4, 2),
+            (m.c5, 1),
+            # c6 is equality since there are no uncertain parameters
+            #  in the otherwise numerically equal bounds expressions
+            (m.c6, 1),
+            # c7 has symbolically equivalent uncertain bounds,
+            #   but the expressions are not identical objects
+            (m.c7, 2),
+            # c8 should be excluded, since c8.expr
+            #  is of type is EqualityExpression
+            # skip m.c9, as it has been deactivated
+            (clist[1], 1),
+            (clist[2], 1),
+            (clist[3], 2),
+        ))
+        expected_std_eq_cons = ComponentSet([m.c5, m.c6])
+        uncertain_cons = ComponentSet([m.c5, m.c7, clist[3]])
+        uncertain_params_set = ComponentSet([m.p])
+
+        con_to_std_con_map = standardize_inequality_constraints(
+            block=m,
+            uncertain_params=[m.p],
         )
-        # constraints with finite, distinct lower & upper bounds
-        num_lbub_cons = len(
-            [
-                con
-                for con in m.component_data_objects(
-                    Constraint, active=True, descend_into=True
-                )
-                if con.lower is not None
-                and con.upper is not None
-                and con.lower is not con.upper
-            ]
+        expected_str = ", ".join(f"{con.name!r}" for con in con_to_std_con_map)
+        actual_str = ", ".join(
+            f"{con.name!r}" for con in con_to_expected_num_cons_map
         )
-
-        # count constraints with no bounds
-        num_nobound_cons = len(
-            [
-                con
-                for con in m.component_data_objects(
-                    Constraint, active=True, descend_into=True
-                )
-                if con.lower is None and con.upper is None
-            ]
-        )
-
-        transform_to_standard_form(m)
-        cons = [
-            con
-            for con in m.component_data_objects(
-                Constraint, active=True, descend_into=True
-            )
-        ]
-        for con in cons:
-            has_lb_or_ub = not (con.lower is None and con.upper is None)
-            if has_lb_or_ub and not con.equality:
-                self.assertTrue(
-                    con.lower is None,
-                    msg="Constraint %s not in standard form" % con.name,
-                )
-                lb_is_ub = con.lower is con.upper
-                self.assertFalse(
-                    lb_is_ub,
-                    msg="Constraint %s should be converted to equality" % con.name,
-                )
-            if con is not m.c3:
-                self.assertTrue(
-                    has_lb_or_ub,
-                    msg="Constraint %s should have"
-                    " a lower or upper bound" % con.name,
-                )
-
         self.assertEqual(
-            len(
-                [
-                    con
-                    for con in m.component_data_objects(
-                        Constraint, active=True, descend_into=True
-                    )
-                ]
+            ComponentSet(con_to_expected_num_cons_map.keys()),
+            ComponentSet(con_to_std_con_map.keys()),
+            msg=(
+                "Constraints in ComponentMap returned by standardization "
+                "method do not match expectations.\n"
+                f"  Expected: {expected_str}\n"
+                f"  Actual: {actual_str}"
             ),
-            num_orig_cons + num_lbub_cons - num_nobound_cons,
-            msg="Expected number of constraints after\n "
-            "standardizing constraints not matched. "
-            "Number of constraints after\n "
-            "transformation"
-            " should be (number constraints in original "
-            "model) \n + (number of constraints with "
-            "distinct finite lower and upper bounds).",
         )
-
-    def test_transform_does_not_alter_num_of_constraints(self):
-        """
-        Check that if model does not contain any constraints
-        for which both the `lower` and `upper` attributes are
-        distinct and not None, then number of constraints remains the same
-        after constraint standardization.
-        Standard form for the purpose of PyROS is all inequality constraints
-        as `g(.)<=0`.
-        """
-        m = ConcreteModel()
-        m.x = Var(initialize=1, bounds=(0, 1))
-        m.y = Var(initialize=0, bounds=(None, 1))
-        m.con1 = Constraint(expr=m.x >= 1 + m.y)
-        m.con2 = Constraint(expr=m.x**2 + m.y**2 >= 9)
-        original_num_constraints = len(list(m.component_data_objects(Constraint)))
-        transform_to_standard_form(m)
-        final_num_constraints = len(list(m.component_data_objects(Constraint)))
-        self.assertEqual(
-            original_num_constraints,
-            final_num_constraints,
-            msg="Transform to standard form function led to a "
-            "different number of constraints than in the original model.",
-        )
-        number_of_non_standard_form_inequalities = len(
-            list(
-                c for c in list(m.component_data_objects(Constraint)) if c.lower != None
+        for con, standardized_cons in con_to_std_con_map.items():
+            self.assertEqual(
+                len(standardized_cons),
+                con_to_expected_num_cons_map[con],
+                msg=(
+                    "Length of constraint to bound type map for original "
+                    f"constraint with name {con.name!r}"
+                )
             )
-        )
-        self.assertEqual(
-            number_of_non_standard_form_inequalities,
-            0,
-            msg="All inequality constraints were not transformed to standard form.",
-        )
+            if con in uncertain_cons:
+                uncertain_params_in_std_cons = any(
+                    ComponentSet(identify_mutable_parameters(std_con.body))
+                    == uncertain_params_set
+                    for std_con in standardized_cons
+                )
+                self.assertTrue(
+                    uncertain_params_in_std_cons,
+                    msg=(
+                        "Uncertain parameters not in any of the standardized "
+                        f"constraints derived from {con.name} "
+                        "as expected."
+                    )
+                )
+            for std_con in standardized_cons:
+                self.assertTrue(
+                    std_con.active,
+                    msg=(
+                        f"Standardized constraint {std_con.name!r} "
+                        f"derived from constraint {con.name!r} "
+                        "should be active."
+                    ),
+                )
+                self.assertEqual(
+                    std_con.upper,
+                    0,
+                    msg=(
+                        "Upper bound (.upper) for standardized constraint "
+                        f"{con.name!r} is not 0 "
+                        f"(.upper gives {str(std_con.upper)})"
+                    )
+                )
+                expected_lb_val = 0 if con in expected_std_eq_cons else None
+                self.assertEqual(
+                    std_con.lower,
+                    expected_lb_val,
+                    msg=(
+                        "Upper bound (.upper) for standardized constraint "
+                        f"{con.name!r} is not {expected_lb_val} "
+                        f"(.upper gives {str(std_con.upper)})"
+                    )
+                )
+                if con in expected_std_eq_cons:
+                    self.assertTrue(
+                        isinstance(std_con.expr, EqualityExpression),
+                        msg=(
+                            f"Expression for constraint {con.expr} has not "
+                            f"been cast to {EqualityExpression.__name__!r}."
+                        ),
+                    )
+
+            if len(standardized_cons) == 1:
+                # if only one standardized constraint was mapped,
+                # then the standardized constraint should be the same
+                # object as original, as expression should have
+                # just been modified in place
+                self.assertIs(
+                    std_con,
+                    con,
+                    msg=(
+                        f"Standardized constraint {std_con.name!r} "
+                        f"should be identical to original constraint "
+                        f"{con.name!r}, as the expression should have been "
+                        "standardized in place."
+                    ),
+                )
+                self.assertTrue(
+                    con.active,
+                    msg=(
+                        f"Standardized/original constraint {con.name} "
+                        "should be active."
+                    ),
+                )
+            else:
+                self.assertFalse(
+                    con.active,
+                    msg=(
+                        f"Standardized/original constraint {con.name} "
+                        "should be deactivated."
+                    ),
+                )
 
 
 # === UncertaintySets.py

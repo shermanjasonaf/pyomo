@@ -163,7 +163,7 @@ def make_separation_problem(model_data, config):
     separation_model.util.new_constraints = constraints = ConstraintList()
 
     uncertain_param_set = ComponentSet(uncertain_params)
-    for c in separation_model.component_data_objects(Constraint):
+    for c in separation_model.component_data_objects(Constraint, active=True):
         if any(v in uncertain_param_set for v in identify_mutable_parameters(c.expr)):
             if c.equality:
                 if c in separation_model.util.h_x_q_constraints:

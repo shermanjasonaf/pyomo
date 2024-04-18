@@ -36,7 +36,7 @@ from pyomo.core.util import prod
 from pyomo.core.base.var import IndexedVar
 from pyomo.core.base.set_types import Reals
 from pyomo.opt import TerminationCondition as tc
-from pyomo.core.expr import value
+from pyomo.core.expr import value, EqualityExpression
 from pyomo.core.expr.numeric_expr import NPV_MaxExpression, NPV_MinExpression
 from pyomo.repn.standard_repn import generate_standard_repn
 from pyomo.core.expr.visitor import (
@@ -668,8 +668,8 @@ class BoundType(Enum):
 
     def generate_bound_constraint_expr(self, body, bound):
         """
-        Generate bound constraint expression depending on
-        bound type indicated by `self`.
+        Generate standard form bound constraint expression,
+        depending on bound type indicated by `self`.
 
         Parameters
         ----------
@@ -812,6 +812,99 @@ def turn_bounds_to_constraints(block, uncertain_params, variables=None):
     return vars_to_bound_cons_map
 
 
+def standardize_inequality_constraints(block, uncertain_params, constraints=None):
+    """
+    Cast inequality constraints to standard form.
+
+    This method casts all model inequality constraints with expressions
+    of the form `a(q) <= g(v, q)` (`<= b(q)`),
+    in which `v` denotes the
+    model variables and `q` the uncerain model parameters,
+    to the 'standard' form `a(q) - g(v, q) <= 0`
+    (and `g(v) - b <= 0`, or just `g(v) - a(q) == 0`
+    if `a(q)` and `b(q)` are known to be equal).
+
+    Parameters
+    ----------
+    block : _BlockData
+        Block on which to declare standardized constraints.
+    uncertain_params : Iterable of _ParamData
+        Uncertain parameters.
+    constraints : Iterable of _ConstraintData or None, optional
+        Constraints to be standardized. If `None` is passed,
+        then `constraints` is set to the list of _ConstraintData
+        objects which are declared on `block` or any of its
+        active sub-Blocks and have expressions not of type
+        `EqualityExpression`.
+
+    Returns
+    -------
+    orig_constraints_to_new_constraints_map : ComponentMap
+        Each entry of this sequence maps a member of `constraints`
+        to a list of constraint data objects to which the member has
+        been standardized, possibly including the member itself.
+    """
+    if constraints is None:
+        constraints = [
+            con for con in
+            block.component_data_objects(
+                ctype=Constraint,
+                active=True,
+                descend_into=True,
+            )
+            if not isinstance(con.expr, EqualityExpression)
+        ]
+
+    orig_constraints_to_new_constraints_map = ComponentMap()
+    for con in constraints:
+        # if the constraint has only one bound, we would rather
+        # standardize the expression in place than declare a new
+        # constraint with the standardized expression
+        has_lower_bound_only = con.lower is not None and con.upper is None
+        has_upper_bound_only = con.lower is None and con.upper is not None
+        if has_lower_bound_only:
+            con.set_value(
+                BoundType.LOWER.generate_bound_constraint_expr(
+                    con.body, con.lower,
+                )
+            )
+            orig_constraints_to_new_constraints_map[con] = [con]
+        elif has_upper_bound_only:
+            con.set_value(
+                BoundType.UPPER.generate_bound_constraint_expr(
+                    con.body, con.upper,
+                )
+            )
+            orig_constraints_to_new_constraints_map[con] = [con]
+        else:
+            explicit_bound_map = get_component_bounds_exprs(con, uncertain_params)
+            bounds_equal = (
+                explicit_bound_map[BoundType.EQ] is not None
+                and explicit_bound_map[BoundType.LOWER] is None
+                and explicit_bound_map[BoundType.UPPER] is None
+            )
+            if bounds_equal:
+                con.set_value(
+                    BoundType.EQ.generate_bound_constraint_expr(
+                        con.body, con.upper,
+                    )
+                )
+                orig_constraints_to_new_constraints_map[con] = [con]
+            else:
+                explicit_bound_con_map = declare_bound_constraints(
+                    block=block,
+                    body_expr=con.body,
+                    bound_map=explicit_bound_map,
+                    name=f"{con.name}",
+                )
+                orig_constraints_to_new_constraints_map[con] = list(
+                    explicit_bound_con_map.values()
+                )
+                con.deactivate()
+
+    return orig_constraints_to_new_constraints_map
+
+
 def get_time_from_solver(results):
     """
     Obtain solver time from a Pyomo `SolverResults` object.
@@ -910,58 +1003,6 @@ def add_bounds_for_uncertain_parameters(model, config):
         model.util.uncertain_param_vars[idx].setub(bound[1])
 
     return
-
-
-def transform_to_standard_form(model):
-    """
-    Recast all model inequality constraints of the form `a <= g(v)` (`<= b`)
-    to the 'standard' form `a - g(v) <= 0` (and `g(v) - b <= 0`),
-    in which `v` denotes all model variables and `a` and `b` are
-    contingent on model parameters.
-
-    Parameters
-    ----------
-    model : ConcreteModel
-        The model to search for constraints. This will descend into all
-        active Blocks and sub-Blocks as well.
-
-    Note
-    ----
-    If `a` and `b` are identical and the constraint is not classified as an
-    equality (i.e. the `equality` attribute of the constraint object
-    is `False`), then the constraint is recast to the equality `g(v) == a`.
-    """
-    # Note: because we will be adding / modifying the number of
-    # constraints, we want to resolve the generator to a list before
-    # starting.
-    cons = list(
-        model.component_data_objects(Constraint, descend_into=True, active=True)
-    )
-    for con in cons:
-        if not con.equality:
-            has_lb = con.lower is not None
-            has_ub = con.upper is not None
-
-            if has_lb and has_ub:
-                if con.lower is con.upper:
-                    # recast as equality Constraint
-                    con.set_value(con.lower == con.body)
-                else:
-                    # range inequality; split into two Constraints.
-                    uniq_name = unique_component_name(model, con.name + '_lb')
-                    model.add_component(
-                        uniq_name, Constraint(expr=con.lower - con.body <= 0)
-                    )
-                    con.set_value(con.body - con.upper <= 0)
-            elif has_lb:
-                # not in standard form; recast.
-                con.set_value(con.lower - con.body <= 0)
-            elif has_ub:
-                # move upper bound to body.
-                con.set_value(con.body - con.upper <= 0)
-            else:
-                # unbounded constraint: deactivate
-                con.deactivate()
 
 
 def get_vars_from_component(block, ctype):
@@ -1342,10 +1383,6 @@ def preprocess_model_data(model_data, config, var_partitioning):
 
     model_data.working_model = working_model = original_model.clone()
 
-    # standardize the objective
-    active_obj = next(working_model.component_data_objects(Objective, active=True))
-    working_model.util.active_obj_original_sense = active_obj.sense
-
     turn_bounds_to_constraints(
         block=working_model,
         uncertain_params=working_model.util.uncertain_params,
@@ -1355,6 +1392,14 @@ def preprocess_model_data(model_data, config, var_partitioning):
             + working_model.util.state_vars
         ),
     )
+    standardize_inequality_constraints(
+        block=working_model,
+        uncertain_params=working_model.util.uncertain_params,
+    )
+
+    # standardize the objective
+    active_obj = next(working_model.component_data_objects(Objective, active=True))
+    working_model.util.active_obj_original_sense = active_obj.sense
 
 
 def substitute_ssv_in_dr_constraints(model, constraint):

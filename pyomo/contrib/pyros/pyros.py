@@ -29,7 +29,6 @@ from pyomo.contrib.pyros.util import (
     ObjectiveType,
     identify_objective_functions,
     validate_pyros_inputs,
-    transform_to_standard_form,
     turn_bounds_to_constraints,
     IterationLogRecord,
     setup_pyros_logger,
@@ -398,23 +397,9 @@ class PyROS(object):
             identify_objective_functions(model_data.working_model, active_obj)
             active_obj.deactivate()
 
-            # === Put model in standard form
-            transform_to_standard_form(model_data.working_model)
-
             # === Add decision rule information
             add_decision_rule_variables(model_data, config)
             add_decision_rule_constraints(model_data, config)
-
-            # === Move bounds on control variables to explicit ineq constraints
-            wm_util = model_data.working_model
-
-            # === Make control_variable_bounds array
-            wm_util.ssv_bounds = []
-            for c in model_data.working_model.component_data_objects(
-                Constraint, descend_into=True
-            ):
-                if "bound_con" in c.name:
-                    wm_util.ssv_bounds.append(c)
 
             model_data.timing.stop_timer("main.preprocessing")
             preprocessing_time = model_data.timing.get_total_time("main.preprocessing")
