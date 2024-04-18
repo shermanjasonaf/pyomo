@@ -380,10 +380,6 @@ class PyROS(object):
             # this method
             preprocess_model_data(model_data, config, var_partitioning)
 
-            # === Add decision rule information
-            add_decision_rule_variables(model_data, config)
-            add_decision_rule_constraints(model_data, config)
-
             model_data.timing.stop_timer("main.preprocessing")
             preprocessing_time = model_data.timing.get_total_time("main.preprocessing")
             config.progress_logger.info(

@@ -1500,6 +1500,14 @@ def preprocess_model_data(model_data, config, var_partitioning):
     )
     standardize_active_objective(model_data, config)
 
+    # TODO: move identification of first-stage and
+    #       performance constraints here?
+
+    add_decision_rule_variables(model_data, config)
+    add_decision_rule_constraints(model_data, config)
+
+    # TODO: move coefficient matching here?
+
 
 def substitute_ssv_in_dr_constraints(model, constraint):
     '''
