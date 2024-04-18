@@ -16,7 +16,6 @@ from pyomo.core.base.block import Block
 from pyomo.core.expr import value
 from pyomo.core.base.var import Var
 from pyomo.core.base.objective import Objective
-from pyomo.contrib.pyros.util import time_code
 from pyomo.common.modeling import unique_component_name
 from pyomo.opt import SolverFactory
 from pyomo.contrib.pyros.config import pyros_config, logger_domain
@@ -25,16 +24,17 @@ from pyomo.contrib.pyros.util import (
     add_decision_rule_constraints,
     add_decision_rule_variables,
     load_final_solution,
+    preprocess_model_data,
     pyrosTerminationCondition,
     ObjectiveType,
     identify_objective_functions,
     validate_pyros_inputs,
     transform_to_standard_form,
     turn_bounds_to_constraints,
-    replace_uncertain_bounds_with_constraints,
     IterationLogRecord,
     setup_pyros_logger,
     TimingData,
+    time_code,
 )
 from pyomo.contrib.pyros.solve_data import ROSolveResults
 from pyomo.contrib.pyros.pyros_algorithm_methods import ROSolver_iterative_solve
@@ -261,23 +261,16 @@ class PyROS(object):
         -------
         config : ConfigDict
             Standardized arguments.
-
-        Note
-        ----
-        This method can be broken down into three steps:
-
-        1. Cast arguments to ConfigDict. Argument-wise
-           validation is performed automatically.
-           Note that arguments specified directly take
-           precedence over arguments specified indirectly
-           through direct argument 'options'.
-        2. Inter-argument validation.
+        var_partitioning : VariablePartitioning
+            Partitioning of the model variables into first-stage
+            variables, second-stage variables, and state variables,
+            based on user input.
         """
         config = self.CONFIG(kwds.pop("options", {}))
         config = config(kwds)
-        state_vars = validate_pyros_inputs(model, config)
+        var_partitioning = validate_pyros_inputs(model, config)
 
-        return config, state_vars
+        return config, var_partitioning
 
     @document_kwargs_from_configdict(
         config=CONFIG,
@@ -330,6 +323,7 @@ class PyROS(object):
 
         """
         model_data = ROSolveResults()
+        model_data.original_model = model
         model_data.timing = TimingData()
         with time_code(
             timing_data_obj=model_data.timing,
@@ -363,7 +357,10 @@ class PyROS(object):
             self._log_intro(logger=progress_logger, level=logging.INFO)
             self._log_disclaimer(logger=progress_logger, level=logging.INFO)
 
-            config, state_vars = self._resolve_and_validate_pyros_args(model, **kwds)
+            config, var_partitioning = self._resolve_and_validate_pyros_args(
+                model,
+                **kwds,
+            )
             self._log_config(
                 logger=config.progress_logger,
                 config=config,
@@ -375,24 +372,14 @@ class PyROS(object):
             config.progress_logger.info("Preprocessing...")
             model_data.timing.start_timer("main.preprocessing")
 
-            # === A block to hold list-type data to make cloning easy
-            util = Block(concrete=True)
-            util.first_stage_variables = config.first_stage_variables
-            util.second_stage_variables = config.second_stage_variables
-            util.state_vars = state_vars
-            util.uncertain_params = config.uncertain_params
-
-            model_data.util_block = unique_component_name(model, 'util')
-            model.add_component(model_data.util_block, util)
-            # Note:  model.component(model_data.util_block) is util
-
-            # === Leads to a logger warning here for inactive obj when cloning
-            model_data.original_model = model
             # === For keeping track of variables after cloning
             cname = unique_component_name(model_data.original_model, 'tmp_var_list')
             src_vars = list(model_data.original_model.component_data_objects(Var))
             setattr(model_data.original_model, cname, src_vars)
-            model_data.working_model = model_data.original_model.clone()
+
+            # all preprocessing steps will eventually be performed by
+            # this method
+            preprocess_model_data(model_data, config, var_partitioning)
 
             # identify active objective function
             # (there should only be one at this point)
@@ -414,25 +401,12 @@ class PyROS(object):
             # === Put model in standard form
             transform_to_standard_form(model_data.working_model)
 
-            # === Replace variable bounds depending on uncertain params with
-            #     explicit inequality constraints
-            replace_uncertain_bounds_with_constraints(
-                model_data.working_model, model_data.working_model.util.uncertain_params
-            )
-
             # === Add decision rule information
             add_decision_rule_variables(model_data, config)
             add_decision_rule_constraints(model_data, config)
 
             # === Move bounds on control variables to explicit ineq constraints
             wm_util = model_data.working_model
-
-            # cast bounds on second-stage and state variables to
-            # explicit constraints for separation objectives
-            for c in model_data.working_model.util.second_stage_variables:
-                turn_bounds_to_constraints(c, wm_util, config)
-            for c in model_data.working_model.util.state_vars:
-                turn_bounds_to_constraints(c, wm_util, config)
 
             # === Make control_variable_bounds array
             wm_util.ssv_bounds = []
@@ -485,9 +459,8 @@ class PyROS(object):
                 return_soln.iterations = pyros_soln.total_iters + 1
 
                 # === Remove util block
-                model.del_component(model_data.util_block)
+                model.del_component(model.util)
 
-                del pyros_soln.util_block
                 del pyros_soln.working_model
             else:
                 return_soln.final_objective_value = None

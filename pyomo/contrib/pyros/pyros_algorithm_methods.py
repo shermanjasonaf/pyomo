@@ -645,7 +645,7 @@ def ROSolver_iterative_solve(model_data, config):
         polishing_successful = True
         if (
             config.decision_rule_order != 0
-            and len(config.second_stage_variables) > 0
+            and master_data.master_model.scenarios[0, 0].util.second_stage_variables
             and k != 0
         ):
             # === Save initial values of DR vars to file

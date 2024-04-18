@@ -554,47 +554,262 @@ def recast_to_min_obj(model, obj):
         obj.sense = minimize
 
 
-def turn_bounds_to_constraints(variable, model, config=None):
-    '''
-    Turn the variable in question's "bounds" into direct inequality constraints on the model.
-    :param variable: the variable with bounds to be turned to None and made into constraints.
-    :param model: the model in which the variable resides
-    :param config: solver config
-    :return: the list of inequality constraints that are the bounds
-    '''
-    lb, ub = variable.lower, variable.upper
-    if variable.domain is not Reals:
-        variable.domain = Reals
+def get_component_bounds_exprs(component, uncertain_params):
+    """
+    Determine lower and upper bounds on a component data object
+    (such as a variable or constraint) specified explicitly through
+    the component's `lower` and `upper` expression attributes.
 
-    if isinstance(lb, NPV_MaxExpression):
-        lb_args = lb.args
+    Equality of the bounds expressions is checked to determine
+    whether an equality constraint, rather than inequality
+    constraints, can be derived from the bounds specifications.
+    This check takes into account the dependence of the bounds
+    expressions on uncertain parameters of interest.
+
+    Parameters
+    ----------
+    component : _ComponentData
+        Component data object of interest, such as a
+        _VarData or _ConstraintData object.
+        Must have .lower and .upper attributes.
+    uncertain_params : list of _ParamData
+        Uncertain parameters.
+
+    Returns
+    -------
+    dict
+        Mapping BoundType to the variable bounds.
+    """
+    uncertain_params_set = ComponentSet(uncertain_params)
+
+    has_lb = component.lower is not None
+    has_ub = component.upper is not None
+    uncertain_params_in_lower = (
+        ComponentSet(identify_mutable_parameters(component.lower))
+        & uncertain_params_set
+    )
+    uncertain_params_in_upper = (
+        ComponentSet(identify_mutable_parameters(component.upper))
+        & uncertain_params_set
+    )
+
+    bounds_equal = False
+    if has_lb and has_ub:
+        if not (uncertain_params_in_lower | uncertain_params_in_upper):
+            # since there is no dependence on uncertain parameters,
+            # these bounds are constants as far as PyROS is concerned
+            bounds_equal = value(component.lower) == value(component.upper)
+        else:
+            # TODO: this is somewhat restrictive, as `lower` and `upper`
+            # could be mathematically equivalent in terms of the
+            # uncertain parameters. Are there methods for quickly
+            # checking whether these two mutable expressions are
+            # symbolically equivalent in terms of the uncertain
+            # parameters?
+            bounds_equal = component.lower is component.upper
+
+    if bounds_equal:
+        return {
+            BoundType.LOWER: None,
+            BoundType.UPPER: None,
+            BoundType.EQ: component.upper,
+        }
     else:
-        lb_args = (lb,)
+        return {
+            BoundType.LOWER: component.lower,
+            BoundType.UPPER: component.upper,
+            BoundType.EQ: None,
+        }
 
-    if isinstance(ub, NPV_MinExpression):
-        ub_args = ub.args
+
+def get_var_domain_bounds(var):
+    """
+    Determine lower and upper bounds on a variable data
+    object specified implicitly through the variable's `domain`
+    attribute.
+
+    Parameters
+    ----------
+    var : _VarData
+        Variable of interest.
+
+    Returns
+    -------
+    dict
+        Mapping BoundType to the variable bounds.
+    """
+    domain_lb, domain_ub = var.domain.bounds()
+
+    has_domain_lb = domain_lb is not None
+    has_domain_ub = domain_ub is not None
+
+    # domain bounds are constants, so we don't take dependence on
+    # uncertain parameters into consideration
+    bounds_equal = has_domain_lb and has_domain_ub and domain_lb == domain_ub
+
+    if bounds_equal:
+        return {BoundType.LOWER: None, BoundType.UPPER: None, BoundType.EQ: domain_ub}
     else:
-        ub_args = (ub,)
+        return {
+            BoundType.LOWER: domain_lb,
+            BoundType.UPPER: domain_ub,
+            BoundType.EQ: None,
+        }
 
-    count = 0
-    for arg in lb_args:
-        if arg is not None:
-            name = unique_component_name(
-                model, variable.name + f"_lower_bound_con_{count}"
-            )
-            model.add_component(name, Constraint(expr=arg - variable <= 0))
-            count += 1
-            variable.setlb(None)
 
-    count = 0
-    for arg in ub_args:
-        if arg is not None:
-            name = unique_component_name(
-                model, variable.name + f"_upper_bound_con_{count}"
+class BoundType(Enum):
+    """
+    Indicator for whether a bound specification on a constraint
+    is a lower bound, upper bound, or 'bound by equality'.
+    """
+    LOWER = "lower"
+    UPPER = "upper"
+    EQ = "eq"
+
+    def generate_bound_constraint_expr(self, body, bound):
+        """
+        Generate bound constraint expression depending on
+        bound type indicated by `self`.
+
+        Parameters
+        ----------
+        body : _VarData or NumericExpression
+            Body of the constraint.
+        bound : NumericExpression or numeric type
+            Bound for the body expression.
+            If an expression, then should include mutable
+            params only.
+
+        Returns
+        -------
+        InequalityExpression
+            If bound type indicated by self is `BoundType.LOWER`
+            or `BoundType.UPPER`.
+        EqualityExpression
+            If bound type indicated by `self` is `BoundType.EQ`.
+
+        Raises
+        ------
+        ValueError
+            If bound type indicated by `self` is currently
+            not supported.
+        """
+        if self == self.LOWER:
+            return bound - body <= 0
+        elif self == self.UPPER:
+            return body - bound <= 0
+        elif self == self.EQ:
+            return body - bound == 0
+        else:
+            raise ValueError(f"Bound type {self!r} not supported.")
+
+
+def declare_bound_constraints(block, body_expr, bound_map, name):
+    """
+    Declare explicit bound constraints for an expression on
+    a block.
+
+    Parameters
+    ----------
+    block : _BlockData
+        Block on which to declare the constraints.
+    body_expr : Expression
+        Expression for which the bounds are being specified.
+    bound_map : dict
+        Mapping from BoundType to bound expressions.
+    name : str
+        Prefix for bound constraint names.
+
+    Returns
+    -------
+    bound_con_map : dict
+        Maps values from BoundType to the declared bound constraints.
+    """
+    bound_con_map = dict()
+    for bound_type, bound_expr in bound_map.items():
+        if bound_expr is not None:
+            bound_con = Constraint(
+                expr=bound_type.generate_bound_constraint_expr(
+                    body=body_expr, bound=bound_expr,
+                ),
             )
-            model.add_component(name, Constraint(expr=variable - arg <= 0))
-            count += 1
-            variable.setub(None)
+            block.add_component(
+                name=unique_component_name(
+                    instance=block,
+                    name=f"{name}_{bound_type.value}_bound_con",
+                ),
+                val=bound_con,
+            )
+            bound_con_map[bound_type] = bound_con
+
+    return bound_con_map
+
+
+def turn_bounds_to_constraints(block, uncertain_params, variables=None):
+    """
+    Turn variable bounds to equality/inequality constraints.
+
+    Parameters
+    ----------
+    block : _BlockData
+        Block on which to declare the bound equality/inequality
+        constraints.
+    uncertain_params : Iterable of _ParamData
+        Uncertain parameters.
+    variables : Iterable of _VarData or None, optional
+        Variables for which the bounds are to be turned to
+        constraints. If `None` is passed, then `variables`
+        is the set of _VarData objects reachable through
+        active Objective/Constraint objects declared
+        on `block` or any of its active sub-Blocks
+        with attribute `fixed=False`.
+
+    Returns
+    -------
+    vars_to_bound_cons_map : ComponentMap
+        Maps each variable to a list of explicit bound
+        constraints inferred from the `domain` and
+        `lower/upper` attributes.
+    """
+    if variables is None:
+        variables = get_vars_from_components(
+            block=block,
+            ctype=(Objective, Constraint),
+            include_fixed=False,
+            active=True,
+            descend_into=True,
+        )
+
+    vars_to_bound_cons_map = ComponentMap()
+    for var in variables:
+        # Var domain may not be Reals.
+        # In this case, explicit bounds specified through the
+        # .lower and .upper expression attributes are modified.
+        # Recast implicit domain bounds to inequalities before
+        # addressing bounds specified through .lower and .upper.
+        domain_bound_map = get_var_domain_bounds(var)
+        domain_bound_cons = declare_bound_constraints(
+            block=block,
+            body_expr=var,
+            bound_map=domain_bound_map,
+            name=f"{var.name}_domain",
+        )
+        vars_to_bound_cons_map.setdefault(var, []).extend(domain_bound_cons.values())
+        var.domain = Reals
+
+        # now address explicit bounds
+        explicit_bound_map = get_component_bounds_exprs(var, uncertain_params)
+        explicit_bound_con_map = declare_bound_constraints(
+            block=block,
+            body_expr=var,
+            bound_map=explicit_bound_map,
+            name=f"{var.name}",
+        )
+        vars_to_bound_cons_map[var].extend(explicit_bound_con_map.values())
+        var.setlb(None)
+        var.setub(None)
+
+    return vars_to_bound_cons_map
 
 
 def get_time_from_solver(results):
@@ -764,56 +979,6 @@ def get_vars_from_component(block, ctype):
     """
 
     return get_vars_from_components(block, ctype, active=True, descend_into=True)
-
-
-def replace_uncertain_bounds_with_constraints(model, uncertain_params):
-    """
-    For variables of which the bounds are dependent on the parameters
-    in the list `uncertain_params`, remove the bounds and add
-    explicit variable bound inequality constraints.
-
-    :param model: Model in which to make the bounds/constraint replacements
-    :type model: class:`pyomo.core.base.PyomoModel.ConcreteModel`
-    :param uncertain_params: List of uncertain model parameters
-    :type uncertain_params: list
-    """
-    uncertain_param_set = ComponentSet(uncertain_params)
-
-    # component for explicit inequality constraints
-    uncertain_var_bound_constrs = ConstraintList()
-    model.add_component(
-        unique_component_name(model, 'uncertain_var_bound_cons'),
-        uncertain_var_bound_constrs,
-    )
-
-    # get all variables in active objective and constraint expression(s)
-    vars_in_cons = ComponentSet(get_vars_from_component(model, Constraint))
-    vars_in_obj = ComponentSet(get_vars_from_component(model, Objective))
-
-    for v in vars_in_cons | vars_in_obj:
-        # get mutable parameters in variable bounds expressions
-        ub = v.upper
-        mutable_params_ub = ComponentSet(identify_mutable_parameters(ub))
-        lb = v.lower
-        mutable_params_lb = ComponentSet(identify_mutable_parameters(lb))
-
-        # add explicit inequality constraint(s), remove variable bound(s)
-        if mutable_params_ub & uncertain_param_set:
-            if type(ub) is NPV_MinExpression:
-                upper_bounds = ub.args
-            else:
-                upper_bounds = (ub,)
-            for u_bnd in upper_bounds:
-                uncertain_var_bound_constrs.add(v - u_bnd <= 0)
-            v.setub(None)
-        if mutable_params_lb & uncertain_param_set:
-            if type(ub) is NPV_MaxExpression:
-                lower_bounds = lb.args
-            else:
-                lower_bounds = (lb,)
-            for l_bnd in lower_bounds:
-                uncertain_var_bound_constrs.add(l_bnd - v <= 0)
-            v.setlb(None)
 
 
 def check_components_descended_from_model(model, components, components_name, config):
@@ -1147,6 +1312,49 @@ def validate_pyros_inputs(model, config):
     validate_separation_problem_options(model, config)
 
     return var_partitioning
+
+
+def preprocess_model_data(model_data, config, var_partitioning):
+    """
+    Preprocess user input.
+    """
+    # TODO: model may already have an attribute called `util`.
+    # To account for this:
+    # 1. Create a temporary util block with unique_component_name
+    #    Add first-stage, second-stage, state variable lists
+    # 2. Instead of making working_model a clone of original model,
+    #    make a clone of original model a direct sub-Block of
+    #    working model to avoid potential naming conflicts.
+    # 3. Move all attributes declared on the util block of working model
+    #    to working model itself. Delete the util block,
+    #    it is only meant to be temporary and used for more efficient
+    #    tracking of the variable partitioning after cloning
+    # 4. Address references to util in the rest of the codebase,
+    #    as the working model has now been restructured.
+    #    Perhaps dedicate a single PR to restructuring all of the
+    #    major modeling objects?
+    original_model = model_data.original_model
+    temp_util_block = original_model.util = Block()
+    temp_util_block.first_stage_variables = var_partitioning.first_stage_variables
+    temp_util_block.second_stage_variables = var_partitioning.second_stage_variables
+    temp_util_block.state_vars = var_partitioning.state_variables
+    temp_util_block.uncertain_params = config.uncertain_params
+
+    model_data.working_model = working_model = original_model.clone()
+
+    # standardize the objective
+    active_obj = next(working_model.component_data_objects(Objective, active=True))
+    working_model.util.active_obj_original_sense = active_obj.sense
+
+    turn_bounds_to_constraints(
+        block=working_model,
+        uncertain_params=working_model.util.uncertain_params,
+        variables=(
+            working_model.util.first_stage_variables
+            + working_model.util.second_stage_variables
+            + working_model.util.state_vars
+        ),
+    )
 
 
 def substitute_ssv_in_dr_constraints(model, constraint):
