@@ -24,7 +24,7 @@ from pyomo.contrib.pyros.util import (
     pyrosTerminationCondition,
     IterationLogRecord,
 )
-from pyomo.contrib.pyros.util import get_main_elapsed_time, coefficient_matching
+from pyomo.contrib.pyros.util import get_main_elapsed_time
 from pyomo.core.base import value
 from pyomo.core.expr import MonomialTermExpression
 from pyomo.common.collections import ComponentSet, ComponentMap
@@ -136,7 +136,7 @@ def evaluate_and_log_component_stats(model_data, separation_model, config):
     num_eq_cons = len(eq_cons)
     num_dr_cons = len(dr_eq_set)
     num_coefficient_matching_cons = len(
-        getattr(model_data.working_model, "coefficient_matching_constraints", [])
+        model_data.working_model.util.coefficient_matching_constraints
     )
     num_other_eq_cons = num_eq_cons - num_dr_cons - num_coefficient_matching_cons
 
@@ -354,43 +354,6 @@ def ROSolver_iterative_solve(model_data, config):
     config : ConfigDict
         PyROS solver options.
     """
-    # constraints = [
-    #     c
-    #     for c in model_data.working_model.component_data_objects(Constraint)
-    #     if c.equality
-    #     and c not in ComponentSet(model_data.working_model.util.decision_rule_eqns)
-    # ]
-    # model_data.working_model.util.h_x_q_constraints = ComponentSet()
-    # for c in constraints:
-    #     coeff_matching_success, robust_infeasible = coefficient_matching(
-    #         model=model_data.working_model,
-    #         constraint=c,
-    #         uncertain_params=model_data.working_model.util.uncertain_params,
-    #         config=config,
-    #     )
-    #     if not coeff_matching_success and not robust_infeasible:
-    #         config.progress_logger.error(
-    #             f"Equality constraint {c.name!r} cannot be guaranteed to "
-    #             "be robustly feasible, given the current partitioning "
-    #             "among first-stage, second-stage, and state variables. "
-    #             "Consider editing this constraint to reference some "
-    #             "second-stage and/or state variable(s)."
-    #         )
-    #         raise ValueError("Coefficient matching unsuccessful. See the solver logs.")
-    #     elif not coeff_matching_success and robust_infeasible:
-    #         config.progress_logger.info(
-    #             "PyROS has determined that the model is robust infeasible. "
-    #             f"One reason for this is that the equality constraint {c.name} "
-    #             "cannot be satisfied against all realizations of uncertainty, "
-    #             "given the current partitioning between "
-    #             "first-stage, second-stage, and state variables. "
-    #             "Consider editing this constraint to reference some (additional) "
-    #             "second-stage and/or state variable(s)."
-    #         )
-    #         return None, None
-    #     else:
-    #         pass
-
     # === Build the master problem and master problem data container object
     master_data = master_problem_methods.initial_construct_master(
         model_data, config

@@ -118,8 +118,8 @@ def make_separation_problem(model_data, config):
 
     1. Clone the working model.
     2. Fix the epigraph, first-stage, and decision rule variables.
-    3. Deactivate all first-stage equality and first-stage
-       inequality constraints.
+    3. Deactivate all first-stage equality, first-stage
+       inequality, and coefficient matching constraints.
     4. Declare proxy variables for the uncertain parameters.
     5. Declare new constraints restricting the proxy variables
        for the uncertain parameters to the user-provided uncertainty
@@ -160,6 +160,11 @@ def make_separation_problem(model_data, config):
         first_stg_con.deactivate()
     for first_stg_con in separation_model.util.first_stage_eq_cons:
         first_stg_con.deactivate()
+    coeff_matching_cons = (
+        separation_model.util.coefficient_matching_constraints.values()
+    )
+    for coeff_matching_con in coeff_matching_cons:
+        coeff_matching_con.deactivate()
 
     uncertain_params = separation_model.util.uncertain_params
     separation_model.util.uncertain_param_vars = param_vars = Var(

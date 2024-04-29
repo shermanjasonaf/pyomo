@@ -370,7 +370,9 @@ class PyROS(object):
 
             # all preprocessing steps will eventually be performed by
             # this method
-            preprocess_model_data(model_data, config, var_partitioning)
+            robust_infeasible = preprocess_model_data(
+                model_data, config, var_partitioning
+            )
 
             model_data.timing.stop_timer("main.preprocessing")
             preprocessing_time = model_data.timing.get_total_time("main.preprocessing")
@@ -379,21 +381,28 @@ class PyROS(object):
                 f"{preprocessing_time:.3f}s."
             )
 
-            # === Solve and load solution into model
-            pyros_soln, final_iter_separation_solns = ROSolver_iterative_solve(
-                model_data, config
-            )
-            IterationLogRecord.log_header_rule(config.progress_logger.info)
-
             return_soln = ROSolveResults()
-            if pyros_soln is not None and final_iter_separation_solns is not None:
-                if config.load_solution and (
+
+            # === Solve and load solution into model
+            if not robust_infeasible:
+                pyros_soln, final_iter_separation_solns = ROSolver_iterative_solve(
+                    model_data, config
+                )
+                IterationLogRecord.log_header_rule(config.progress_logger.info)
+
+                termination_acceptable = (
                     pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_optimal
-                    or pyros_soln.pyros_termination_condition
-                    is pyrosTerminationCondition.robust_feasible
-                ):
-                    load_final_solution(model_data, pyros_soln.master_soln, config)
+                    in {
+                        pyrosTerminationCondition.robust_optimal,
+                        pyrosTerminationCondition.robust_feasible
+                    }
+                )
+                if termination_acceptable:
+                    load_final_solution(
+                        model_data=model_data,
+                        master_soln=pyros_soln.master_soln,
+                        config=config,
+                    )
 
                 # account for sense of the original model objective
                 # when reporting the final PyROS (master) objective,
