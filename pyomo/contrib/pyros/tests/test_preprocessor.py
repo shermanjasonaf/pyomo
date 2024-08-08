@@ -2070,6 +2070,7 @@ class TestReformulateStateVarIndependentEqCons(unittest.TestCase):
                 "a robust infeasible constraint"
             ),
         )
+
         self.assertEqual(
             len(model_data.working_model.coefficient_matching_conlist),
             3,
@@ -2079,17 +2080,17 @@ class TestReformulateStateVarIndependentEqCons(unittest.TestCase):
         assertExpressionsEqual(
             self,
             model_data.working_model.coefficient_matching_conlist[1].expr,
-            2.5 + m.x1 + (-5) * (m.x1 * m.x2) + m.x1 ** 3 == 0,
+            m.x1 ** 3 + 0.5 + 5 * m.x1 * m.x2 * (-1) + (-1) * (m.x1 + 2) * (-1) == 0
         )
         assertExpressionsEqual(
             self,
             model_data.working_model.coefficient_matching_conlist[2].expr,
-            (-1) + m.x2 == 0,
+            m.x2 - 1 == 0
         )
         assertExpressionsEqual(
             self,
             model_data.working_model.coefficient_matching_conlist[3].expr,
-            (-1) + m.x2 == 0,
+            m.x2 - 1 == 0
         )
 
         # check constraint partitioning updated as expected
@@ -2197,7 +2198,7 @@ class TestReformulateStateVarIndependentEqCons(unittest.TestCase):
         assertExpressionsEqual(
             self,
             wm.coefficient_matching_conlist[1].expr,
-            (-1) + m.x1 == 0,
+            m.x1 - 1 == 0,
         )
 
         # ensure the reformulated equality constraint was deactivated,
@@ -2691,8 +2692,9 @@ class TestPreprocessModelData(unittest.TestCase):
             assertExpressionsEqual(
                 self,
                 working_model.coefficient_matching_conlist[2].expr,
-                -1 + working_model.decision_rule_vars[1][1] == 0,
+                working_model.decision_rule_vars[1][1] - 1 == 0,
             )
+            print(working_model.coefficient_matching_conlist[3].expr)
             assertExpressionsEqual(
                 self,
                 working_model.coefficient_matching_conlist[3].expr,
@@ -2728,7 +2730,7 @@ class TestPreprocessModelData(unittest.TestCase):
             assertExpressionsEqual(
                 self,
                 working_model.coefficient_matching_conlist[2].expr,
-                -1 + working_model.decision_rule_vars[1][1] == 0,
+                working_model.decision_rule_vars[1][1] - 1 == 0,
             )
             assertExpressionsEqual(
                 self,

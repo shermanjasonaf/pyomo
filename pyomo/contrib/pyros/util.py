@@ -52,7 +52,7 @@ from pyomo.core.expr.visitor import (
 )
 from pyomo.core.util import prod
 from pyomo.opt import SolverFactory, TerminationCondition as tc
-from pyomo.repn.standard_repn import generate_standard_repn
+from pyomo.repn.parameterized_quadratic import ParameterizedQuadraticRepnVisitor
 from pyomo.repn.plugins import nl_writer as pyomo_nl_writer
 from pyomo.util.vars_from_expressions import get_vars_from_components
 
@@ -983,6 +983,25 @@ def validate_pyros_inputs(model, config):
     return user_var_partitioning
 
 
+def setup_quadratic_expression_visitor(
+    wrt,
+    subexpression_cache=None,
+    var_map=None,
+    var_order=None,
+    sorter=None,
+):
+    """Setup a parameterized quadratic expression walker."""
+    visitor = ParameterizedQuadraticRepnVisitor(
+        subexpression_cache={} if subexpression_cache is None else subexpression_cache,
+        var_map={} if var_map is None else var_map,
+        var_order={} if var_order is None else var_order,
+        sorter=sorter,
+        wrt=wrt,
+    )
+    visitor.expand_nonlinear_products = True
+    return visitor
+
+
 def get_var_bound_pairs(var):
     """
     Get the domain and declared lower/upper
@@ -1291,28 +1310,18 @@ def get_effective_var_partitioning(model_data, config):
             #   tolerance.
             if len(adj_vars_in_con) == 1:
                 adj_var_in_con = next(iter(adj_vars_in_con))
-                ccon_expr_repn = generate_standard_repn(
-                    expr=ccon.body - ccon.upper,
-                    quadratic=False,
-                    compute_values=True,
-                )
+                visitor = setup_quadratic_expression_visitor(wrt=[])
+                ccon_expr_repn = visitor.walk_expression(ccon.body - ccon.upper)
                 adj_var_appears_linearly = (
                     adj_var_in_con
-                    not in ComponentSet(ccon_expr_repn.nonlinear_vars)
-                    and adj_var_in_con in ComponentSet(ccon_expr_repn.linear_vars)
+                    not in ComponentSet(identify_variables(ccon_expr_repn.nonlinear))
+                    and id(adj_var_in_con) in ComponentSet(ccon_expr_repn.linear)
                 )
                 if adj_var_appears_linearly:
                     # get coefficient by summation just in case
                     # standard repn does not simplify completely
-                    var_linear_coeff = sum(
-                        lcoeff
-                        for lvar, lcoeff
-                        in zip(
-                            ccon_expr_repn.linear_vars, ccon_expr_repn.linear_coefs
-                        )
-                        if lvar is adj_var_in_con
-                    )
-                    if abs(var_linear_coeff) > PRETRIANGULAR_VAR_COEFF_TOL:
+                    adj_var_linear_coeff = ccon_expr_repn.linear[id(adj_var_in_con)]
+                    if abs(adj_var_linear_coeff) > PRETRIANGULAR_VAR_COEFF_TOL:
                         new_pretriangular_con_var_map[ccon] = adj_var_in_con
                         config.progress_logger.debug(
                             f" The variable {adj_var_in_con.name!r} is "
@@ -2211,6 +2220,7 @@ def reformulate_state_var_independent_eq_cons(model_data, config):
         ConstraintList()
     )
 
+    # useful for later
     performance_eq_cons = working_model.effective_performance_equality_cons.copy()
     for con in performance_eq_cons:
         vars_in_con = ComponentSet(identify_variables(con.expr))
@@ -2239,23 +2249,12 @@ def reformulate_state_var_independent_eq_cons(model_data, config):
                 substitution_map=uncertain_param_id_to_temp_var_map,
             )
 
-            # analyze the expression with respect to the
-            # uncertain parameters only. thus, only the proxy
-            # variables for the uncertain parameters are unfixed
-            # during the analysis
-            for var in originally_unfixed_vars:
-                var.fix()
-            expr_repn = generate_standard_repn(
-                expr=con_expr_after_all_substitutions,
-                compute_values=False,
+            visitor = setup_quadratic_expression_visitor(
+                wrt=originally_unfixed_vars
             )
+            expr_repn = visitor.walk_expression(con_expr_after_all_substitutions)
 
-            # ensure state of every variable remains unchanged
-            # when done
-            for var in originally_unfixed_vars:
-                var.unfix()
-
-            if expr_repn.nonlinear_expr is not None:
+            if expr_repn.nonlinear is not None:
                 config.progress_logger.debug(
                     f"Equality constraint {con.name!r} "
                     "is state-variable independent, but cannot be written "
@@ -2290,27 +2289,25 @@ def reformulate_state_var_independent_eq_cons(model_data, config):
             else:
                 polynomial_repn_coeffs = (
                     [expr_repn.constant]
-                    + list(expr_repn.linear_coefs)
-                    + list(expr_repn.quadratic_coefs)
+                    + list(expr_repn.linear.values())
+                    + (
+                        [] if expr_repn.quadratic is None
+                        else list(expr_repn.quadratic.values())
+                    )
                 )
                 for coef_expr in polynomial_repn_coeffs:
-                    simplified_coef_expr = generate_standard_repn(
-                        expr=coef_expr,
-                        compute_values=True,
-                    ).to_expression()
-
                     # for robust satisfaction of the original equality
                     # constraint, all polynomial coefficients must be
                     # equal to zero. so for each coefficient,
                     # we either check for trivial robust
                     # feasibility/infeasibility, or add a constraint
                     # restricting the coefficient expression to value 0
-                    if isinstance(simplified_coef_expr, tuple(native_types)):
+                    if isinstance(coef_expr, tuple(native_types)):
                         # coefficient is a constant;
                         # check value to determine
                         # trivial feasibility/infeasibility
                         robust_infeasible = not math.isclose(
-                            a=simplified_coef_expr,
+                            a=coef_expr,
                             b=0,
                             rel_tol=COEFF_MATCH_REL_TOL,
                             abs_tol=COEFF_MATCH_ABS_TOL,
@@ -2336,7 +2333,7 @@ def reformulate_state_var_independent_eq_cons(model_data, config):
                     else:
                         # coefficient is dependent on model first-stage
                         # and DR variables. add matching constraint
-                        coeff_matching_conlist.add(simplified_coef_expr == 0)
+                        coeff_matching_conlist.add(coef_expr == 0)
 
                         # matching constraint depends on nonadjustable
                         # variables only, so it is first-stage
