@@ -43,6 +43,7 @@ from pyomo.core.base import (
     Var,
     value,
 )
+from pyomo.core.base.suffix import SuffixFinder
 from pyomo.core.expr.numeric_expr import SumExpression
 from pyomo.core.expr.numvalue import native_types
 from pyomo.core.expr.visitor import (
@@ -971,6 +972,10 @@ class ModelData:
         self.separation_priority_order = dict()
         # working model will be addressed by preprocessing
         self.working_model = None
+        self.separation_priority_suffix_finder = SuffixFinder(
+            name="pyros_separation_priority",
+            default=DEFAULT_SEPARATION_PRIORITY,
+        )
 
     def preprocess(self, user_var_partitioning):
         """
@@ -1495,9 +1500,9 @@ def turn_nonadjustable_var_bounds_to_constraints(model_data):
                     working_model.second_stage.inequality_cons[new_con_name] = (
                         new_con_expr
                     )
-                    # can't specify custom priorities for variable bounds
+                    # get separation priority
                     model_data.separation_priority_order[new_con_name] = (
-                        DEFAULT_SEPARATION_PRIORITY
+                        model_data.separation_priority_suffix_finder.find(var)
                     )
 
     # for subsequent developments: return a mapping
@@ -1554,10 +1559,9 @@ def turn_adjustable_var_bounds_to_constraints(model_data):
                         working_model.second_stage.inequality_cons[new_con_name] = (
                             new_con_expr
                         )
-                        # no custom separation priorities for Var
-                        # bound constraints
+                        # get separation priority
                         model_data.separation_priority_order[new_con_name] = (
-                            DEFAULT_SEPARATION_PRIORITY
+                            model_data.separation_priority_suffix_finder.find(var)
                         )
 
         remove_all_var_bounds(var)
@@ -1703,9 +1707,7 @@ def standardize_inequality_constraints(model_data):
                     )
                     # account for user-specified priority specifications
                     model_data.separation_priority_order[new_con_name] = (
-                        config.separation_priority_order.get(
-                            con_rel_name, DEFAULT_SEPARATION_PRIORITY
-                        )
+                        model_data.separation_priority_suffix_finder.find(con)
                     )
                 else:
                     # we do not want to modify the arrangement of
@@ -2357,6 +2359,10 @@ def preprocess_model_data(model_data, user_var_partitioning):
         "Reformulating state variable-independent second-stage equality constraints..."
     )
     robust_infeasible = reformulate_state_var_independent_eq_cons(model_data)
+
+    # done with separation priority suffixes
+    for sfx in model_data.separation_priority_suffix_finder.all_suffixes:
+        sfx.deactivate()
 
     return robust_infeasible
 
