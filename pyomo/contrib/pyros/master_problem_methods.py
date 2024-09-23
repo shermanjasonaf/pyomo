@@ -292,13 +292,12 @@ def solve_master_feasibility_problem(master_data, slack_constraints=None):
         ),
     )
 
-    feasible_terminations = {
+    acceptable_terminations = {
         tc.optimal,
         tc.locallyOptimal,
         tc.globallyOptimal,
-        tc.feasible,
     }
-    if results.solver.termination_condition in feasible_terminations:
+    if results.solver.termination_condition in acceptable_terminations:
         model.solutions.load_from(results)
         config.progress_logger.debug(
             f" Final objective (total slack): {value(active_obj)}"
