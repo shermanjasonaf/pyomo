@@ -23,6 +23,7 @@ from pyomo.common.collections import Bunch
 from pyomo.common.errors import InvalidValueError
 from pyomo.core.base.set_types import NonNegativeIntegers
 from pyomo.repn.plugins import nl_writer as pyomo_nl_writer
+import pyomo.repn.ampl as pyomo_ampl_repn
 from pyomo.common.dependencies import numpy as np, numpy_available
 from pyomo.common.dependencies import scipy_available
 from pyomo.common.errors import ApplicationError, InfeasibleConstraintException
@@ -247,7 +248,7 @@ class TestPyROSSolveAxisAlignedEllipsoidalSet(unittest.TestCase):
     """
 
     @unittest.skipUnless(
-        baron_license_is_valid, "Global NLP solver is not available and licensed."
+        scip_available and scip_license_is_valid, "SCIP is not available and licensed"
     )
     def test_two_stg_mod_with_axis_aligned_set(self):
         """
@@ -275,8 +276,8 @@ class TestPyROSSolveAxisAlignedEllipsoidalSet(unittest.TestCase):
         pyros_solver = SolverFactory("pyros")
 
         # Define subsolvers utilized in the algorithm
-        local_subsolver = SolverFactory('baron')
-        global_subsolver = SolverFactory("baron")
+        local_subsolver = SolverFactory("scip")
+        global_subsolver = SolverFactory("scip")
 
         # Call the PyROS solver
         results = pyros_solver.solve(
@@ -1207,10 +1208,10 @@ class RegressionTest(unittest.TestCase):
         )
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
-    def test_pyros_nl_writer_tol(self):
+    def test_pyros_nl_and_ampl_writer_tol(self):
         """
         Test PyROS subsolver call routine behavior
-        with respect to the NL writer tolerance is as
+        with respect to the NL and AMPL writer tolerances is as
         expected.
         """
         m = ConcreteModel()
@@ -1222,7 +1223,7 @@ class RegressionTest(unittest.TestCase):
         # fixed just inside the PyROS-specified NL writer tolerance.
         m.x1.fix(m.x1.upper + 9.9e-5)
 
-        current_nl_writer_tol = pyomo_nl_writer.TOL
+        current_nl_writer_tol = pyomo_nl_writer.TOL, pyomo_ampl_repn.TOL
         ipopt_solver = SolverFactory("ipopt")
         pyros_solver = SolverFactory("pyros")
 
@@ -1240,12 +1241,12 @@ class RegressionTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            pyomo_nl_writer.TOL,
+            (pyomo_nl_writer.TOL, pyomo_ampl_repn.TOL),
             current_nl_writer_tol,
-            msg="Pyomo NL writer tolerance not restored as expected.",
+            msg="Pyomo writer tolerances not restored as expected.",
         )
 
-        # fixed just outside the PyROS-specified NL writer tolerance.
+        # fixed just outside the PyROS-specified writer tolerances.
         # this should be exceptional.
         m.x1.fix(m.x1.upper + 1.01e-4)
 
@@ -1268,10 +1269,10 @@ class RegressionTest(unittest.TestCase):
             )
 
         self.assertEqual(
-            pyomo_nl_writer.TOL,
+            (pyomo_nl_writer.TOL, pyomo_ampl_repn.TOL),
             current_nl_writer_tol,
             msg=(
-                "Pyomo NL writer tolerance not restored as expected "
+                "Pyomo writer tolerances not restored as expected "
                 "after exceptional test."
             ),
         )
@@ -1453,10 +1454,7 @@ class RegressionTest(unittest.TestCase):
         )
 
     @unittest.skipUnless(
-        baron_license_is_valid, "Global NLP solver is not available and licensed."
-    )
-    @unittest.skipUnless(
-        baron_version == (23, 1, 5), "Test runs >90 minutes with Baron 22.9.30"
+        scip_available and scip_license_is_valid, "SCIP is not available and licensed."
     )
     def test_higher_order_decision_rules(self):
         m = ConcreteModel()
@@ -1477,8 +1475,8 @@ class RegressionTest(unittest.TestCase):
         pyros_solver = SolverFactory("pyros")
 
         # Define subsolvers utilized in the algorithm
-        local_subsolver = SolverFactory('baron')
-        global_subsolver = SolverFactory("baron")
+        local_subsolver = SolverFactory("scip")
+        global_subsolver = SolverFactory("scip")
 
         # Call the PyROS solver
         results = pyros_solver.solve(
@@ -1642,7 +1640,9 @@ class RegressionTest(unittest.TestCase):
                 ),
             )
 
-    @unittest.skipUnless(scip_available, "NLP solver is not available.")
+    @unittest.skipUnless(
+        scip_available and scip_license_is_valid, "SCIP is not available and licensed."
+    )
     def test_coefficient_matching_partitioning_insensitive(self):
         """
         Check that result for instance with constraint subject to
@@ -1652,8 +1652,7 @@ class RegressionTest(unittest.TestCase):
         """
         m = self.create_mitsos_4_3()
 
-        # instantiate BARON subsolver and PyROS solver
-        baron = SolverFactory("scip")
+        global_solver = SolverFactory("scip")
         pyros_solver = SolverFactory("pyros")
 
         # solve with PyROS
@@ -1668,8 +1667,8 @@ class RegressionTest(unittest.TestCase):
                 second_stage_variables=partitioning["ssv"],
                 uncertain_params=[m.u],
                 uncertainty_set=BoxSet(bounds=[[0, 1]]),
-                local_solver=baron,
-                global_solver=baron,
+                local_solver=global_solver,
+                global_solver=global_solver,
                 objective_focus=ObjectiveType.worst_case,
                 solve_master_globally=True,
                 bypass_local_separation=True,
@@ -1698,6 +1697,7 @@ class RegressionTest(unittest.TestCase):
                 ),
             )
 
+    @unittest.skipUnless(baron_available, "BARON is not available.")
     def test_coefficient_matching_robust_infeasible_proof_in_pyros(self):
         # Write the deterministic Pyomo model
         m = ConcreteModel()
@@ -1721,7 +1721,7 @@ class RegressionTest(unittest.TestCase):
         pyros_solver = SolverFactory("pyros")
 
         # Define subsolvers utilized in the algorithm
-        local_subsolver = SolverFactory('baron')
+        local_subsolver = SolverFactory("baron")
         global_subsolver = SolverFactory("baron")
 
         # Call the PyROS solver
@@ -1746,7 +1746,9 @@ class RegressionTest(unittest.TestCase):
             msg="Robust infeasible problem not identified via coefficient matching.",
         )
 
-    @unittest.skipUnless(baron_license_is_valid, "BARON solver license is invalid.")
+    @unittest.skipUnless(
+        scip_available and scip_license_is_valid, "SCIP not available and licensed."
+    )
     def test_coefficient_matching_nonlinear_expr(self):
         """
         Test behavior of PyROS solver for model with
@@ -1775,8 +1777,8 @@ class RegressionTest(unittest.TestCase):
         pyros_solver = SolverFactory("pyros")
 
         # Define subsolvers utilized in the algorithm
-        local_subsolver = SolverFactory('baron')
-        global_subsolver = SolverFactory("baron")
+        local_subsolver = SolverFactory("scip")
+        global_subsolver = SolverFactory("scip")
 
         # Call the PyROS solver
         with LoggingIntercept(module="pyomo.contrib.pyros", level=logging.DEBUG) as LOG:
@@ -2054,16 +2056,13 @@ class testModelMultipleObjectives(unittest.TestCase):
         )
 
 
-class testMasterFeasibilityUnitConsistency(unittest.TestCase):
+class TestMasterFeasibilityUnitConsistency(unittest.TestCase):
     """
     Test cases for models with unit-laden model components.
     """
 
     @unittest.skipUnless(
-        baron_license_is_valid, "Global NLP solver is not available and licensed."
-    )
-    @unittest.skipUnless(
-        baron_version < (23, 1, 5), "Test known to fail beginning with Baron 23.1.5"
+        scip_available and scip_license_is_valid, "SCIP is not available and licensed."
     )
     def test_two_stg_mod_with_axis_aligned_set(self):
         """
@@ -2093,8 +2092,8 @@ class testMasterFeasibilityUnitConsistency(unittest.TestCase):
         pyros_solver = SolverFactory("pyros")
 
         # Define subsolvers utilized in the algorithm
-        local_subsolver = SolverFactory('baron')
-        global_subsolver = SolverFactory("baron")
+        local_subsolver = SolverFactory("scip")
+        global_subsolver = SolverFactory("scip")
 
         # Call the PyROS solver
         # note: second-stage variable and uncertain params have units
@@ -2256,7 +2255,7 @@ class TestSubsolverTiming(unittest.TestCase):
         )
 
     @unittest.skipUnless(
-        baron_license_is_valid, "Global NLP solver is not available and licensed."
+        scip_available and scip_license_is_valid, "SCIP is not available and licensed."
     )
     def test_two_stg_mod_with_intersection_set(self):
         """
@@ -2285,8 +2284,8 @@ class TestSubsolverTiming(unittest.TestCase):
         pyros_solver = SolverFactory("pyros")
 
         # Define subsolvers utilized in the algorithm
-        local_subsolver = SolverFactory('baron')
-        global_subsolver = SolverFactory("baron")
+        local_subsolver = SolverFactory("scip")
+        global_subsolver = SolverFactory("scip")
 
         # Call the PyROS solver
         results = pyros_solver.solve(

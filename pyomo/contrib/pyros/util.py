@@ -52,9 +52,10 @@ from pyomo.core.expr.visitor import (
     replace_expressions,
 )
 from pyomo.core.util import prod
-from pyomo.opt import SolverFactory, TerminationCondition as tc
-from pyomo.repn.standard_repn import generate_standard_repn
-from pyomo.repn.plugins import nl_writer as pyomo_nl_writer
+from pyomo.opt import SolverFactory
+from pyomo.repn.parameterized_quadratic import ParameterizedQuadraticRepnVisitor
+import pyomo.repn.plugins.nl_writer as pyomo_nl_writer
+import pyomo.repn.ampl as pyomo_ampl_repn
 from pyomo.util.vars_from_expressions import get_vars_from_components
 
 
@@ -65,6 +66,8 @@ COEFF_MATCH_REL_TOL = 1e-6
 COEFF_MATCH_ABS_TOL = 0
 ABS_CON_CHECK_FEAS_TOL = 1e-5
 PRETRIANGULAR_VAR_COEFF_TOL = 1e-6
+POINT_IN_UNCERTAINTY_SET_TOL = 1e-8
+DR_POLISHING_PARAM_PRODUCT_ZERO_TOL = 1e-10
 
 TIC_TOC_SOLVE_TIME_ATTR = "pyros_tic_toc_time"
 DEFAULT_LOGGER_NAME = "pyomo.contrib.pyros"
@@ -991,6 +994,32 @@ class ModelData:
         return preprocess_model_data(self, user_var_partitioning)
 
 
+def setup_quadratic_expression_visitor(
+    wrt, subexpression_cache=None, var_map=None, var_order=None, sorter=None
+):
+    """Setup a parameterized quadratic expression walker."""
+    visitor = ParameterizedQuadraticRepnVisitor(
+        subexpression_cache={} if subexpression_cache is None else subexpression_cache,
+        var_map={} if var_map is None else var_map,
+        var_order={} if var_order is None else var_order,
+        sorter=sorter,
+        wrt=wrt,
+    )
+    visitor.expand_nonlinear_products = True
+    return visitor
+
+
+class BoundType:
+    """
+    Indicator for whether a bound on a variable/constraint
+    is a lower bound, "equality" bound, or upper bound.
+    """
+
+    LOWER = "lower"
+    EQ = "eq"
+    UPPER = "upper"
+
+
 def get_var_bound_pairs(var):
     """
     Get the domain and declared lower/upper
@@ -1040,7 +1069,7 @@ def determine_certain_and_uncertain_bound(
         Declared bound.
     uncertain_params : iterable of ParamData
         Uncertain model parameters.
-    bound_type : {'lower', 'upper'}
+    bound_type : {BoundType.LOWER, BoundType.UPPER}
         Indication of whether the domain bound and declared bound
         specify lower or upper bounds for the variable value.
 
@@ -1051,9 +1080,10 @@ def determine_certain_and_uncertain_bound(
     uncertain_bound : numeric expression or None
         Bound that is dependent on the uncertain parameters.
     """
-    if bound_type not in {"lower", "upper"}:
+    if bound_type not in {BoundType.LOWER, BoundType.UPPER}:
         raise ValueError(
-            f"Argument {bound_type=!r} should be either 'lower' or 'upper'."
+            f"Argument {bound_type=!r} should be either "
+            f"'{BoundType.LOWER}' or '{BoundType.UPPER}'."
         )
 
     if declared_bound is not None:
@@ -1071,7 +1101,7 @@ def determine_certain_and_uncertain_bound(
         elif domain_bound is None:
             certain_bound = declared_bound
         else:
-            if bound_type == "lower":
+            if bound_type == BoundType.LOWER:
                 certain_bound = (
                     declared_bound
                     if value(declared_bound) >= domain_bound
@@ -1090,7 +1120,9 @@ def determine_certain_and_uncertain_bound(
     return certain_bound, uncertain_bound
 
 
-BoundTriple = namedtuple("BoundTriple", ("lower", "eq", "upper"))
+BoundTriple = namedtuple(
+    "BoundTriple", (BoundType.LOWER, BoundType.EQ, BoundType.UPPER)
+)
 
 
 def rearrange_bound_pair_to_triple(lower_bound, upper_bound):
@@ -1160,13 +1192,13 @@ def get_var_certain_uncertain_bounds(var, uncertain_params):
         domain_bound=domain_lb,
         declared_bound=declared_lb,
         uncertain_params=uncertain_params,
-        bound_type="lower",
+        bound_type=BoundType.LOWER,
     )
     certain_ub, uncertain_ub = determine_certain_and_uncertain_bound(
         domain_bound=domain_ub,
         declared_bound=declared_ub,
         uncertain_params=uncertain_params,
-        bound_type="upper",
+        bound_type=BoundType.UPPER,
     )
 
     certain_bounds = rearrange_bound_pair_to_triple(
@@ -1287,23 +1319,14 @@ def get_effective_var_partitioning(model_data):
             #   tolerance.
             if len(adj_vars_in_con) == 1:
                 adj_var_in_con = next(iter(adj_vars_in_con))
-                ccon_expr_repn = generate_standard_repn(
-                    expr=ccon.body - ccon.upper, quadratic=False, compute_values=True
-                )
+                visitor = setup_quadratic_expression_visitor(wrt=[])
+                ccon_expr_repn = visitor.walk_expression(expr=ccon.body - ccon.upper)
                 adj_var_appears_linearly = adj_var_in_con not in ComponentSet(
-                    ccon_expr_repn.nonlinear_vars
-                ) and adj_var_in_con in ComponentSet(ccon_expr_repn.linear_vars)
+                    identify_variables(ccon_expr_repn.nonlinear)
+                ) and id(adj_var_in_con) in ComponentSet(ccon_expr_repn.linear)
                 if adj_var_appears_linearly:
-                    # get coefficient by summation just in case
-                    # standard repn does not simplify completely
-                    var_linear_coeff = sum(
-                        lcoeff
-                        for lvar, lcoeff in zip(
-                            ccon_expr_repn.linear_vars, ccon_expr_repn.linear_coefs
-                        )
-                        if lvar is adj_var_in_con
-                    )
-                    if abs(var_linear_coeff) > PRETRIANGULAR_VAR_COEFF_TOL:
+                    adj_var_linear_coeff = ccon_expr_repn.linear[id(adj_var_in_con)]
+                    if abs(adj_var_linear_coeff) > PRETRIANGULAR_VAR_COEFF_TOL:
                         new_pretriangular_con_var_map[ccon] = adj_var_in_con
                         config.progress_logger.debug(
                             f" The variable {adj_var_in_con.name!r} is "
@@ -1399,7 +1422,7 @@ def create_bound_constraint_expr(expr, bound, bound_type, standardize=True):
     bound : native numeric type or NumericValue
         Bound for `expr`. This should be a numeric constant,
         Param, or constant/mutable Pyomo expression.
-    bound_type : {'lower', 'eq', 'upper'}
+    bound_type : BoundType
         Indicator for whether `expr` is to be lower bounded,
         equality bounded, or upper bounded, by `bound`.
     standardize : bool, optional
@@ -1411,11 +1434,11 @@ def create_bound_constraint_expr(expr, bound, bound_type, standardize=True):
     RelationalExpression
         Establishes a bound on `expr`.
     """
-    if bound_type == "lower":
+    if bound_type == BoundType.LOWER:
         return -expr <= -bound if standardize else bound <= expr
-    elif bound_type == "eq":
+    elif bound_type == BoundType.EQ:
         return expr == bound
-    elif bound_type == "upper":
+    elif bound_type == BoundType.UPPER:
         return expr <= bound
     else:
         raise ValueError(f"Bound type {bound_type!r} not supported.")
@@ -1429,22 +1452,23 @@ def remove_var_declared_bound(var, bound_type):
     ----------
     var : VarData
         Variable data object of interest.
-    bound_type : {'lower', 'eq', 'upper'}
+    bound_type : BoundType
         Indicator for the declared bound(s) to remove.
-        Note: if 'eq' is specified, then both the
+        Note: if BoundType.EQ is specified, then both the
         lower and upper bounds are removed.
     """
-    if bound_type == "lower":
+    if bound_type == BoundType.LOWER:
         var.setlb(None)
-    elif bound_type == "eq":
+    elif bound_type == BoundType.EQ:
         var.setlb(None)
         var.setub(None)
-    elif bound_type == "upper":
+    elif bound_type == BoundType.UPPER:
         var.setub(None)
     else:
         raise ValueError(
             f"Bound type {bound_type!r} not supported. "
-            "Bound type must be 'lower', 'eq, or 'upper'."
+            f"Bound type must be '{BoundType.LOWER}', "
+            f"'{BoundType.EQ}, or '{BoundType.UPPER}'."
         )
 
 
@@ -1492,7 +1516,7 @@ def turn_nonadjustable_var_bounds_to_constraints(model_data):
                 new_con_expr = create_bound_constraint_expr(var, bound, btype)
                 new_con_name = f"var_{var_name}_uncertain_{btype}_bound_con"
                 remove_var_declared_bound(var, btype)
-                if btype == "eq":
+                if btype == BoundType.EQ:
                     working_model.second_stage.equality_cons[new_con_name] = (
                         new_con_expr
                     )
@@ -1551,7 +1575,7 @@ def turn_adjustable_var_bounds_to_constraints(model_data):
                 if bound is not None:
                     new_con_name = f"var_{var_name}_{certainty_desc}_{btype}_bound_con"
                     new_con_expr = create_bound_constraint_expr(var, bound, btype)
-                    if btype == "eq":
+                    if btype == BoundType.EQ:
                         working_model.second_stage.equality_cons[new_con_name] = (
                             new_con_expr
                         )
@@ -1679,7 +1703,7 @@ def standardize_inequality_constraints(model_data):
                 if bd is not None
             }
             for btype, bound in finite_bounds.items():
-                if btype == "eq":
+                if btype == BoundType.EQ:
                     # no equality bounds should be identified here.
                     # equality bound may be identified if:
                     # 1. bound rearrangement method has a bug
@@ -2181,18 +2205,10 @@ def reformulate_state_var_independent_eq_cons(model_data):
             # uncertain parameters only. thus, only the proxy
             # variables for the uncertain parameters are unfixed
             # during the analysis
-            for var in originally_unfixed_vars:
-                var.fix()
-            expr_repn = generate_standard_repn(
-                expr=con_expr_after_all_substitutions, compute_values=False
-            )
+            visitor = setup_quadratic_expression_visitor(wrt=originally_unfixed_vars)
+            expr_repn = visitor.walk_expression(con_expr_after_all_substitutions)
 
-            # ensure state of every variable remains unchanged
-            # when done
-            for var in originally_unfixed_vars:
-                var.unfix()
-
-            if expr_repn.nonlinear_expr is not None:
+            if expr_repn.nonlinear is not None:
                 config.progress_logger.debug(
                     f"Equality constraint {con.name!r} "
                     "is state-variable independent, but cannot be written "
@@ -2210,7 +2226,7 @@ def reformulate_state_var_independent_eq_cons(model_data):
                 # in the separation problems, since the effective DOF
                 # variables and DR variables are fixed.
                 # hence, we reformulate to inequalities
-                for bound_type in ["lower", "upper"]:
+                for bound_type in [BoundType.LOWER, BoundType.UPPER]:
                     std_con_expr = create_bound_constraint_expr(
                         expr=con.body, bound=con.upper, bound_type=bound_type
                     )
@@ -2225,26 +2241,26 @@ def reformulate_state_var_independent_eq_cons(model_data):
             else:
                 polynomial_repn_coeffs = (
                     [expr_repn.constant]
-                    + list(expr_repn.linear_coefs)
-                    + list(expr_repn.quadratic_coefs)
+                    + list(expr_repn.linear.values())
+                    + (
+                        []
+                        if expr_repn.quadratic is None
+                        else list(expr_repn.quadratic.values())
+                    )
                 )
                 for coeff_idx, coeff_expr in enumerate(polynomial_repn_coeffs):
-                    simplified_coeff_expr = generate_standard_repn(
-                        expr=coeff_expr, compute_values=True
-                    ).to_expression()
-
                     # for robust satisfaction of the original equality
                     # constraint, all polynomial coefficients must be
                     # equal to zero. so for each coefficient,
                     # we either check for trivial robust
                     # feasibility/infeasibility, or add a constraint
                     # restricting the coefficient expression to value 0
-                    if isinstance(simplified_coeff_expr, tuple(native_types)):
+                    if isinstance(coeff_expr, tuple(native_types)):
                         # coefficient is a constant;
                         # check value to determine
                         # trivial feasibility/infeasibility
                         robust_infeasible = not math.isclose(
-                            a=simplified_coeff_expr,
+                            a=coeff_expr,
                             b=0,
                             rel_tol=COEFF_MATCH_REL_TOL,
                             abs_tol=COEFF_MATCH_ABS_TOL,
@@ -2272,7 +2288,7 @@ def reformulate_state_var_independent_eq_cons(model_data):
                         # and DR variables. add matching constraint
                         new_con_name = f"coeff_matching_{con_idx}_coeff_{coeff_idx}"
                         working_model.first_stage.equality_cons[new_con_name] = (
-                            simplified_coeff_expr == 0
+                            coeff_expr == 0
                         )
                         new_con = working_model.first_stage.equality_cons[new_con_name]
                         coefficient_matching_cons.append(new_con)
@@ -2607,7 +2623,7 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
 
     Parameters
     ----------
-    master_soln : master solution object
+    master_soln : MasterResults
         Master solution object, containing the master model.
     original_user_var_partitioning : VariablePartitioning
         User partitioning of the variables of the original
@@ -2615,7 +2631,7 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     """
     config = model_data.config
     if config.objective_focus == ObjectiveType.nominal:
-        soln_master_blk = master_soln.nominal_block
+        soln_master_blk = master_soln.master_model.scenarios[0, 0]
     elif config.objective_focus == ObjectiveType.worst_case:
         soln_master_blk = max(
             master_soln.master_model.scenarios.values(),
@@ -2634,62 +2650,6 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     )
     for orig_var, master_blk_var in zip(original_model_vars, master_soln_vars):
         orig_var.set_value(master_blk_var.value, skip_validation=True)
-
-
-def process_termination_condition_master_problem(config, results):
-    '''
-    :param config: pyros config
-    :param results: solver results object
-    :return: tuple (try_backups (True/False)
-                  pyros_return_code (default NONE or robust_infeasible or subsolver_error))
-    '''
-    locally_acceptable = [tc.optimal, tc.locallyOptimal, tc.globallyOptimal]
-    globally_acceptable = [tc.optimal, tc.globallyOptimal]
-    robust_infeasible = [tc.infeasible]
-    try_backups = [
-        tc.feasible,
-        tc.maxTimeLimit,
-        tc.maxIterations,
-        tc.maxEvaluations,
-        tc.minStepLength,
-        tc.minFunctionValue,
-        tc.other,
-        tc.solverFailure,
-        tc.internalSolverError,
-        tc.error,
-        tc.unbounded,
-        tc.infeasibleOrUnbounded,
-        tc.invalidProblem,
-        tc.intermediateNonInteger,
-        tc.noSolution,
-        tc.unknown,
-    ]
-
-    termination_condition = results.solver.termination_condition
-    if config.solve_master_globally == False:
-        if termination_condition in locally_acceptable:
-            return (False, None)
-        elif termination_condition in robust_infeasible:
-            return (False, pyrosTerminationCondition.robust_infeasible)
-        elif termination_condition in try_backups:
-            return (True, None)
-        else:
-            raise NotImplementedError(
-                "This solver return termination condition (%s) "
-                "is currently not supported by PyROS." % termination_condition
-            )
-    else:
-        if termination_condition in globally_acceptable:
-            return (False, None)
-        elif termination_condition in robust_infeasible:
-            return (False, pyrosTerminationCondition.robust_infeasible)
-        elif termination_condition in try_backups:
-            return (True, None)
-        else:
-            raise NotImplementedError(
-                "This solver return termination condition (%s) "
-                "is currently not supported by PyROS." % termination_condition
-            )
 
 
 def call_solver(model, solver, config, timing_obj, timer_name, err_msg):
@@ -2747,8 +2707,9 @@ def call_solver(model, solver, config, timing_obj, timer_name, err_msg):
     # e.g., a Var fixed outside bounds beyond the Pyomo NL writer
     # tolerance, but still within the default IPOPT feasibility
     # tolerance
-    current_nl_writer_tol = pyomo_nl_writer.TOL
+    current_nl_writer_tol = pyomo_nl_writer.TOL, pyomo_ampl_repn.TOL
     pyomo_nl_writer.TOL = 1e-4
+    pyomo_ampl_repn.TOL = 1e-4
 
     try:
         results = solver.solve(
@@ -2768,7 +2729,7 @@ def call_solver(model, solver, config, timing_obj, timer_name, err_msg):
             results.solver, TIC_TOC_SOLVE_TIME_ATTR, tt_timer.toc(msg=None, delta=True)
         )
     finally:
-        pyomo_nl_writer.TOL = current_nl_writer_tol
+        pyomo_nl_writer.TOL, pyomo_ampl_repn.TOL = current_nl_writer_tol
 
         timing_obj.stop_timer(timer_name)
         revert_solver_max_time_adjustment(

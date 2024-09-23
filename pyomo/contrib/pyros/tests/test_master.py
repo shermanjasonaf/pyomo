@@ -33,6 +33,7 @@ from pyomo.contrib.pyros.master_problem_methods import (
     construct_master_feasibility_problem,
     construct_dr_polishing_problem,
     MasterProblemData,
+    higher_order_decision_rule_efficiency,
 )
 from pyomo.contrib.pyros.util import (
     ModelData,
@@ -56,7 +57,7 @@ baron_license_is_valid = _baron.license_is_valid()
 logger = logging.getLogger(__name__)
 
 
-def build_simple_model_data(objective_focus="worst_case"):
+def build_simple_model_data(objective_focus="worst_case", decision_rule_order=1):
     """
     Test construction of master problem.
     """
@@ -73,7 +74,7 @@ def build_simple_model_data(objective_focus="worst_case"):
     config = Bunch(
         uncertain_params=[m.u],
         objective_focus=ObjectiveType[objective_focus],
-        decision_rule_order=1,
+        decision_rule_order=decision_rule_order,
         progress_logger=logger,
         nominal_uncertain_param_vals=[0.4],
         separation_priority_order=dict(),
@@ -474,6 +475,81 @@ class TestDRPolishingProblem(unittest.TestCase):
         self.assertFalse(polishing_model.polishing_abs_val_ub_con_0[1].active)
 
 
+class TestHigherOrderDecisionRuleEfficiency(unittest.TestCase):
+    """
+    Test efficiency for decision rules.
+    """
+
+    def test_higher_order_decision_rule_efficiency(self):
+        """
+        Test higher-order decision rule efficiency.
+        """
+        model_data = build_simple_model_data(decision_rule_order=2)
+        master_model = construct_initial_master_problem(model_data)
+        master_data = Bunch(
+            master_model=master_model, iteration=0, config=model_data.config
+        )
+        decision_rule_vars = master_data.master_model.scenarios[
+            0, 0
+        ].first_stage.decision_rule_vars[0]
+
+        for iter_num in range(4):
+            master_data.iteration = iter_num
+            higher_order_decision_rule_efficiency(master_data)
+            self.assertFalse(
+                decision_rule_vars[0].fixed,
+                msg=(
+                    f"DR Var {decision_rule_vars[1].name!r} should not "
+                    f"be fixed by efficiency in iteration {iter_num}"
+                ),
+            )
+            if iter_num == 0:
+                self.assertTrue(
+                    decision_rule_vars[1].fixed,
+                    msg=(
+                        f"DR Var {decision_rule_vars[1].name!r} should "
+                        f"be fixed by efficiency in iteration {iter_num}"
+                    ),
+                )
+                self.assertTrue(
+                    decision_rule_vars[2].fixed,
+                    msg=(
+                        f"DR Var {decision_rule_vars[2].name!r} should "
+                        f"be fixed by efficiency in iteration {iter_num}"
+                    ),
+                )
+            elif iter_num <= len(master_data.config.uncertain_params):
+                self.assertFalse(
+                    decision_rule_vars[1].fixed,
+                    msg=(
+                        f"DR Var {decision_rule_vars[1].name!r} should not "
+                        f"be fixed by efficiency in iteration {iter_num}"
+                    ),
+                )
+                self.assertTrue(
+                    decision_rule_vars[2].fixed,
+                    msg=(
+                        f"DR Var {decision_rule_vars[2].name!r} should "
+                        f"be fixed by efficiency in iteration {iter_num}"
+                    ),
+                )
+            else:
+                self.assertFalse(
+                    decision_rule_vars[1].fixed,
+                    msg=(
+                        f"DR Var {decision_rule_vars[1].name!r} should not "
+                        f"be fixed by efficiency in iteration {iter_num}"
+                    ),
+                )
+                self.assertFalse(
+                    decision_rule_vars[2].fixed,
+                    msg=(
+                        f"DR Var {decision_rule_vars[2].name!r} should not "
+                        f"be fixed by efficiency in iteration {iter_num}"
+                    ),
+                )
+
+
 class TestSolveMaster(unittest.TestCase):
     """
     Test method for solving master problem
@@ -496,8 +572,12 @@ class TestSolveMaster(unittest.TestCase):
         master_data = MasterProblemData(model_data)
         with time_code(master_data.timing, "main", is_main_timer=True):
             master_soln = master_data.solve_master()
+            self.assertEqual(len(master_soln.master_results_list), 1)
+            self.assertIsNone(master_soln.feasibility_problem_results)
+            self.assertIsNone(master_soln.pyros_termination_condition)
+            self.assertIs(master_soln.master_model, master_data.master_model)
             self.assertEqual(
-                master_soln.termination_condition,
+                master_soln.master_results_list[0].solver.termination_condition,
                 TerminationCondition.optimal,
                 msg=(
                     "Could not solve simple master problem with solve_master "
@@ -528,8 +608,11 @@ class TestSolveMaster(unittest.TestCase):
         with time_code(master_data.timing, "main", is_main_timer=True):
             time.sleep(1)
             master_soln = master_data.solve_master()
+            self.assertIsNone(master_soln.feasibility_problem_results)
+            self.assertEqual(master_soln.master_model, master_data.master_model)
+            self.assertEqual(len(master_soln.master_results_list), 1)
             self.assertEqual(
-                master_soln.termination_condition,
+                master_soln.master_results_list[0].solver.termination_condition,
                 TerminationCondition.optimal,
                 msg=(
                     "Could not solve simple master problem with solve_master "
@@ -537,8 +620,8 @@ class TestSolveMaster(unittest.TestCase):
                 ),
             )
             self.assertEqual(
-                master_soln.master_subsolver_results,
-                (None, pyrosTerminationCondition.time_out),
+                master_soln.pyros_termination_condition,
+                pyrosTerminationCondition.time_out,
             )
 
     @unittest.skipUnless(baron_available, "Global NLP solver is not available")
@@ -572,13 +655,12 @@ class TestSolveMaster(unittest.TestCase):
         with time_code(master_data.timing, "main", is_main_timer=True):
             time.sleep(1)
             master_soln = master_data.solve_master()
+            self.assertIsNotNone(master_soln.feasibility_problem_results)
+            self.assertFalse(master_soln.master_results_list)
+            self.assertIs(master_soln.master_model, master_data.master_model)
             self.assertEqual(
                 master_soln.pyros_termination_condition,
                 pyrosTerminationCondition.time_out,
-            )
-            self.assertEqual(
-                master_soln.master_subsolver_results,
-                (None, pyrosTerminationCondition.time_out),
             )
 
 
@@ -617,7 +699,8 @@ class TestPolishDRVars(unittest.TestCase):
         with time_code(master_data.timing, "main", is_main_timer=True):
             master_soln = master_data.solve_master()
             self.assertEqual(
-                master_soln.termination_condition, TerminationCondition.optimal
+                master_soln.master_results_list[0].solver.termination_condition,
+                TerminationCondition.optimal,
             )
 
             results, success = master_data.solve_dr_polishing()

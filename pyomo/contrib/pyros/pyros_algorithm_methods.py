@@ -72,15 +72,16 @@ def _evaluate_shift(current, prev, initial, norm=None):
         return np.max(np.abs(current - prev) / normalizers)
 
 
+VariableValueData = namedtuple(
+    "VariableValueData",
+    ("first_stage_variables", "second_stage_variables", "decision_rule_monomials"),
+)
+
+
 def get_variable_value_data(working_blk, dr_var_to_monomial_map):
     """
     Get variable value data.
     """
-    VariableValueData = namedtuple(
-        "VariableValueData",
-        ("first_stage_variables", "second_stage_variables", "decision_rule_monomials"),
-    )
-
     ep = working_blk.effective_var_partitioning
 
     first_stage_data = ComponentMap(
@@ -156,19 +157,11 @@ def ROSolver_iterative_solve(model_data):
     )
     IterationLogRecord.log_header(config.progress_logger.info)
     k = 0
-    master_statuses = []
     while config.max_iter == -1 or k < config.max_iter:
         master_data.iteration = k
-
-        # === Solve Master Problem
         config.progress_logger.debug(f"PyROS working on iteration {k}...")
+
         master_soln = master_data.solve_master()
-
-        master_statuses.append(master_soln.results.solver.termination_condition)
-        master_soln.master_problem_subsolver_statuses = master_statuses
-
-        # check master solve status
-        # to determine whether to terminate here
         master_termination_not_acceptable = master_soln.pyros_termination_condition in {
             pyrosTerminationCondition.robust_infeasible,
             pyrosTerminationCondition.time_out,
