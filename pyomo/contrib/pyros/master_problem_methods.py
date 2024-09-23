@@ -141,7 +141,7 @@ def add_scenario_block_to_master_problem(
             con.deactivate()
 
 
-def construct_master_feasibility_problem(master_data):
+def construct_master_feasibility_problem(master_data, slack_constraints=None):
     """
     Construct slack variable minimization problem from the master
     model.
@@ -154,6 +154,8 @@ def construct_master_feasibility_problem(master_data):
     ----------
     master_data : MasterProblemData
         Master problem data.
+    slack_constraints : None or list of ConstraintData, optional
+        Constraints to which to add slacks.
 
     Returns
     -------
@@ -170,8 +172,22 @@ def construct_master_feasibility_problem(master_data):
         list(master_data.master_model.component_data_objects(Var)),
     )
 
-    slack_model = master_data.master_model.clone()
+    iteration = master_data.iteration
+    if slack_constraints is None:
+        slack_constraints = []
+        for blk in master_data.master_model.scenarios[iteration, :]:
+            slack_constraints.extend(blk.second_stage.inequality_cons.values())
+    else:
+        slack_constraints = list(slack_constraints)
 
+    slack_con_attr_name = unique_component_name(master_data.master_model, "slack_cons")
+    setattr(
+        master_data.master_model,
+        slack_con_attr_name,
+        slack_constraints,
+    )
+
+    slack_model = master_data.master_model.clone()
     master_data.feasibility_problem_varmap = list(
         zip(
             getattr(master_data.master_model, varmap_name),
@@ -183,25 +199,18 @@ def construct_master_feasibility_problem(master_data):
 
     for obj in slack_model.component_data_objects(Objective):
         obj.deactivate()
-    iteration = master_data.iteration
-
-    # add slacks only to second-stage inequality constraints for the
-    # newest master block(s).
-    # these should be the only constraints that
-    # may have been violated by the previous master and separation
-    # solution(s)
-    targets = []
-    for blk in slack_model.scenarios[iteration, :]:
-        targets.extend(blk.second_stage.inequality_cons.values())
 
     # retain original constraint expressions before adding slacks
     # (to facilitate slack initialization and scaling)
-    pre_slack_con_exprs = ComponentMap((con, con.body - con.upper) for con in targets)
+    slack_model_slack_cons = getattr(slack_model, slack_con_attr_name)
+    pre_slack_con_exprs = ComponentMap(
+        (con, con.body - con.upper) for con in slack_model_slack_cons
+    )
 
     # add slack variables and objective
     # inequalities g(v) <= b become g(v) - s^- <= b
     TransformationFactory("core.add_slack_variables").apply_to(
-        slack_model, targets=targets
+        slack_model, targets=slack_model_slack_cons
     )
     slack_vars = ComponentSet(
         slack_model._core_add_slack_variables.component_data_objects(
@@ -233,7 +242,7 @@ def construct_master_feasibility_problem(master_data):
     return slack_model
 
 
-def solve_master_feasibility_problem(master_data):
+def solve_master_feasibility_problem(master_data, slack_constraints=None):
     """
     Solve a slack variable-based feasibility model derived
     from the master problem. Initialize the master problem
@@ -244,13 +253,18 @@ def solve_master_feasibility_problem(master_data):
     ----------
     master_data : MasterProblemData
         Master problem data.
+    slack_constraints : None or list of ConstraintData, optional
+        Constraints to which to add slacks.
 
     Returns
     -------
     results : SolverResults
         Solver results.
     """
-    model = construct_master_feasibility_problem(master_data)
+    model = construct_master_feasibility_problem(
+        master_data=master_data,
+        slack_constraints=slack_constraints,
+    )
 
     active_obj = next(model.component_data_objects(Objective, active=True))
 
@@ -870,7 +884,7 @@ def solver_call_master(master_data):
     return master_soln
 
 
-def solve_master(master_data):
+def solve_master(master_data, slack_constraints=None):
     """
     Solve the master problem.
 
@@ -882,7 +896,10 @@ def solve_master(master_data):
     feasibility_problem_results = None
     time_out_after_feasibility = False
     if master_data.iteration > 0:
-        feasibility_problem_results = solve_master_feasibility_problem(master_data)
+        feasibility_problem_results = solve_master_feasibility_problem(
+            master_data=master_data,
+            slack_constraints=slack_constraints,
+        )
         time_out_after_feasibility = check_time_limit_reached(
             master_data.timing, master_data.config
         )
@@ -915,11 +932,11 @@ class MasterProblemData:
         self.timing = model_data.timing
         self.config = model_data.config
 
-    def solve_master(self):
+    def solve_master(self, slack_constraints=None):
         """
         Solve the master problem.
         """
-        return solve_master(self)
+        return solve_master(self, slack_constraints=slack_constraints)
 
     def solve_dr_polishing(self):
         """

@@ -157,11 +157,14 @@ def ROSolver_iterative_solve(model_data):
     )
     IterationLogRecord.log_header(config.progress_logger.info)
     k = 0
+    master_feas_slack_constraints = None
     while config.max_iter == -1 or k < config.max_iter:
         master_data.iteration = k
         config.progress_logger.debug(f"PyROS working on iteration {k}...")
 
-        master_soln = master_data.solve_master()
+        master_soln = master_data.solve_master(
+            slack_constraints=master_feas_slack_constraints,
+        )
         master_termination_not_acceptable = master_soln.pyros_termination_condition in {
             pyrosTerminationCondition.robust_infeasible,
             pyrosTerminationCondition.time_out,
@@ -326,6 +329,11 @@ def ROSolver_iterative_solve(model_data):
         separation_data.auxiliary_values_for_master_points[(k + 1, 0)] = (
             separation_results.auxiliary_param_values
         )
+
+        master_feas_slack_constraints = [
+            master_data.master_model.scenarios[k + 1, 0].find_component(con)
+            for con in separation_results.violated_second_stage_ineq_cons
+        ]
 
         config.progress_logger.debug("Points added to master:")
         config.progress_logger.debug(
