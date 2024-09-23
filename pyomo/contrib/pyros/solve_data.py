@@ -431,10 +431,11 @@ class SeparationLoopResults:
         at least one ``SeparationSolveCallResults`` stored in
         `self`, False otherwise.
         """
-        return any(
+        has_subsolver_error = any(
             solver_call_res.subsolver_error
             for solver_call_res in self.solver_call_results.values()
         )
+        return has_subsolver_error and not self.violated_second_stage_ineq_cons
 
     @property
     def time_out(self):
@@ -502,13 +503,10 @@ class SeparationResults:
         bool : True if subsolver error found for local or global
         separation loop, False otherwise.
         """
-        local_subsolver_error = (
-            self.solved_locally and self.local_separation_loop_results.subsolver_error
-        )
-        global_subsolver_error = (
-            self.solved_globally and self.global_separation_loop_results.subsolver_error
-        )
-        return local_subsolver_error or global_subsolver_error
+        if self.solved_globally:
+            return self.global_separation_loop_results.subsolver_error
+        else:
+            return self.local_separation_loop_results.subsolver_error
 
     @property
     def solved_locally(self):

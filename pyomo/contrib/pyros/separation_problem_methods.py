@@ -311,7 +311,6 @@ def solve_separation_problem(separation_data, master_data):
         run_global = not (
             local_separation_loop_results.found_violation
             or uncertainty_set_is_discrete
-            or local_separation_loop_results.subsolver_error
             or local_separation_loop_results.time_out
             or config.bypass_global_separation
         )
@@ -659,10 +658,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
 
             priority_group_solve_call_results[ss_ineq_con] = solve_call_results
 
-            termination_not_ok = (
-                solve_call_results.time_out or solve_call_results.subsolver_error
-            )
-            if termination_not_ok:
+            if solve_call_results.time_out:
                 all_solve_call_results.update(priority_group_solve_call_results)
                 return SeparationLoopResults(
                     solver_call_results=all_solve_call_results,
