@@ -309,6 +309,27 @@ def solve_master_feasibility_problem(master_data, slack_constraints=None):
             f" Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)}s"
         )
     else:
+        save_dir = config.subproblem_file_directory
+        serialization_msg = ""
+        if save_dir and config.keepfiles:
+            output_problem_path = os.path.join(
+                save_dir,
+                (
+                    config.uncertainty_set.type
+                    + "_"
+                    + master_data.original_model_name
+                    + "_master-feasibility_"
+                    + str(master_data.iteration)
+                    + ".gms"
+                ),
+            )
+            model.write(
+                output_problem_path, io_options={'symbolic_solver_labels': True}
+            )
+            serialization_msg = (
+                " For debugging, problem has been serialized to the file "
+                f"{output_problem_path!r}."
+            )
         config.progress_logger.warning(
             "Could not successfully solve master feasibility problem "
             f"of iteration {master_data.iteration} with primary subordinate "
@@ -316,6 +337,7 @@ def solve_master_feasibility_problem(master_data, slack_constraints=None):
             "to acceptable level. "
             f"Termination stats:\n{results.solver}\n"
             "Maintaining unoptimized point for master problem initialization."
+            f"{serialization_msg}"
         )
 
     # load master feasibility point to master model
@@ -842,7 +864,7 @@ def solver_call_master(master_data):
                 + master_data.original_model_name
                 + "_master_"
                 + str(master_data.iteration)
-                + ".bar"
+                + ".gms"
             ),
         )
         master_model.write(
