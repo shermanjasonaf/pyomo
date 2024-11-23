@@ -53,9 +53,10 @@ from pyomo.core.expr.visitor import (
 )
 from pyomo.core.util import prod
 from pyomo.opt import SolverFactory
+import pyomo.repn.ampl as pyomo_ampl_repn
 from pyomo.repn.parameterized_quadratic import ParameterizedQuadraticRepnVisitor
 import pyomo.repn.plugins.nl_writer as pyomo_nl_writer
-import pyomo.repn.ampl as pyomo_ampl_repn
+from pyomo.repn.util import OrderedVarRecorder
 from pyomo.util.vars_from_expressions import get_vars_from_components
 
 
@@ -207,19 +208,22 @@ class TimingData:
 
 @contextmanager
 def time_code(timing_data_obj, code_block_name, is_main_timer=False):
-    """
-    Starts timer at entry, stores elapsed time at exit.
+    """Starts timer at entry, stores elapsed time at exit.
 
     Parameters
     ----------
     timing_data_obj : TimingData
         Timing data object.
+
     code_block_name : str
         Name of code block being timed.
 
-    If `is_main_timer=True`, the start time is stored in the timing_data_obj,
-    allowing calculation of total elapsed time 'on the fly' (e.g. to enforce
-    a time limit) using `get_main_elapsed_time(timing_data_obj)`.
+    is_main_timer : bool
+        If ``is_main_timer=True``, the start time is stored in the
+        timing_data_obj, allowing calculation of total elapsed time 'on
+        the fly' (e.g. to enforce a time limit) using
+        ``get_main_elapsed_time(timing_data_obj)``.
+
     """
     # initialize tic toc timer
     timing_data_obj.start_timer(code_block_name)
@@ -984,7 +988,7 @@ class ModelData:
         """
         Preprocess model data.
 
-        See `preprocess_model_data()`.
+        See :meth:`~preprocess_model_data`.
 
         Returns
         -------
@@ -1000,9 +1004,11 @@ def setup_quadratic_expression_visitor(
     """Setup a parameterized quadratic expression walker."""
     visitor = ParameterizedQuadraticRepnVisitor(
         subexpression_cache={} if subexpression_cache is None else subexpression_cache,
-        var_map={} if var_map is None else var_map,
-        var_order={} if var_order is None else var_order,
-        sorter=sorter,
+        var_recorder=OrderedVarRecorder(
+            var_map={} if var_map is None else var_map,
+            var_order={} if var_order is None else var_order,
+            sorter=sorter,
+        ),
         wrt=wrt,
     )
     visitor.expand_nonlinear_products = True
