@@ -367,7 +367,7 @@ def group_ss_ineq_constraints_by_priority(separation_data):
 
     Returns
     -------
-    dict
+    sorted_priority_groups : dict
         Mapping from an int to a list of second-stage
         inequality constraints
         (Constraint objects),
@@ -377,19 +377,48 @@ def group_ss_ineq_constraints_by_priority(separation_data):
     """
     ss_ineq_cons = separation_data.separation_model.second_stage.inequality_cons
     separation_priority_groups = dict()
+    ss_ineq_cons_to_bypass = []
     for name, ss_ineq_con in ss_ineq_cons.items():
         # by default, priority set to 0
         priority = separation_data.separation_priority_order[name]
-        cons_with_same_priority = separation_priority_groups.setdefault(priority, [])
-        cons_with_same_priority.append(ss_ineq_con)
+        if priority is not None:
+            cons_with_same_priority = separation_priority_groups.setdefault(
+                priority,
+                [],
+            )
+            cons_with_same_priority.append(ss_ineq_con)
+        else:
+            ss_ineq_cons_to_bypass.append(ss_ineq_con)
 
     # sort separation priority groups
-    return {
-        priority: ss_ineq_cons
-        for priority, ss_ineq_cons in sorted(
+    sorted_priority_groups = {
+        priority: ss_ineq_con_list
+        for priority, ss_ineq_con_list in sorted(
             separation_priority_groups.items(), reverse=True
         )
     }
+
+    if ss_ineq_cons_to_bypass:
+        # bypassed constraint priority is last
+        sorted_priority_groups[None] = ss_ineq_cons_to_bypass
+
+    separation_data.config.progress_logger.debug(
+        f"Found {len(sorted_priority_groups)} second-stage inequality "
+        "constraint priority groups."
+    )
+    separation_data.config.progress_logger.debug(
+        "Priority grouping statistics:"
+    )
+    separation_data.config.progress_logger.debug(
+        f"  {'Priority':20s}{'# Ineq Cons':15s}"
+    )
+    for priority, cons in sorted_priority_groups.items():
+        priority_str = str(priority) + (" (bypass)" if priority is None else "")
+        separation_data.config.progress_logger.debug(
+            f"  {priority_str:20s}{len(cons):<15d}"
+        )
+
+    return sorted_priority_groups
 
 
 def get_worst_discrete_separation_solution(
@@ -543,7 +572,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
         master_data=master_data,
         ss_ineq_cons=all_ss_ineq_constraints,
     )
-    sorted_priority_groups = group_ss_ineq_constraints_by_priority(separation_data)
+    sorted_priority_groups = separation_data.ss_ineq_con_priority_groups
     uncertainty_set_is_discrete = (
         config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS
     )
@@ -605,37 +634,38 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
 
     all_solve_call_results = ComponentMap()
     priority_groups_enum = enumerate(sorted_priority_groups.items())
+    solve_adverb = "Globally" if solve_globally else "Locally"
+    solve_desc = "global" if solve_globally else "local"
+    num_all_ss_ineq_cons = len(all_ss_ineq_constraints)
+    num_nonbypassed_ss_ineq_cons = (
+        num_all_ss_ineq_cons - len(separation_data.ss_ineq_cons_to_bypass)
+    )
     for group_idx, (priority, ss_ineq_constraints) in priority_groups_enum:
         priority_group_solve_call_results = ComponentMap()
-        if priority < 0:
-            # priority_group_con_names = "\n ".join(
-            #     get_con_name_repr(model_data.separation_model, perf_con)
-            #     for perf_con in perf_constraints
-            # )
+        if priority is None:
             config.progress_logger.debug(
-                f"Skipping separation for group with priority {priority} "
+                f"Bypassing {solve_desc} separation of all "
+                f"{len(ss_ineq_constraints)} second-stage "
+                f"inequality constraints in the group with priority {priority} "
                 f"(group {group_idx + 1} of {len(sorted_priority_groups)}) "
-                "as the priority value is a negative number.\n"
-                # f"Constraints:\n {priority_group_con_names}\n"
-                # "will not be separated. "
-                f"Ignoring all {len(ss_ineq_constraints)} "
-                "second-stage inequality constraints in the group."
+                f"as the priority value is {priority}."
             )
             worst_case_ss_ineq_con = None
             continue
 
         for idx, ss_ineq_con in enumerate(ss_ineq_constraints):
             # log progress of separation loop
-            solve_adverb = "Globally" if solve_globally else "Locally"
             config.progress_logger.debug(
                 f"{solve_adverb} separating second-stage inequality constraint "
                 f"{get_con_name_repr(separation_data.separation_model, ss_ineq_con)} "
-                f"(priority {priority}, priority group {group_idx + 1} of "
+                f"of priority {priority} (priority group {group_idx + 1} of "
                 f"{len(sorted_priority_groups)}, "
                 f"constraint {idx + 1} of {len(ss_ineq_constraints)} "
                 "in priority group, "
                 f"{len(all_solve_call_results) + idx + 1} of "
-                f"{len(all_ss_ineq_constraints)} total)"
+                f"{num_nonbypassed_ss_ineq_cons} total excluding bypassed, "
+                f"{len(all_solve_call_results) + idx + 1} of "
+                f"{num_all_ss_ineq_cons} total including bypassed)"
             )
 
             # solve separation problem for
@@ -1244,6 +1274,7 @@ class SeparationProblemData:
                 for aux_var in self.separation_model.uncertainty.auxiliary_var_list
             ]
         }
+        self.ss_ineq_con_priority_groups = group_ss_ineq_constraints_by_priority(self)
 
         if config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS:
             self.idxs_of_master_scenarios = [
@@ -1253,6 +1284,10 @@ class SeparationProblemData:
             ]
         else:
             self.idxs_of_master_scenarios = None
+
+    @property
+    def ss_ineq_cons_to_bypass(self):
+        return self.ss_ineq_con_priority_groups.get(None, [])
 
     def solve_separation(self, master_data):
         """
