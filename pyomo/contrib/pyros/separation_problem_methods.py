@@ -312,6 +312,7 @@ def solve_separation_problem(separation_data, master_data):
             local_separation_loop_results.found_violation
             or uncertainty_set_is_discrete
             or local_separation_loop_results.time_out
+            or local_separation_loop_results.subsolver_error
             or config.bypass_global_separation
         )
     else:
