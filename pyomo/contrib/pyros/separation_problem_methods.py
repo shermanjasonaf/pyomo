@@ -453,7 +453,10 @@ def get_worst_discrete_separation_solution(
     # constraint by separation
     # problem solutions for all scenarios
     violations_of_ss_ineq_con = [
-        solve_call_res.scaled_violations[ss_ineq_con]
+        (
+            solve_call_res.scaled_violations[ss_ineq_con]
+            if not solve_call_res.subsolver_error else np.nan
+        )
         for solve_call_res in discrete_solve_results.solver_call_results.values()
     ]
 
@@ -462,9 +465,9 @@ def get_worst_discrete_separation_solution(
     # determine separation solution for which scaled violation of this
     # second-stage inequality constraint is the worst
     worst_case_res = discrete_solve_results.solver_call_results[
-        list_of_scenario_idxs[np.argmax(violations_of_ss_ineq_con)]
+        list_of_scenario_idxs[np.nanargmax(violations_of_ss_ineq_con)]
     ]
-    worst_case_violation = np.max(violations_of_ss_ineq_con)
+    worst_case_violation = np.nanmax(violations_of_ss_ineq_con)
     assert worst_case_violation in worst_case_res.scaled_violations.values()
 
     # evaluate violations for specified second-stage inequality constraints
@@ -1202,10 +1205,7 @@ def discrete_solve(
         solve_call_results_dict[scenario_idx] = solve_call_results
 
         # halt at first encounter of unacceptable termination
-        termination_not_ok = (
-            solve_call_results.subsolver_error or solve_call_results.time_out
-        )
-        if termination_not_ok:
+        if solve_call_results.time_out:
             break
 
     return DiscreteSeparationSolveCallResults(
