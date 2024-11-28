@@ -376,6 +376,10 @@ def group_ss_ineq_constraints_by_priority(separation_data):
         Keys are sorted in descending order
         (i.e. highest priority first).
     """
+    separation_data.config.progress_logger.debug(
+        "Grouping second-stage inequality constraints by priority..."
+    )
+
     ss_ineq_cons = separation_data.separation_model.second_stage.inequality_cons
     separation_priority_groups = dict()
     ss_ineq_cons_to_bypass = []
