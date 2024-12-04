@@ -507,7 +507,10 @@ def get_worst_discrete_separation_solution(
         variable_values=worst_case_res.variable_values,
         found_violation=(worst_case_violation > config.robust_feasibility_tolerance),
         time_out=False,
-        subsolver_error=False,
+        subsolver_error=any(
+            sres.subsolver_error
+            for sres in discrete_solve_results.solver_call_results.values()
+        ),
         discrete_set_scenario_index=worst_case_res.discrete_set_scenario_index,
     )
 
