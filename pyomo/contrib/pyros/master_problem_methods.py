@@ -983,3 +983,26 @@ class MasterProblemData:
         Solve the DR polishing problem.
         """
         return minimize_dr_vars(self)
+
+    def log_active_ss_ineq_cons(self):
+        """
+        Log active constraints of the master model.
+        """
+        master_model = self.master_model
+
+        active_con_key_to_scenario_idx_map = {}
+        for blk_idx, blk in master_model.scenarios.items():
+            for con_key, con in blk.second_stage.inequality_cons.items():
+                if con.uslack() < 1e-4:
+                    (
+                        active_con_key_to_scenario_idx_map
+                        .setdefault(con_key, [])
+                        .append(blk_idx)
+                    )
+        self.config.progress_logger.debug(
+            "Active second-stage inequality constraints: "
+        )
+        for con_key, blk_idx_list in active_con_key_to_scenario_idx_map.items():
+            self.config.progress_logger.debug(
+                f"  {con_key!r:30s} ({len(blk_idx_list)} blocks)"
+            )

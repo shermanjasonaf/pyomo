@@ -201,6 +201,8 @@ def ROSolver_iterative_solve(model_data):
         if polish_master_solution:
             _, polishing_successful = master_data.solve_dr_polishing()
 
+        master_data.log_active_ss_ineq_cons()
+
         # track variable values
         current_iter_var_data = get_variable_value_data(
             nominal_master_blk, dr_var_monomial_map
