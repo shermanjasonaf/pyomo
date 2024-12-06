@@ -1669,6 +1669,18 @@ def setup_working_model(model_data, user_var_partitioning):
         else:
             working_model.original_active_inequality_cons.append(con)
 
+    # account for separation priorities specified through config
+    # note: since priority suffix is added at the root of the
+    #       working model here, priorities specified through the
+    #       config generally take precedence over those
+    #       specified through suffixes declared on the user model
+    from pyomo.core.base import Suffix
+    working_model.pyros_separation_priority = Suffix()
+    working_model.pyros_separation_priority.update({
+        working_model.user_model.find_component(con_name): priority
+        for con_name, priority in config.separation_priority_order.items()
+    })
+
 
 def standardize_inequality_constraints(model_data):
     """

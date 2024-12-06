@@ -282,6 +282,7 @@ class TestGroupSecondStageIneqConsByPriority(unittest.TestCase):
         separation_data = Bunch(
             separation_model=separation_model,
             separation_priority_order=model_data.separation_priority_order,
+            config=model_data.config,
         )
 
         priority_groups = group_ss_ineq_constraints_by_priority(separation_data)
