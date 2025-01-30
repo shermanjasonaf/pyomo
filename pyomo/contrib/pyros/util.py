@@ -2873,7 +2873,7 @@ class IterationLogRecord:
             "objective",
             "first_stage_var_shift",
             "second_stage_var_shift",
-            # "dr_var_shift",
+            "dr_var_shift",
             "num_violated_cons",
             "max_violation",
             "elapsed_time",
@@ -2925,7 +2925,7 @@ class IterationLogRecord:
         return "".join(
             f"{header_names_dict[attr]:<{fmt_lengths_dict[attr]}s}"
             for attr in fmt_lengths_dict
-            if attr != "dr_var_shift"
+            # if attr != "dr_var_shift"
         )
 
     @staticmethod
