@@ -388,7 +388,9 @@ class PyROS(object):
             log_model_statistics(model_data)
 
             # === Solve and load solution into model
-            return_soln = ROSolveResults()
+            return_soln = ROSolveResults(
+                nominal_param_values=config.nominal_uncertain_param_vals.copy()
+            )
             if not robust_infeasible:
                 pyros_soln = ROSolver_iterative_solve(model_data)
                 IterationLogRecord.log_header_rule(config.progress_logger.info)
@@ -398,11 +400,13 @@ class PyROS(object):
                     pyrosTerminationCondition.robust_feasible,
                 }
                 if termination_acceptable:
-                    return_soln.decision_rule_coeffs = load_final_solution(
+                    dr_coeffs, worst_case_realization = load_final_solution(
                         model_data=model_data,
                         master_soln=pyros_soln.master_results,
                         original_user_var_partitioning=user_var_partitioning,
                     )
+                    return_soln.decision_rule_coeffs = dr_coeffs
+                    return_soln.worst_case_param_values = worst_case_realization
 
                 # get the most recent master objective, if available
                 return_soln.final_objective_value = None

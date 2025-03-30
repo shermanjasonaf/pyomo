@@ -545,6 +545,8 @@ class RegressionTest(unittest.TestCase):
         self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
         self.assertIsNone(results.decision_rule_coeffs["affine"])
         self.assertIsNone(results.decision_rule_coeffs["quadratic"])
+        self.assertEqual(results.nominal_param_values, [2])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -575,6 +577,8 @@ class RegressionTest(unittest.TestCase):
         self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
         self.assertEqual(results.decision_rule_coeffs["affine"].shape, (0, 1))
         self.assertIsNone(results.decision_rule_coeffs["quadratic"])
+        self.assertEqual(results.nominal_param_values, [2])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -605,6 +609,8 @@ class RegressionTest(unittest.TestCase):
         self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
         self.assertEqual(results.decision_rule_coeffs["affine"].shape, (0, 1))
         self.assertEqual(results.decision_rule_coeffs["quadratic"].shape, (0, 1, 1))
+        self.assertEqual(results.nominal_param_values, [2])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -700,6 +706,8 @@ class RegressionTest(unittest.TestCase):
             ),
         )
         self.assertIsNone(results.decision_rule_coeffs)
+        self.assertEqual(results.nominal_param_values, [1.125])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -738,6 +746,8 @@ class RegressionTest(unittest.TestCase):
             msg="Returned termination condition is not return time_out.",
         )
         self.assertIsNone(results.decision_rule_coeffs)
+        self.assertEqual(results.nominal_param_values, [1.125])
+        self.assertIsNone(results.worst_case_param_values)
 
         # verify subsolver options are unchanged
         subsolvers = [local_subsolver, global_subsolver]
@@ -861,6 +871,8 @@ class RegressionTest(unittest.TestCase):
             pyrosTerminationCondition.time_out,
             msg="Returned termination condition is not return time_out.",
         )
+        self.assertEqual(results.nominal_param_values, [1.125])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         ipopt_available

@@ -2912,6 +2912,12 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     -------
     dr_coeffs_dict : dict
         The decision rule coefficients.
+    worst_case_param_realization : None or list of float
+        If ``config.objective_focus`` is ``ObjectiveType.worst_case``,
+        then this value is set to the parameter realization
+        of the master problem scenario block with the worst
+        objective function value.
+        Otherwise, this value is set to None.
     """
     config = model_data.config
     if config.objective_focus == ObjectiveType.nominal:
@@ -2941,7 +2947,12 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
         affine=dr_coeffs_tuple[1] if config.decision_rule_order >= 1 else None,
         quadratic=dr_coeffs_tuple[2] if config.decision_rule_order >= 2 else None,
     )
-    return dr_coeffs_dict
+    worst_case_param_realization = (
+        [param.value for param in soln_master_blk.uncertain_params]
+        if config.objective_focus == ObjectiveType.worst_case
+        else None
+    )
+    return dr_coeffs_dict, worst_case_param_realization
 
 
 def assemble_final_dr_coefficients(working_model):

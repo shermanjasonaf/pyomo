@@ -59,11 +59,19 @@ class ROSolveResults(object):
           then None. Otherwise, a 2D ``numpy.ndarray`` with
           as many rows as entries in `static` and as many
           columns as entries in ``self.config.uncertain_params``.
-        - `affine`: If ``config.decision_rule_order`` equals 0 or 1,
+        - `quadratic`: If ``config.decision_rule_order`` equals 0 or 1,
           then None. Otherwise, a 3D ``numpy.ndarray`` of length
           ``len(self.config.second_stage_variables)`` along
           the first axis and ``len(self.config.uncertain_params``)
           along the other two axes.
+
+    nominal_param_values : list of float
+        Nominal uncertain parameter realization.
+    worst_case_param_values : None or list of float
+        If the RO problem was solved with a worst-case objective
+        focus, then this attribute contains an uncertain
+        parameter realization that induces the worst-case
+        objective value. Otherwise, the attribute is set to None.
     """
 
     def __init__(
@@ -74,6 +82,8 @@ class ROSolveResults(object):
         final_objective_value=None,
         pyros_termination_condition=None,
         decision_rule_coeffs=None,
+        nominal_param_values=None,
+        worst_case_param_values=None,
     ):
         """Initialize self (see class docstring)."""
         self.config = config
@@ -82,6 +92,8 @@ class ROSolveResults(object):
         self.final_objective_value = final_objective_value
         self.pyros_termination_condition = pyros_termination_condition
         self.decision_rule_coeffs = decision_rule_coeffs
+        self.nominal_param_values = nominal_param_values
+        self.worst_case_param_values = worst_case_param_values
 
     def create_dr_interface(self):
         """
