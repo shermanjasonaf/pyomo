@@ -2,12 +2,15 @@
 Tests for the decision rule interface.
 """
 
-import numpy as np
-
 import pyomo.common.unittest as unittest
 from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
 from pyomo.core.base import ConcreteModel, Param, Var
-from pyomo.common.dependencies import attempt_import, numpy_available, scipy_available
+from pyomo.common.dependencies import (
+    attempt_import,
+    numpy as np,
+    numpy_available,
+    scipy_available,
+)
 
 parameterized, param_available = attempt_import('parameterized')
 
