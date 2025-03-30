@@ -782,5 +782,28 @@ class TestGenerateDREquations(unittest.TestCase):
         )
 
 
+class TestEvaluateDR(unittest.TestCase):
+    @parameterized.parameterized.expand([[0], [1], [2]])
+    def test_evaluate_dr(self, dr_order):
+        static_coeffs = [0.5, 0.8]
+        affine_coeffs = [[2, 4, 6], [8, 9, 10]]
+        quadratic_coeffs = [
+            [[0.01, 0.02, 0.03], [0.04, 0.05, 0.06], [0.07, 0.08, 0.09]],
+            [[0.10, 0.11, 0.12], [0.13, 0.14, 0.15], [0.16, 0.17, 0.18]],
+        ]
+        dri = DecisionRuleInterface(
+            static_coeffs=static_coeffs,
+            affine_coeffs=affine_coeffs if dr_order >= 1 else None,
+            quadratic_coeffs=quadratic_coeffs if dr_order >= 2 else None,
+        )
+        dr_eval = dri.evaluate([2, 1, 0.5])
+        expected_evals = {
+            0: static_coeffs,
+            1: static_coeffs + np.array([11, 30]),
+            2: static_coeffs + np.array([11, 30]) + np.array([0.4025, 1.505]),
+        }
+        np.testing.assert_allclose(dr_eval, expected_evals[dr_order])
+
+
 if __name__ == "__main__":
     unittest.main()

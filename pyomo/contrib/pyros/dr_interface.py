@@ -232,6 +232,44 @@ class DecisionRuleInterface:
         else:
             return sum(num_uncertain_params**order for order in range(self.order + 1))
 
+    def evaluate(self, uncertain_param_values, ss_idxs=None):
+        """
+        Evaluate decision rule at a given uncertain
+        parameter realization.
+
+        Parameters
+        ----------
+        uncertain_param_values : (N,) array-like
+            Uncertain parameter realization.
+        ss_idxs : None or list of int, optional
+            Second-stage variable space dimensions for which
+            to perform the evaluations. If `None` is passed,
+            then evaluation is performed for all dimensions.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array, of length ``len(ss_idxs)``, containing the
+            polynomial evaluation for each of the specified
+            second-stage variable space dimensions.
+        """
+        if ss_idxs is None:
+            ss_idxs = list(range(self.second_stage_var_dim))
+        param_val_arr = np.asarray(uncertain_param_values)
+        static_vals = self.static_coeffs[ss_idxs]
+
+        affine_vals = 0
+        if self.order >= 1:
+            affine_vals = self.affine_coeffs[ss_idxs] @ param_val_arr
+
+        quadratic_vals = 0
+        if self.order >= 2:
+            quadratic_vals = (
+                param_val_arr @ self.quadratic_coeffs[ss_idxs] @ param_val_arr
+            )
+
+        return static_vals + affine_vals + quadratic_vals
+
     def get_param_idx_to_coeff_map(self, ss_idx, simplified=True):
         """
         Cast the coefficients contained in `self` to a map
