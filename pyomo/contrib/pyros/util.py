@@ -23,6 +23,8 @@ import logging
 import math
 import timeit
 
+import numpy as np
+
 from pyomo.common.collections import ComponentMap, ComponentSet
 from pyomo.common.dependencies import scipy as sp
 from pyomo.common.errors import ApplicationError, InvalidValueError
@@ -2823,6 +2825,9 @@ def add_decision_rule_constraints(model_data):
     model_data.working_model.dr_var_to_exponent_map = dr_var_to_exponent_map = (
         ComponentMap()
     )
+    model_data.working_model.dr_var_to_param_combo_map = dr_var_to_param_combo_map = (
+        ComponentMap()
+    )
 
     # facilitate retrieval of DR equation for a given
     # effective second-stage variable later
@@ -2859,6 +2864,7 @@ def add_decision_rule_constraints(model_data):
             # map decision rule var to degree (exponent) of the
             # associated monomial with respect to the uncertain params
             dr_var_to_exponent_map[dr_var] = len(param_combo)
+            dr_var_to_param_combo_map[dr_var] = param_combo
 
         # declare constraint on model
         decision_rule_eqns[idx] = dr_expression - eff_ss_var == 0
@@ -2901,6 +2907,11 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     original_user_var_partitioning : VariablePartitioning
         User partitioning of the variables of the original
         model.
+
+    Returns
+    -------
+    dr_coeffs_dict : dict
+        The decision rule coefficients.
     """
     config = model_data.config
     if config.objective_focus == ObjectiveType.nominal:
@@ -2923,6 +2934,65 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     )
     for orig_var, master_blk_var in zip(original_model_vars, master_soln_vars):
         orig_var.set_value(master_blk_var.value, skip_validation=True)
+
+    dr_coeffs_tuple = assemble_final_dr_coefficients(soln_master_blk)
+    dr_coeffs_dict = dict(
+        static=dr_coeffs_tuple[0],
+        affine=dr_coeffs_tuple[1] if config.decision_rule_order >= 1 else None,
+        quadratic=dr_coeffs_tuple[2] if config.decision_rule_order >= 2 else None,
+    )
+    return dr_coeffs_dict
+
+
+def assemble_final_dr_coefficients(working_model):
+    """
+    Assemble final DR coefficients into matrices.
+    """
+    second_stage_vars_set = ComponentSet(
+        working_model.user_var_partitioning.second_stage_variables
+    )
+    effective_second_stage_vars_set = ComponentSet(
+        working_model.effective_var_partitioning.second_stage_variables
+    )
+    uncertain_params_set = ComponentSet(working_model.uncertain_params)
+    num_second_stage_vars = len(second_stage_vars_set)
+    num_uncertain_params = len(uncertain_params_set)
+    static_coeffs = np.zeros(num_second_stage_vars)
+    affine_coeffs = np.zeros((num_second_stage_vars, num_uncertain_params))
+    quadratic_coeffs = np.zeros(
+        (num_second_stage_vars, num_uncertain_params, num_uncertain_params)
+    )
+    param_to_idx_map = ComponentMap(
+        (param, idx) for idx, param in enumerate(uncertain_params_set)
+    )
+    for ss_idx, ss_var in enumerate(second_stage_vars_set):
+        if ss_var not in effective_second_stage_vars_set:
+            static_coeffs[ss_idx] = ss_var.value
+        else:
+            indexed_dr_var = working_model.eff_ss_var_to_dr_var_map[ss_var]
+            for dr_vdata in indexed_dr_var.values():
+                dr_monomial_params = working_model.dr_var_to_param_combo_map[dr_vdata]
+                if not dr_monomial_params:
+                    static_coeffs[ss_idx] = dr_vdata.value
+                elif len(dr_monomial_params) == 1:
+                    param_idx = param_to_idx_map[dr_monomial_params[0]]
+                    affine_coeffs[ss_idx, param_idx] = dr_vdata.value
+                elif len(dr_monomial_params) == 2:
+                    param_idx_0 = param_to_idx_map[dr_monomial_params[0]]
+                    param_idx_1 = param_to_idx_map[dr_monomial_params[1]]
+                    if param_idx_0 == param_idx_1:
+                        quadratic_coeffs[ss_idx, param_idx_0, param_idx_1] = (
+                            dr_vdata.value
+                        )
+                    else:
+                        quadratic_coeffs[ss_idx, param_idx_0, param_idx_1] = (
+                            dr_vdata.value / 2
+                        )
+                        quadratic_coeffs[ss_idx, param_idx_1, param_idx_0] = (
+                            dr_vdata.value / 2
+                        )
+
+    return static_coeffs, affine_coeffs, quadratic_coeffs
 
 
 def call_solver(model, solver, config, timing_obj, timer_name, err_msg):

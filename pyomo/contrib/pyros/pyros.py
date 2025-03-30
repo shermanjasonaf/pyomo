@@ -398,7 +398,7 @@ class PyROS(object):
                     pyrosTerminationCondition.robust_feasible,
                 }
                 if termination_acceptable:
-                    load_final_solution(
+                    return_soln.decision_rule_coeffs = load_final_solution(
                         model_data=model_data,
                         master_soln=pyros_soln.master_results,
                         original_user_var_partitioning=user_var_partitioning,

@@ -482,6 +482,7 @@ class TestPyROSRobustInfeasible(unittest.TestCase):
         self.assertEqual(results.iterations, 1)
         # since x was not initialized
         self.assertEqual(results.final_objective_value, None)
+        self.assertEqual(results.decision_rule_coeffs, None)
 
 
 global_solver = "baron"
@@ -541,6 +542,9 @@ class RegressionTest(unittest.TestCase):
             results.pyros_termination_condition,
             pyrosTerminationCondition.robust_feasible,
         )
+        self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
+        self.assertIsNone(results.decision_rule_coeffs["affine"])
+        self.assertIsNone(results.decision_rule_coeffs["quadratic"])
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -568,6 +572,9 @@ class RegressionTest(unittest.TestCase):
             results.pyros_termination_condition,
             pyrosTerminationCondition.robust_feasible,
         )
+        self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
+        self.assertEqual(results.decision_rule_coeffs["affine"].shape, (0, 1))
+        self.assertIsNone(results.decision_rule_coeffs["quadratic"])
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -595,6 +602,9 @@ class RegressionTest(unittest.TestCase):
             results.pyros_termination_condition,
             pyrosTerminationCondition.robust_feasible,
         )
+        self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
+        self.assertEqual(results.decision_rule_coeffs["affine"].shape, (0, 1))
+        self.assertEqual(results.decision_rule_coeffs["quadratic"].shape, (0, 1, 1))
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -689,6 +699,7 @@ class RegressionTest(unittest.TestCase):
                 f"but expected value 1."
             ),
         )
+        self.assertIsNone(results.decision_rule_coeffs)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -726,6 +737,7 @@ class RegressionTest(unittest.TestCase):
             pyrosTerminationCondition.time_out,
             msg="Returned termination condition is not return time_out.",
         )
+        self.assertIsNone(results.decision_rule_coeffs)
 
         # verify subsolver options are unchanged
         subsolvers = [local_subsolver, global_subsolver]
@@ -1019,6 +1031,7 @@ class RegressionTest(unittest.TestCase):
                 "test is not {pyrosTerminationCondition.subsolver_error}.",
             ),
         )
+        self.assertIsNone(res.decision_rule_coeffs)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -1065,6 +1078,7 @@ class RegressionTest(unittest.TestCase):
                 f"test is not {pyrosTerminationCondition.subsolver_error}."
             ),
         )
+        self.assertIsNone(res.decision_rule_coeffs)
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
     @unittest.skipUnless(baron_license_is_valid, "BARON is not available and licensed.")
@@ -1121,6 +1135,7 @@ class RegressionTest(unittest.TestCase):
             res.pyros_termination_condition, pyrosTerminationCondition.subsolver_error
         )
         self.assertEqual(res.iterations, 1)
+        self.assertIsNone(res.decision_rule_coeffs)
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
     @unittest.skipUnless(
@@ -1566,6 +1581,11 @@ class RegressionTest(unittest.TestCase):
                     f"subsolver {name} not as expected"
                 ),
             )
+            np.testing.assert_allclose(
+                res.decision_rule_coeffs["static"], [m.x1.value, m.x2.value, m.x3.value]
+            )
+            self.assertIsNone(res.decision_rule_coeffs["affine"])
+            self.assertIsNone(res.decision_rule_coeffs["quadratic"])
 
     @unittest.skipUnless(
         scip_available and scip_license_is_valid, "SCIP is not available and licensed."
