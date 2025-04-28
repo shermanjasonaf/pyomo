@@ -1112,7 +1112,7 @@ def solver_call_separation(
                 + str(separation_data.iteration)
                 + "_obj_"
                 + objective
-                + ".bar"
+                + ".gms"
             ),
         )
         separation_model.write(

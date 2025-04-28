@@ -842,7 +842,7 @@ def solver_call_master(master_data):
                 + master_data.original_model_name
                 + "_master_"
                 + str(master_data.iteration)
-                + ".bar"
+                + ".gms"
             ),
         )
         master_model.write(
