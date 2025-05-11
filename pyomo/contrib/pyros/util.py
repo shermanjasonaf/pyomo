@@ -2199,7 +2199,7 @@ def standardize_active_objective(model_data):
                 <= 0
             )
             model_data.separation_priority_order["epigraph_con"] = (
-                DEFAULT_SEPARATION_PRIORITY
+                DEFAULT_SEPARATION_PRIORITY - 1
             )
         elif config.objective_focus == ObjectiveType.nominal:
             working_model.first_stage.inequality_cons["epigraph_con"] = (

@@ -1505,7 +1505,7 @@ class TestStandardizeActiveObjective(unittest.TestCase):
             working_model.second_stage.inequality_cons["epigraph_con"].expr,
             m.obj1.expr - working_model.first_stage.epigraph_var <= 0,
         )
-        self.assertEqual(model_data.separation_priority_order["epigraph_con"], 0)
+        self.assertEqual(model_data.separation_priority_order["epigraph_con"], -1)
 
     def test_standardize_active_obj_nominal_focus(self):
         """
@@ -2751,7 +2751,7 @@ class TestPreprocessModelData(unittest.TestCase):
 
         # check separation priorities
         for con_name, order in model_data.separation_priority_order.items():
-            expected_order = 2 if "ineq3" in con_name else 0
+            expected_order = 2 if "ineq3" in con_name else (-1 * ("epigraph_con" == con_name))
             self.assertEqual(
                 order,
                 expected_order,
