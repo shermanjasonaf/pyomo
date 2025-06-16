@@ -364,9 +364,11 @@ class PyROS(object):
             self._log_intro(logger=progress_logger, level=logging.INFO)
             self._log_disclaimer(logger=progress_logger, level=logging.INFO)
 
+            model_data.timing.start_timer("main.validate_inputs")
             config, user_var_partitioning = self._resolve_and_validate_pyros_args(
                 model, **kwds
             )
+            model_data.timing.stop_timer("main.validate_inputs")
             self._log_config(
                 logger=config.progress_logger,
                 config=config,
