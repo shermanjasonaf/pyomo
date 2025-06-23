@@ -103,6 +103,15 @@ class TimingData:
         "main.dr_polishing",
         "main.local_separation",
         "main.global_separation",
+        "main.construct_master_feasibility",
+        "main.construct_dr_polishing",
+        "main.initialize_separation",
+        "main.add_to_master",
+        "main.validate_inputs",
+        "main.get_argmax_sum_violations",
+        "main.eval_separation_results",
+        "main.construct_master_data",
+        "main.construct_separation_data",
     }
 
     def __init__(self):
