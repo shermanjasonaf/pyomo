@@ -2913,7 +2913,7 @@ def preprocess_model_data(model_data, user_var_partitioning):
     model_data.working_model.second_stage.second_stage_var_bound_cons = []
     model_data.working_model.second_stage.other_state_var_indep_cons = []
     model_data.working_model.second_stage.all_state_var_indep_cons = []
-    model_data.working_model.second_stage.all_state_var_dependent_cons = []
+    model_data.working_model.second_stage.all_state_var_dep_cons = []
 
     state_var_set = ComponentSet(
         model_data.working_model.effective_var_partitioning.state_variables
@@ -2943,7 +2943,7 @@ def preprocess_model_data(model_data, user_var_partitioning):
                     con
                 )
         else:
-            model_data.working_model.second_stage.all_state_var_dependent_cons.append(
+            model_data.working_model.second_stage.all_state_var_dep_cons.append(
                 con
             )
 

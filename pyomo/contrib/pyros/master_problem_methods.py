@@ -936,6 +936,8 @@ class MasterProblemData:
         self.iteration = 0
         self.timing = model_data.timing
         self.config = model_data.config
+        self.state_var_indep_scenario_idxs = []
+        self.state_var_dep_scenario_idxs = [(0, 0)]
 
     def solve_master(self):
         """
