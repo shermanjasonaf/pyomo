@@ -391,6 +391,30 @@ def group_ss_ineq_constraints_by_priority(separation_data):
         "Grouping second-stage inequality constraints by separation priority..."
     )
 
+    # need to account fo
+    min_user_priority = min(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    if "epigraph_con" in separation_data.separation_priority_order:
+        separation_data.separation_priority_order["epigraph_con"] = (
+            min_user_priority - 1
+        )
+    max_flat_ineq_priority = max(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    min_flat_ineq_priority = min(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    priority_tier_gap = max_flat_ineq_priority - min_flat_ineq_priority + 2
+
+    sep_model = separation_data.separation_model
+    for con in sep_model.second_stage.coeff_matching_ineq_cons:
+        separation_data.separation_priority_order[con.index()] += 3 * priority_tier_gap
+    for con in sep_model.second_stage.second_stage_var_bound_cons:
+        separation_data.separation_priority_order[con.index()] += 2 * priority_tier_gap
+    for con in sep_model.second_stage.other_state_var_indep_cons:
+        separation_data.separation_priority_order[con.index()] += 1 * priority_tier_gap
+
     ss_ineq_cons = separation_data.separation_model.second_stage.inequality_cons
     separation_priority_groups = dict()
     for name, ss_ineq_con in ss_ineq_cons.items():
