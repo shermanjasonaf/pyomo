@@ -25,12 +25,10 @@ from pyomo.common.dependencies import (
     scipy_available,
 )
 
-from pyomo.common.collections import Bunch
 from pyomo.environ import SolverFactory
 from pyomo.core.base import ConcreteModel, Param, Var
 from pyomo.core.expr import RangedExpression
 from pyomo.core.expr.compare import assertExpressionsEqual
-from pyomo.environ import SolverFactory
 
 from pyomo.contrib.pyros.uncertainty_sets import (
     AxisAlignedEllipsoidalSet,
@@ -318,12 +316,14 @@ class TestBoxSet(unittest.TestCase):
             box_set.set_as_constraint(uncertain_params=m.p1, block=m)
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
         box_set = BoxSet([[1, 2], [3, 4]])
-        computed_bounds = box_set._compute_parameter_bounds(SolverFactory("baron"))
+        computed_bounds = box_set._compute_exact_parameter_bounds(
+            SolverFactory("baron")
+        )
         np.testing.assert_allclose(computed_bounds, [[1, 2], [3, 4]])
         np.testing.assert_allclose(computed_bounds, box_set.parameter_bounds)
 
@@ -411,7 +411,23 @@ class TestBoxSet(unittest.TestCase):
         Test `is_bounded` and `is_nonempty` for a valid box set.
         """
         box_set = BoxSet(bounds=[[1.0, 2.0], [3.0, 4.0]])
-        bounded_and_nonempty_check(self, box_set),
+        bounded_and_nonempty_check(self, box_set)
+
+    def test_fbbt_error(self):
+        """
+        Test that `_fbbt_parameter_bounds` error message with bad bounds.
+        """
+        CONFIG = pyros_config()
+
+        # construct box set with invalid bounds
+        box_set = BoxSet(bounds=[[2, 1]])
+        exc_str = (
+            "Encountered the following exception while "
+            "computing parameter bounds with FBBT"
+        )
+        with self.assertLogs(CONFIG.progress_logger, level='ERROR') as cm:
+            box_set._fbbt_parameter_bounds(config=CONFIG)
+        self.assertIn(exc_str, cm.output[0])
 
     def test_is_coordinate_fixed(self):
         """
@@ -524,7 +540,7 @@ class TestBudgetSet(unittest.TestCase):
             bu_set.budget_rhs_vec = [1]
 
     @unittest.skipUnless(baron_available, "BARON is not available")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
@@ -532,7 +548,7 @@ class TestBudgetSet(unittest.TestCase):
 
         buset1 = BudgetSet([[1, 1], [0, 1]], rhs_vec=[2, 3], origin=None)
         np.testing.assert_allclose(
-            buset1.parameter_bounds, buset1._compute_parameter_bounds(solver)
+            buset1.parameter_bounds, buset1._compute_exact_parameter_bounds(solver)
         )
 
         # this also checks that the list entries are tuples
@@ -540,10 +556,10 @@ class TestBudgetSet(unittest.TestCase):
 
         buset2 = BudgetSet([[1, 0], [1, 1]], rhs_vec=[3, 2], origin=[1, 2])
         self.assertEqual(
-            buset2.parameter_bounds, buset2._compute_parameter_bounds(solver)
+            buset2.parameter_bounds, buset2._compute_exact_parameter_bounds(solver)
         )
         np.testing.assert_allclose(
-            buset2.parameter_bounds, buset2._compute_parameter_bounds(solver)
+            buset2.parameter_bounds, buset2._compute_exact_parameter_bounds(solver)
         )
         self.assertEqual(buset2.parameter_bounds, [(1, 3), (2, 4)])
 
@@ -759,7 +775,7 @@ class TestBudgetSet(unittest.TestCase):
         budget_mat = [[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]
         budget_rhs_vec = [1.0, 3.0]
         budget_set = BudgetSet(budget_mat, budget_rhs_vec)
-        bounded_and_nonempty_check(self, budget_set),
+        bounded_and_nonempty_check(self, budget_set)
 
     def test_is_coordinate_fixed(self):
         """
@@ -890,7 +906,7 @@ class TestFactorModelSet(unittest.TestCase):
         ]
     )
     @unittest.skipUnless(baron_available, "BARON is not available")
-    def test_compute_parameter_bounds(self, name, beta, expected_param_bounds):
+    def test_compute_exact_parameter_bounds(self, name, beta, expected_param_bounds):
         """
         Test parameter bounds computations give expected results.
         """
@@ -909,7 +925,7 @@ class TestFactorModelSet(unittest.TestCase):
 
         # check parameter bounds matches LP results
         # exactly for each case
-        solver_param_bounds = fset._compute_parameter_bounds(solver)
+        solver_param_bounds = fset._compute_exact_parameter_bounds(solver)
         np.testing.assert_allclose(
             solver_param_bounds,
             param_bounds,
@@ -1184,7 +1200,7 @@ class TestFactorModelSet(unittest.TestCase):
         psi_mat = [[1, 0], [0, 1], [1, 1]]
         beta = 0.5
         factor_set = FactorModelSet(origin, number_of_factors, psi_mat, beta)
-        bounded_and_nonempty_check(self, factor_set),
+        bounded_and_nonempty_check(self, factor_set)
 
     def test_is_coordinate_fixed(self):
         """
@@ -1486,7 +1502,7 @@ class TestIntersectionSet(unittest.TestCase):
             i_set.set_as_constraint(uncertain_params=m.p1, block=m)
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
@@ -1503,7 +1519,7 @@ class TestIntersectionSet(unittest.TestCase):
 
         # ellipsoid is enclosed by everyone else, so
         # that determines the bounds
-        computed_bounds = i_set._compute_parameter_bounds(SolverFactory("baron"))
+        computed_bounds = i_set._compute_exact_parameter_bounds(SolverFactory("baron"))
         np.testing.assert_allclose(computed_bounds, [[-0.25, 0.25], [-0.25, 0.25]])
 
         # returns empty list
@@ -1605,8 +1621,9 @@ class TestIntersectionSet(unittest.TestCase):
         bset = BoxSet(bounds=[[-1, 1], [-1, 1], [-1, 1]])
         aset = AxisAlignedEllipsoidalSet([0, 0, 0], [1, 1, 1])
         intersection_set = IntersectionSet(box_set=bset, axis_aligned_set=aset)
-        bounded_and_nonempty_check(self, intersection_set),
+        bounded_and_nonempty_check(self, intersection_set)
 
+    @unittest.skipUnless(baron_available, "BARON is not available")
     def test_is_coordinate_fixed(self):
         """
         Test method for checking whether there are coordinates
@@ -1742,14 +1759,14 @@ class TestCardinalitySet(unittest.TestCase):
             cset.point_in_set([1, 2, 3, 4])
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
         cset = CardinalitySet(
             origin=[-0.5, 1, 2], positive_deviation=[2.5, 3, 0], gamma=1.5
         )
-        computed_bounds = cset._compute_parameter_bounds(SolverFactory("baron"))
+        computed_bounds = cset._compute_exact_parameter_bounds(SolverFactory("baron"))
         np.testing.assert_allclose(computed_bounds, [[-0.5, 2], [1, 4], [2, 2]])
         np.testing.assert_allclose(computed_bounds, cset.parameter_bounds)
 
@@ -1862,7 +1879,7 @@ class TestCardinalitySet(unittest.TestCase):
         cardinality_set = CardinalitySet(
             origin=[0, 0], positive_deviation=[1, 1], gamma=2
         )
-        bounded_and_nonempty_check(self, cardinality_set),
+        bounded_and_nonempty_check(self, cardinality_set)
 
     def test_is_coordinate_fixed(self):
         """
@@ -2038,10 +2055,11 @@ class TestDiscreteScenarioSet(unittest.TestCase):
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_bounded_and_nonempty(self):
         """
-        Test `is_bounded` and `is_nonempty` for a valid discrete scenario set.
+        Test `is_bounded` and `is_nonempty` for a valid
+        discrete scenario set.
         """
         discrete_set = DiscreteScenarioSet([[1, 2], [3, 4]])
-        bounded_and_nonempty_check(self, discrete_set),
+        bounded_and_nonempty_check(self, discrete_set)
 
     def test_is_coordinate_fixed(self):
         """
@@ -2163,12 +2181,12 @@ class TestAxisAlignedEllipsoidalSet(unittest.TestCase):
             aeset.set_as_constraint(uncertain_params=m.p1, block=m)
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
         aeset = AxisAlignedEllipsoidalSet(center=[0, 1.5, 1], half_lengths=[1.5, 2, 0])
-        computed_bounds = aeset._compute_parameter_bounds(SolverFactory("baron"))
+        computed_bounds = aeset._compute_exact_parameter_bounds(SolverFactory("baron"))
         np.testing.assert_allclose(computed_bounds, [[-1.5, 1.5], [-0.5, 3.5], [1, 1]])
         np.testing.assert_allclose(computed_bounds, aeset.parameter_bounds)
 
@@ -2262,12 +2280,13 @@ class TestAxisAlignedEllipsoidalSet(unittest.TestCase):
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_bounded_and_nonempty(self):
         """
-        Test `is_bounded` and `is_nonempty` for a valid axis aligned ellipsoidal set.
+        Test `is_bounded` and `is_nonempty` for a valid
+        axis aligned ellipsoidal set.
         """
         center = [0.0, 0.0]
         half_lengths = [1.0, 3.0]
         a_ellipsoid_set = AxisAlignedEllipsoidalSet(center, half_lengths)
-        bounded_and_nonempty_check(self, a_ellipsoid_set),
+        bounded_and_nonempty_check(self, a_ellipsoid_set)
 
     def test_is_coordinate_fixed(self):
         """
@@ -2548,7 +2567,7 @@ class TestEllipsoidalSet(unittest.TestCase):
             eset.point_in_set([1, 2, 3, 4])
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
@@ -2556,14 +2575,14 @@ class TestEllipsoidalSet(unittest.TestCase):
         eset = EllipsoidalSet(
             center=[1, 1.5], shape_matrix=[[1, 0.5], [0.5, 1]], scale=0.25
         )
-        computed_bounds = eset._compute_parameter_bounds(baron)
+        computed_bounds = eset._compute_exact_parameter_bounds(baron)
         np.testing.assert_allclose(computed_bounds, [[0.5, 1.5], [1.0, 2.0]])
         np.testing.assert_allclose(computed_bounds, eset.parameter_bounds)
 
         eset2 = EllipsoidalSet(
             center=[1, 1.5], shape_matrix=[[1, 0.5], [0.5, 1]], scale=2.25
         )
-        computed_bounds_2 = eset2._compute_parameter_bounds(baron)
+        computed_bounds_2 = eset2._compute_exact_parameter_bounds(baron)
 
         # add absolute tolerance to account from
         # matrix inversion and roundoff errors
@@ -2680,7 +2699,7 @@ class TestEllipsoidalSet(unittest.TestCase):
         shape_matrix = [[1.0, 0.0], [0.0, 2.0]]
         scale = 1
         ellipsoid_set = EllipsoidalSet(center, shape_matrix, scale)
-        bounded_and_nonempty_check(self, ellipsoid_set),
+        bounded_and_nonempty_check(self, ellipsoid_set)
 
     def test_is_coordinate_fixed(self):
         """
@@ -2832,7 +2851,7 @@ class TestPolyhedralSet(unittest.TestCase):
             pset.set_as_constraint(uncertain_params=m.p1, block=m)
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
@@ -2840,7 +2859,7 @@ class TestPolyhedralSet(unittest.TestCase):
             lhs_coefficients_mat=[[1, 0], [-1, 1], [-1, -1]], rhs_vec=[2, -1, -1]
         )
         self.assertEqual(pset.parameter_bounds, [])
-        computed_bounds = pset._compute_parameter_bounds(SolverFactory("baron"))
+        computed_bounds = pset._compute_exact_parameter_bounds(SolverFactory("baron"))
         self.assertEqual(computed_bounds, [(1, 2), (-1, 1)])
 
     def test_point_in_set(self):
@@ -2952,8 +2971,9 @@ class TestPolyhedralSet(unittest.TestCase):
             lhs_coefficients_mat=[[1.0, 0.0], [-1.0, 1.0], [-1.0, -1.0]],
             rhs_vec=[2.0, -1.0, -1.0],
         )
-        bounded_and_nonempty_check(self, polyhedral_set),
+        bounded_and_nonempty_check(self, polyhedral_set)
 
+    @unittest.skipUnless(baron_available, "BARON is not available")
     def test_is_coordinate_fixed(self):
         """
         Test method for checking whether there are coordinates
@@ -3040,14 +3060,16 @@ class TestCustomUncertaintySet(unittest.TestCase):
         self.assertEqual(len(uq.uncertain_param_vars), 2)
 
     @unittest.skipUnless(baron_available, "BARON is not available")
-    def test_compute_parameter_bounds(self):
+    def test_compute_exact_parameter_bounds(self):
         """
         Test parameter bounds computations give expected results.
         """
         baron = SolverFactory("baron")
         custom_set = CustomUncertaintySet(dim=2)
         self.assertEqual(custom_set.parameter_bounds, [(-1, 1)] * 2)
-        self.assertEqual(custom_set._compute_parameter_bounds(baron), [(-1, 1)] * 2)
+        self.assertEqual(
+            custom_set._compute_exact_parameter_bounds(baron), [(-1, 1)] * 2
+        )
 
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_solve_feasibility(self):
@@ -3057,7 +3079,7 @@ class TestCustomUncertaintySet(unittest.TestCase):
         # feasibility problem passes
         baron = SolverFactory("baron")
         custom_set = CustomUncertaintySet(dim=2)
-        self.assertTrue(custom_set._solve_feasibility(baron))
+        custom_set._solve_feasibility(baron)
 
         # feasibility problem fails
         custom_set.parameter_bounds = [[1, 2], [3, 4]]
@@ -3076,25 +3098,11 @@ class TestCustomUncertaintySet(unittest.TestCase):
         CONFIG.global_solver = global_solver
 
         # using provided parameter_bounds
-        start = time.time()
         self.assertTrue(custom_set.is_bounded(config=CONFIG), "Set is not bounded")
-        end = time.time()
-        time_with_bounds_provided = end - start
 
         # when parameter_bounds is not available
-        custom_set.parameter_bounds = None
-        start = time.time()
+        custom_set.parameter_bounds = []
         self.assertTrue(custom_set.is_bounded(config=CONFIG), "Set is not bounded")
-        end = time.time()
-        time_without_bounds_provided = end - start
-
-        # check with parameter_bounds should always take less time than solving 2N
-        # optimization problems
-        self.assertLess(
-            time_with_bounds_provided,
-            time_without_bounds_provided,
-            "Boundedness check with provided parameter_bounds took longer than expected.",
-        )
 
         # when bad bounds are provided
         for val_str in ["inf", "nan"]:
@@ -3132,6 +3140,7 @@ class TestCustomUncertaintySet(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, exc_str):
             custom_set.is_nonempty(config=CONFIG)
 
+    @unittest.skipUnless(baron_available, "BARON is not available")
     def test_is_coordinate_fixed(self):
         """
         Test method for checking whether there are coordinates
