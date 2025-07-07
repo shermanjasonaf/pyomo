@@ -13,8 +13,6 @@
 Functions for construction and solution of the PyROS master problem.
 """
 
-import os
-
 from pyomo.common.collections import ComponentMap, ComponentSet
 from pyomo.common.modeling import unique_component_name
 from pyomo.core import TransformationFactory
@@ -37,6 +35,7 @@ from pyomo.contrib.pyros.util import (
     ObjectiveType,
     pyrosTerminationCondition,
     TIC_TOC_SOLVE_TIME_ATTR,
+    write_subproblem,
 )
 
 
@@ -832,31 +831,7 @@ def solver_call_master(master_data):
 
     # all solvers have failed to return an acceptable status.
     # we will terminate PyROS with subsolver error status.
-    # at this point, export subproblem to file, if desired.
-    # NOTE: subproblem is written with variables set to their
-    #       initial values (not the final subsolver iterate)
-    save_dir = config.subproblem_file_directory
-    serialization_msg = ""
-    if save_dir and config.keepfiles:
-        output_problem_path = os.path.join(
-            save_dir,
-            (
-                config.uncertainty_set.type
-                + "_"
-                + master_data.original_model_name
-                + "_master_"
-                + str(master_data.iteration)
-                + ".gms"
-            ),
-        )
-        master_model.write(
-            output_problem_path, io_options={'symbolic_solver_labels': True}
-        )
-        serialization_msg = (
-            " For debugging, problem has been serialized to the file "
-            f"{output_problem_path!r}."
-        )
-
+    # log subproblem solve failure warning
     deterministic_model_qual = (
         " (i.e., the deterministic model)" if master_data.iteration == 0 else ""
     )
@@ -871,7 +846,6 @@ def solver_call_master(master_data):
         if master_data.iteration == 0
         else ""
     )
-
     master_soln.pyros_termination_condition = pyrosTerminationCondition.subsolver_error
     subsolver_termination_conditions = [
         res.solver.termination_condition for res in master_soln.master_results_list
@@ -883,8 +857,21 @@ def solver_call_master(master_data):
         f"(Termination statuses: "
         f"{[term_cond for term_cond in subsolver_termination_conditions]}.)"
         f"{deterministic_msg}"
-        f"{serialization_msg}"
     )
+
+    # at this point, export subproblem to file, if desired.
+    # NOTE: subproblem is written with variables set to their
+    #       initial values (not the final subsolver iterate)
+    if config.keepfiles and config.subproblem_file_directory is not None:
+        write_subproblem(
+            model=master_model,
+            fname=(
+                f"{config.uncertainty_set.type}"
+                f"_{master_data.original_model_name}"
+                f"_master_{master_data.iteration}"
+            ),
+            config=config,
+        )
 
     return master_soln
 
