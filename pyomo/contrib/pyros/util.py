@@ -2917,6 +2917,45 @@ def preprocess_model_data(model_data, user_var_partitioning):
     for priority_sfx in model_data.separation_priority_suffix_finder.all_suffixes:
         priority_sfx.deactivate()
 
+    # classify second-stage inequalities further
+    model_data.working_model.second_stage.coeff_matching_ineq_cons = []
+    model_data.working_model.second_stage.second_stage_var_bound_cons = []
+    model_data.working_model.second_stage.other_state_var_indep_cons = []
+    model_data.working_model.second_stage.all_state_var_indep_cons = []
+    model_data.working_model.second_stage.all_state_var_dep_cons = []
+
+    state_var_set = ComponentSet(
+        model_data.working_model.effective_var_partitioning.state_variables
+    )
+    for idx, con in model_data.working_model.second_stage.inequality_cons.items():
+        state_vars_in_con = state_var_set & ComponentSet(identify_variables(con.expr))
+        if not state_vars_in_con:
+            model_data.working_model.second_stage.all_state_var_indep_cons.append(con)
+            if idx.startswith("reform_"):
+                (
+                    model_data
+                    .working_model
+                    .second_stage
+                    .coeff_matching_ineq_cons
+                    .append(con)
+                )
+            elif idx.startswith("var") and idx.endswith("_bound_con"):
+                (
+                    model_data
+                    .working_model
+                    .second_stage
+                    .second_stage_var_bound_cons
+                    .append(con)
+                )
+            else:
+                model_data.working_model.second_stage.other_state_var_indep_cons.append(
+                    con
+                )
+        else:
+            model_data.working_model.second_stage.all_state_var_dep_cons.append(
+                con
+            )
+
     return robust_infeasible
 
 

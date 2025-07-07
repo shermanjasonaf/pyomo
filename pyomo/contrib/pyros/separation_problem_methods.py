@@ -387,6 +387,30 @@ def group_ss_ineq_constraints_by_priority(separation_data):
         "Grouping second-stage inequality constraints by separation priority..."
     )
 
+    # need to account fo
+    min_user_priority = min(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    if "epigraph_con" in separation_data.separation_priority_order:
+        separation_data.separation_priority_order["epigraph_con"] = (
+            min_user_priority - 1
+        )
+    max_flat_ineq_priority = max(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    min_flat_ineq_priority = min(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    priority_tier_gap = max_flat_ineq_priority - min_flat_ineq_priority + 2
+
+    sep_model = separation_data.separation_model
+    for con in sep_model.second_stage.coeff_matching_ineq_cons:
+        separation_data.separation_priority_order[con.index()] += 3 * priority_tier_gap
+    for con in sep_model.second_stage.second_stage_var_bound_cons:
+        separation_data.separation_priority_order[con.index()] += 2 * priority_tier_gap
+    for con in sep_model.second_stage.other_state_var_indep_cons:
+        separation_data.separation_priority_order[con.index()] += 1 * priority_tier_gap
+
     ss_ineq_cons = separation_data.separation_model.second_stage.inequality_cons
     separation_priority_groups = dict()
     for name, ss_ineq_con in ss_ineq_cons.items():
@@ -879,8 +903,18 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
     # initialize from master block with max violation of the
     # second-stage ineq constraint of interest. Gives the best known
     # feasible solution (for case of non-discrete uncertainty sets).
+    is_con_state_dep = (
+        ss_ineq_con_to_maximize
+        in ComponentSet(sep_model.second_stage.all_state_var_dep_cons)
+    )
+    if is_con_state_dep:
+        scenario_idxs = master_data.state_var_dep_scenario_idxs
+    else:
+        scenario_idxs = list(master_model.scenarios.keys())
+
     worst_master_block_idx = max(
-        master_model.scenarios.keys(), key=eval_master_violation
+        scenario_idxs,
+        key=eval_master_violation,
     )
     worst_case_master_blk = master_model.scenarios[worst_master_block_idx]
     for sep_var in sep_model.all_variables:
@@ -988,6 +1022,22 @@ def solver_call_separation(
     separation_model = separation_data.separation_model
     objectives_map = separation_data.separation_model.second_stage_ineq_con_to_obj_map
     separation_obj = objectives_map[ss_ineq_con_to_maximize]
+
+    is_obj_state_var_independent = (
+        ss_ineq_con_to_maximize
+        in separation_model.second_stage.all_state_var_indep_cons
+    )
+    if is_obj_state_var_independent:
+        for eq in separation_model.second_stage.equality_cons.values():
+            eq.deactivate()
+        for var in separation_model.effective_var_partitioning.state_variables:
+            var.fix()
+    else:
+        for eq in separation_model.second_stage.equality_cons.values():
+            eq.activate()
+        for var in separation_model.effective_var_partitioning.state_variables:
+            var.unfix()
+
     separation_data.timing.start_timer("main.initialize_separation")
     initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
     separation_data.timing.stop_timer("main.initialize_separation")

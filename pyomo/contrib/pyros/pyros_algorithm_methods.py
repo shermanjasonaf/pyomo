@@ -334,6 +334,25 @@ def ROSolver_iterative_solve(model_data):
         )
         model_data.timing.stop_timer("main.add_to_master")
 
+        from pyomo.common.collections import ComponentSet
+        worst_con_state_var_indep = (
+            separation_results.worst_case_ss_ineq_con
+            in ComponentSet(
+                separation_data.separation_model.second_stage.all_state_var_indep_cons
+            )
+        )
+        if worst_con_state_var_indep:
+            master_data.state_var_indep_scenario_idxs.append((k + 1, 0))
+            new_blk = master_data.master_model.scenarios[k + 1, 0]
+            for eq in new_blk.second_stage.equality_cons.values():
+                eq.deactivate()
+            for ineq in new_blk.second_stage.all_state_var_dep_cons:
+                ineq.deactivate()
+            for state_var in new_blk.effective_var_partitioning.state_variables:
+                state_var.fix()
+        else:
+            master_data.state_var_dep_scenario_idxs.append((k + 1, 0))
+
         separation_data.points_added_to_master[(k + 1, 0)] = (
             separation_results.violating_param_realization
         )
