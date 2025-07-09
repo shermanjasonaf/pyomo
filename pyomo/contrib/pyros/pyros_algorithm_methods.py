@@ -140,8 +140,12 @@ def ROSolver_iterative_solve(model_data):
         Iterative solve results.
     """
     config = model_data.config
+    model_data.timing.start_timer("main.construct_master_data")
     master_data = mp_methods.MasterProblemData(model_data)
+    model_data.timing.stop_timer("main.construct_master_data")
+    model_data.timing.start_timer("main.construct_separation_data")
     separation_data = sp_methods.SeparationProblemData(model_data)
+    model_data.timing.stop_timer("main.construct_separation_data")
 
     # set up first-stage variable and DR variable sets
     nominal_master_blk = master_data.master_model.scenarios[0, 0]
@@ -320,6 +324,7 @@ def ROSolver_iterative_solve(model_data):
             )
 
         # === Add block to master at violation
+        model_data.timing.start_timer("main.add_to_master")
         mp_methods.add_scenario_block_to_master_problem(
             master_model=master_data.master_model,
             scenario_idx=(k + 1, 0),
@@ -327,6 +332,7 @@ def ROSolver_iterative_solve(model_data):
             from_block=nominal_master_blk,
             clone_first_stage_components=False,
         )
+        model_data.timing.stop_timer("main.add_to_master")
 
         from pyomo.common.collections import ComponentSet
         worst_con_state_var_indep = (

@@ -734,10 +734,12 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
         # there may be multiple separation problem solutions
         # found to have violated a second-stage inequality constraint.
         # we choose just one for master problem of next iteration
+        separation_data.timing.start_timer("main.get_argmax_sum_violations")
         worst_case_ss_ineq_con = get_argmax_sum_violations(
             solver_call_results_map=all_solve_call_results,
             ss_ineq_cons_to_evaluate=ss_ineq_constraints,
         )
+        separation_data.timing.stop_timer("main.get_argmax_sum_violations")
         if worst_case_ss_ineq_con is not None:
             # take note of chosen separation solution
             worst_case_res = all_solve_call_results[worst_case_ss_ineq_con]
@@ -1043,7 +1045,9 @@ def solver_call_separation(
         for var in separation_model.effective_var_partitioning.state_variables:
             var.unfix()
 
+    separation_data.timing.start_timer("main.initialize_separation")
     initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
+    separation_data.timing.stop_timer("main.initialize_separation")
     separation_obj.activate()
 
     # get name (index) of constraint for loggers
@@ -1119,6 +1123,7 @@ def solver_call_separation(
 
             # record uncertain parameter realization
             #   and constraint violations
+            separation_data.timing.start_timer("main.eval_separation_results")
             (
                 solve_call_results.violating_param_realization,
                 solve_call_results.scaled_violations,
@@ -1128,6 +1133,7 @@ def solver_call_separation(
                 ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
                 ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
             )
+            separation_data.timing.stop_timer("main.eval_separation_results")
             solve_call_results.auxiliary_param_values = [
                 auxvar.value
                 for auxvar in separation_model.uncertainty.auxiliary_var_list

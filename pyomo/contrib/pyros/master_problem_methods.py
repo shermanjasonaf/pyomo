@@ -250,7 +250,9 @@ def solve_master_feasibility_problem(master_data):
     results : SolverResults
         Solver results.
     """
+    master_data.timing.start_timer("main.construct_master_feasibility")
     model = construct_master_feasibility_problem(master_data)
+    master_data.timing.stop_timer("main.construct_master_feasibility")
 
     active_obj = next(model.component_data_objects(Objective, active=True))
 
@@ -505,7 +507,9 @@ def minimize_dr_vars(master_data):
     config = master_data.config
 
     # create polishing NLP
+    master_data.timing.start_timer("main.construct_dr_polishing")
     polishing_model = construct_dr_polishing_problem(master_data)
+    master_data.timing.stop_timer("main.construct_dr_polishing")
 
     if config.solve_master_globally:
         solver = config.global_solver
