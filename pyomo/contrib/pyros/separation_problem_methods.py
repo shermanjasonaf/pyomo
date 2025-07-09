@@ -1025,11 +1025,14 @@ def solver_call_separation(
     objectives_map = separation_data.separation_model.second_stage_ineq_con_to_obj_map
     separation_obj = objectives_map[ss_ineq_con_to_maximize]
 
+    is_uncertainty_set_discrete = (
+        config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS
+    )
     is_obj_state_var_independent = (
         ss_ineq_con_to_maximize
         in separation_model.second_stage.all_state_var_indep_cons
     )
-    if is_obj_state_var_independent:
+    if is_obj_state_var_independent and not is_uncertainty_set_discrete:
         for eq in separation_model.second_stage.equality_cons.values():
             eq.deactivate()
         for var in separation_model.effective_var_partitioning.state_variables:
