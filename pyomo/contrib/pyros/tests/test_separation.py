@@ -318,18 +318,21 @@ class TestGroupSecondStageIneqConsByPriority(unittest.TestCase):
 
         priority_groups = group_ss_ineq_constraints_by_priority(separation_data)
 
-        self.assertEqual(list(priority_groups.keys()), [2, 0])
+        self.assertEqual(list(priority_groups.keys()), [10, 7, 4])
         ss_ineq_cons = separation_model.second_stage.inequality_cons
         self.assertEqual(
-            priority_groups[2], [ss_ineq_cons["ineq_con_con_upper_bound_con"]]
-        )
-        self.assertEqual(
-            priority_groups[0],
+            priority_groups[10],
             [
                 ss_ineq_cons["var_x3_certain_lower_bound_con"],
                 ss_ineq_cons["var_x3_certain_upper_bound_con"],
-                ss_ineq_cons["epigraph_con"],
             ],
+        )
+        self.assertEqual(
+            priority_groups[7], [ss_ineq_cons["ineq_con_con_upper_bound_con"]]
+        )
+        self.assertEqual(
+            priority_groups[4],
+            [ss_ineq_cons["epigraph_con"]],
         )
 
 
