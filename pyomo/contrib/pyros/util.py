@@ -2922,34 +2922,34 @@ def preprocess_model_data(model_data, user_var_partitioning):
     state_var_set = ComponentSet(
         model_data.working_model.effective_var_partitioning.state_variables
     )
+    ss_var_set = ComponentSet(
+        model_data.working_model.effective_var_partitioning.second_stage_variables
+    )
     for idx, con in model_data.working_model.second_stage.inequality_cons.items():
         state_vars_in_con = state_var_set & ComponentSet(identify_variables(con.expr))
+        ss_vars_in_con = ss_var_set & ComponentSet(identify_variables(con.expr))
         if not state_vars_in_con:
             model_data.working_model.second_stage.all_state_var_indep_cons.append(con)
             if idx.startswith("reform_"):
                 (
-                    model_data
-                    .working_model
-                    .second_stage
-                    .coeff_matching_ineq_cons
-                    .append(con)
+                    model_data.working_model.second_stage.coeff_matching_ineq_cons.append(
+                        con
+                    )
                 )
-            elif idx.startswith("var") and idx.endswith("_bound_con"):
+            elif (
+                idx.startswith("var") and idx.endswith("_bound_con") and ss_vars_in_con
+            ):
                 (
-                    model_data
-                    .working_model
-                    .second_stage
-                    .second_stage_var_bound_cons
-                    .append(con)
+                    model_data.working_model.second_stage.second_stage_var_bound_cons.append(
+                        con
+                    )
                 )
             else:
                 model_data.working_model.second_stage.other_state_var_indep_cons.append(
                     con
                 )
         else:
-            model_data.working_model.second_stage.all_state_var_dep_cons.append(
-                con
-            )
+            model_data.working_model.second_stage.all_state_var_dep_cons.append(con)
 
     return robust_infeasible
 

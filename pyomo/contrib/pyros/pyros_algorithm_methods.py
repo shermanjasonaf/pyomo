@@ -335,6 +335,7 @@ def ROSolver_iterative_solve(model_data):
         model_data.timing.stop_timer("main.add_to_master")
 
         from pyomo.common.collections import ComponentSet
+
         worst_con_state_var_indep = (
             separation_results.worst_case_ss_ineq_con
             in ComponentSet(

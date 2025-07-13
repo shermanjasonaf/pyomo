@@ -907,19 +907,15 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
     # initialize from master block with max violation of the
     # second-stage ineq constraint of interest. Gives the best known
     # feasible solution (for case of non-discrete uncertainty sets).
-    is_con_state_dep = (
-        ss_ineq_con_to_maximize
-        in ComponentSet(sep_model.second_stage.all_state_var_dep_cons)
+    is_con_state_dep = ss_ineq_con_to_maximize in ComponentSet(
+        sep_model.second_stage.all_state_var_dep_cons
     )
     if is_con_state_dep:
         scenario_idxs = master_data.state_var_dep_scenario_idxs
     else:
         scenario_idxs = list(master_model.scenarios.keys())
 
-    worst_master_block_idx = max(
-        scenario_idxs,
-        key=eval_master_violation,
-    )
+    worst_master_block_idx = max(scenario_idxs, key=eval_master_violation)
     worst_case_master_blk = master_model.scenarios[worst_master_block_idx]
     for sep_var in sep_model.all_variables:
         master_var = worst_case_master_blk.find_component(sep_var)
