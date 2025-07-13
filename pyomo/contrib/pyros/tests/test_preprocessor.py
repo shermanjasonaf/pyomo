@@ -2979,6 +2979,7 @@ class TestPreprocessModelData(unittest.TestCase):
         working_model = model_data.working_model
         m = model_data.working_model.user_model
         fs = working_model.first_stage
+        ss = working_model.second_stage
         dr_dependent_fs_eqs = working_model.first_stage.dr_dependent_equality_cons
         ss_ineqs = working_model.second_stage.inequality_cons
 
@@ -3092,6 +3093,133 @@ class TestPreprocessModelData(unittest.TestCase):
                     "coeff_matching_var_z5_uncertain_eq_bound_con_coeff_5"
                 ].expr,
                 fs.decision_rule_vars[1][5] == 0,
+            )
+
+        if config.decision_rule_order == 0:
+            self.assertEqual(
+                ComponentSet(ss.all_state_var_dep_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["epigraph_con"],
+                        ss_ineqs["ineq_con_ineq3_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq3_upper_bound_con"],
+                        ss_ineqs["var_y1_certain_lower_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(ss.coeff_matching_ineq_cons, [])
+            self.assertEqual(ss.second_stage_var_bound_cons, [])
+            self.assertEqual(ss.other_state_var_indep_cons, ss.all_state_var_indep_cons)
+            self.assertEqual(
+                ComponentSet(ss.all_state_var_indep_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["ineq_con_ineq1_upper_bound_con"],
+                        ss_ineqs["ineq_con_ineq4_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq6_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq7_upper_bound_con"],
+                        ss_ineqs["var_x1_uncertain_upper_bound_con"],
+                        ss_ineqs["var_z1_uncertain_upper_bound_con"],
+                        ss_ineqs["var_z2_uncertain_lower_bound_con"],
+                        ss_ineqs["var_z3_uncertain_lower_bound_con"],
+                    ]
+                ),
+            )
+        elif config.decision_rule_order == 1:
+            self.assertEqual(ss.coeff_matching_ineq_cons, [])
+            self.assertEqual(
+                ComponentSet(ss.all_state_var_dep_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["epigraph_con"],
+                        ss_ineqs["ineq_con_ineq3_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq3_upper_bound_con"],
+                        ss_ineqs["var_y1_certain_lower_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.second_stage_var_bound_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["var_z3_certain_upper_bound_con"],
+                        ss_ineqs["var_z3_uncertain_lower_bound_con"],
+                        ss_ineqs["var_z5_certain_lower_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.other_state_var_indep_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["var_x1_uncertain_upper_bound_con"],
+                        ss_ineqs["var_z1_uncertain_upper_bound_con"],
+                        ss_ineqs["var_z2_uncertain_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq1_upper_bound_con"],
+                        ss_ineqs["ineq_con_ineq4_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq6_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq7_upper_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.all_state_var_indep_cons),
+                ComponentSet(
+                    ss.other_state_var_indep_cons + ss.second_stage_var_bound_cons
+                ),
+            )
+        elif config.decision_rule_order == 2:
+            self.assertEqual(
+                ComponentSet(ss.coeff_matching_ineq_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["reform_lower_bound_from_eq_con_eq1"],
+                        ss_ineqs["reform_upper_bound_from_eq_con_eq1"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.all_state_var_dep_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["epigraph_con"],
+                        ss_ineqs["ineq_con_ineq3_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq3_upper_bound_con"],
+                        ss_ineqs["var_y1_certain_lower_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.second_stage_var_bound_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["var_z3_certain_upper_bound_con"],
+                        ss_ineqs["var_z3_uncertain_lower_bound_con"],
+                        ss_ineqs["var_z5_certain_lower_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.other_state_var_indep_cons),
+                ComponentSet(
+                    [
+                        ss_ineqs["var_x1_uncertain_upper_bound_con"],
+                        ss_ineqs["var_z1_uncertain_upper_bound_con"],
+                        ss_ineqs["var_z2_uncertain_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq1_upper_bound_con"],
+                        ss_ineqs["ineq_con_ineq4_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq6_lower_bound_con"],
+                        ss_ineqs["ineq_con_ineq7_upper_bound_con"],
+                    ]
+                ),
+            )
+            self.assertEqual(
+                ComponentSet(ss.all_state_var_indep_cons),
+                ComponentSet(
+                    ss.other_state_var_indep_cons
+                    + ss.second_stage_var_bound_cons
+                    + ss.coeff_matching_ineq_cons
+                ),
             )
 
     @parameterized.expand([["static", 0], ["affine", 1], ["quadratic", 2]])

@@ -330,10 +330,7 @@ class TestGroupSecondStageIneqConsByPriority(unittest.TestCase):
         self.assertEqual(
             priority_groups[7], [ss_ineq_cons["ineq_con_con_upper_bound_con"]]
         )
-        self.assertEqual(
-            priority_groups[4],
-            [ss_ineq_cons["epigraph_con"]],
-        )
+        self.assertEqual(priority_groups[4], [ss_ineq_cons["epigraph_con"]])
 
 
 class TestInitializeSeparation(unittest.TestCase):
