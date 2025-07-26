@@ -772,7 +772,10 @@ def solver_call_master(master_data):
     config = master_data.config
     master_model = master_data.master_model
     master_soln = MasterResults(
-        master_model=master_model, pyros_termination_condition=None
+        master_model=master_model,
+        pyros_termination_condition=None,
+        state_var_indep_scenario_idxs=master_data.state_var_indep_scenario_idxs,
+        state_var_dep_scenario_idxs=master_data.state_var_dep_scenario_idxs,
     )
 
     if config.solve_master_globally:
