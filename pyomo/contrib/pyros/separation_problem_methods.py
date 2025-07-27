@@ -1240,10 +1240,6 @@ def discrete_state_var_indep_solve(separation_data, master_data, solve_globally)
         separation_data.idxs_of_state_indep_master_scenarios
     )
 
-    # note: state var values are carried over from the
-    #       master block which violates `first_con` most
-    first_con = state_var_indep_cons[0]
-
     config = separation_data.config
     scenarios_to_evaluate = [
         (idx, scenario)
@@ -1251,16 +1247,14 @@ def discrete_state_var_indep_solve(separation_data, master_data, solve_globally)
         if idx not in state_indep_master_scenario_idxs
     ]
 
+    # ensure the first-stage and DR variables are updated
+    # according to the most recent master problem
+    initialize_separation(state_var_indep_cons[0], separation_data, master_data)
+
     solve_call_results_map = ComponentMap()
     for scenario_idx, scenario in scenarios_to_evaluate:
         for param, coord_val in zip(uncertain_param_vars, scenario):
             param.fix(coord_val)
-
-        # ensure the first-stage and DR variables are updated
-        # according to the most recent master problem
-        # TODO: maybe this only needs to be done once, before the
-        #       outer loop?
-        initialize_separation(first_con, separation_data, master_data)
 
         # set second-stage variable values (evaluate DR)
         for ss_var in second_stage_vars:
