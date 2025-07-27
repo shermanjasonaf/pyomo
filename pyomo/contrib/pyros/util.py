@@ -3210,7 +3210,10 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
         soln_master_blk = master_soln.master_model.scenarios[0, 0]
     elif config.objective_focus == ObjectiveType.worst_case:
         soln_master_blk = max(
-            master_soln.master_model.scenarios.values(),
+            [
+                master_soln.master_model.scenarios[idx]
+                for idx in master_soln.state_var_dep_scenario_idxs
+            ],
             key=lambda blk: value(blk.full_objective),
         )
 

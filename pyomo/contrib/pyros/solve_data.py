@@ -103,6 +103,12 @@ class MasterResults:
         PyROS termination status established via solution of
         the master problem.
         If `None`, then no termination status has been established.
+    state_var_indep_scenario_idxs : list of tuple
+        Indices of blocks for which state variable-dependent
+        equality and inequality constraints have been deactivated.
+    state_var_dep_scenario_idxs : list of tuple
+        Indices of blocks for which state variable-dependent
+        equality and inequality constraints have been activated.
     """
 
     def __init__(
@@ -111,6 +117,8 @@ class MasterResults:
         feasibility_problem_results=None,
         master_results_list=None,
         pyros_termination_condition=None,
+        state_var_indep_scenario_idxs=None,
+        state_var_dep_scenario_idxs=None,
     ):
         """Initialize self (see class docstring)."""
         self.master_model = master_model
@@ -120,6 +128,8 @@ class MasterResults:
         else:
             self.master_results_list = list(master_results_list)
         self.pyros_termination_condition = pyros_termination_condition
+        self.state_var_indep_scenario_idxs = state_var_indep_scenario_idxs
+        self.state_var_dep_scenario_idxs = state_var_dep_scenario_idxs
 
 
 class SeparationSolveCallResults:
