@@ -19,7 +19,8 @@ from itertools import product
 from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.common.dependencies import numpy as np
 from pyomo.core.base import Block, Constraint, maximize, Objective, value, Var
-from pyomo.opt import TerminationCondition as tc
+from pyomo.opt import SolverResults, TerminationCondition as tc
+
 from pyomo.core.expr import (
     replace_expressions,
     identify_variables,
@@ -38,6 +39,8 @@ from pyomo.contrib.pyros.util import (
     call_solver,
     check_time_limit_reached,
     get_all_first_stage_eq_cons,
+    get_dr_expression,
+    TIC_TOC_SOLVE_TIME_ATTR,
     write_subproblem,
 )
 
@@ -613,6 +616,12 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
     uncertainty_set_is_discrete = (
         config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS
     )
+    state_var_indep_ss_ineqs = ComponentSet(
+        separation_data.separation_model.second_stage.all_state_var_indep_cons
+    )
+    state_var_dep_ss_ineqs = ComponentSet(
+        separation_data.separation_model.second_stage.all_state_var_dep_cons
+    )
 
     if uncertainty_set_is_discrete:
         all_scenarios_exhausted = len(separation_data.idxs_of_master_scenarios) == len(
@@ -632,42 +641,53 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
             max(sorted_priority_groups.keys())
         ][0]
 
-        # efficiency: evaluate all separation problem solutions in
-        # advance of entering loop
-        discrete_sep_results = discrete_solve(
+        discrete_state_indep_res_map = discrete_state_var_indep_solve(
             separation_data=separation_data,
             master_data=master_data,
             solve_globally=solve_globally,
-            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-            ss_ineq_cons_to_evaluate=all_ss_ineq_constraints,
         )
+        discrete_state_var_dep_results = None
+        all_state_indep_ineqs_satisfied = not any(
+            res.found_violation for res in discrete_state_indep_res_map.values()
+        )
+        if all_state_indep_ineqs_satisfied and state_var_dep_ss_ineqs:
+            # efficiency: evaluate all separation problem solutions in
+            # advance of entering loop
+            discrete_state_var_dep_results = discrete_solve(
+                separation_data=separation_data,
+                master_data=master_data,
+                solve_globally=solve_globally,
+                ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+                ss_ineq_cons_to_evaluate=all_ss_ineq_constraints,
+            )
 
-        termination_not_ok = (
-            discrete_sep_results.time_out or discrete_sep_results.subsolver_error
-        )
-        if termination_not_ok:
-            single_solver_call_res = ComponentMap()
-            results_list = [
-                res
-                for solve_call_results in discrete_sep_results.solver_call_results.values()
-                for res in solve_call_results.results_list
-            ]
-            single_solver_call_res[ss_ineq_con_to_maximize] = (
-                # not the neatest assembly,
-                # but should maintain accuracy of total solve times
-                # and overall outcome
-                SeparationSolveCallResults(
-                    solved_globally=solve_globally,
-                    results_list=results_list,
-                    time_out=discrete_sep_results.time_out,
-                    subsolver_error=discrete_sep_results.subsolver_error,
+            termination_not_ok = (
+                discrete_state_var_dep_results.time_out
+                or discrete_state_var_dep_results.subsolver_error
+            )
+            if termination_not_ok:
+                single_solver_call_res = ComponentMap()
+                results_list = [
+                    res for solve_call_results
+                    in discrete_state_var_dep_results.solver_call_results.values()
+                    for res in solve_call_results.results_list
+                ]
+                single_solver_call_res[ss_ineq_con_to_maximize] = (
+                    # not the neatest assembly,
+                    # but should maintain accuracy of total solve times
+                    # and overall outcome
+                    SeparationSolveCallResults(
+                        solved_globally=solve_globally,
+                        results_list=results_list,
+                        time_out=discrete_state_var_dep_results.time_out,
+                        subsolver_error=discrete_state_var_dep_results.subsolver_error,
+                    )
                 )
-            )
-            return SeparationLoopResults(
-                solver_call_results=single_solver_call_res,
-                solved_globally=solve_globally,
-                worst_case_ss_ineq_con=None,
-            )
+                return SeparationLoopResults(
+                    solver_call_results=single_solver_call_res,
+                    solved_globally=solve_globally,
+                    worst_case_ss_ineq_con=None,
+                )
 
     all_solve_call_results = ComponentMap()
     priority_groups_enum = enumerate(sorted_priority_groups.items())
@@ -691,12 +711,16 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
             # solve separation problem for
             # this second-stage inequality constraint
             if uncertainty_set_is_discrete:
-                solve_call_results = get_worst_discrete_separation_solution(
-                    ss_ineq_con=ss_ineq_con,
-                    config=config,
-                    ss_ineq_cons_to_evaluate=all_ss_ineq_constraints,
-                    discrete_solve_results=discrete_sep_results,
-                )
+                is_con_state_indep = ss_ineq_con in state_var_indep_ss_ineqs
+                if is_con_state_indep:
+                    solve_call_results = discrete_state_indep_res_map[ss_ineq_con]
+                else:
+                    solve_call_results = get_worst_discrete_separation_solution(
+                        ss_ineq_con=ss_ineq_con,
+                        config=config,
+                        ss_ineq_cons_to_evaluate=all_ss_ineq_constraints,
+                        discrete_solve_results=discrete_state_var_dep_results,
+                    )
             else:
                 solve_call_results = solver_call_separation(
                     separation_data=separation_data,
@@ -738,9 +762,15 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
             # take note of chosen separation solution
             worst_case_res = all_solve_call_results[worst_case_ss_ineq_con]
             if uncertainty_set_is_discrete:
-                separation_data.idxs_of_master_scenarios.append(
-                    worst_case_res.discrete_set_scenario_index
-                )
+                is_con_state_indep = ss_ineq_con in state_var_indep_ss_ineqs
+                if is_con_state_indep:
+                    separation_data.idxs_of_state_indep_master_scenarios.append(
+                        worst_case_res.discrete_set_scenario_index
+                    )
+                if not (is_con_state_indep and state_var_dep_ss_ineqs):
+                    separation_data.idxs_of_master_scenarios.append(
+                        worst_case_res.discrete_set_scenario_index
+                    )
 
             # # auxiliary log messages
             violated_con_names = "\n ".join(
@@ -751,10 +781,11 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
             config.progress_logger.debug(
                 f"Violated constraints:\n {violated_con_names} "
             )
+            worst_con_name_repr = get_con_name_repr(
+                separation_data.separation_model, worst_case_ss_ineq_con
+            )
             config.progress_logger.debug(
-                "Worst-case constraint: "
-                f"{get_con_name_repr(separation_data.separation_model, worst_case_ss_ineq_con)} "
-                "under realization "
+                f"Worst-case constraint: {worst_con_name_repr} under realization"
                 f"{worst_case_res.violating_param_realization}."
             )
             config.progress_logger.debug(
@@ -1017,14 +1048,11 @@ def solver_call_separation(
     objectives_map = separation_data.separation_model.second_stage_ineq_con_to_obj_map
     separation_obj = objectives_map[ss_ineq_con_to_maximize]
 
-    is_uncertainty_set_discrete = (
-        config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS
-    )
     is_obj_state_var_independent = (
         ss_ineq_con_to_maximize
         in separation_model.second_stage.all_state_var_indep_cons
     )
-    if is_obj_state_var_independent and not is_uncertainty_set_discrete:
+    if is_obj_state_var_independent:
         for eq in separation_model.second_stage.equality_cons.values():
             eq.deactivate()
         for var in separation_model.effective_var_partitioning.state_variables:
@@ -1166,6 +1194,138 @@ def solver_call_separation(
     separation_obj.deactivate()
 
     return solve_call_results
+
+
+def discrete_state_var_indep_solve(separation_data, master_data, solve_globally):
+    """
+    Solve simplified separation problems for second-stage inequalities
+    whose expressions are independent of the state variables.
+
+    The problems can be solved by enumeration, as
+    the uncertainty set is discrete and the state variables
+    have been removed from the simplified problems.
+    The values for the (effective) second-stage variables can be
+    calculated by evaluating the decision rule expressions.
+
+    Parameters
+    ----------
+    separation_data : SeparationProblemData
+        Separation problem data.
+    master_data : MasterProblemData
+        Master problem data.
+    solve_globally : bool
+        True to mark problems as globally solved (for bookkeeping),
+        False otherwise.
+
+    Returns
+    -------
+    con_to_worst_res_map : ComponentMap
+        Maps each state variable-independent inequality
+        constraints (type ConstraintData) of the separation model
+        to a separation solve results object
+        (SeparationSolveCallResults).
+    """
+    separation_model = separation_data.separation_model
+    uncertain_param_vars = list(
+        separation_model.uncertainty.uncertain_param_indexed_var.values()
+    )
+    second_stage_vars = (
+        separation_model.effective_var_partitioning.second_stage_variables
+    )
+    state_vars = separation_model.effective_var_partitioning.state_variables
+    state_var_indep_cons = separation_model.second_stage.all_state_var_indep_cons
+
+    # skip scenarios already added to master problem
+    state_indep_master_scenario_idxs = set(
+        separation_data.idxs_of_state_indep_master_scenarios
+    )
+
+    # note: state var values are carried over from the
+    #       master block which violates `first_con` most
+    first_con = state_var_indep_cons[0]
+
+    config = separation_data.config
+    scenarios_to_evaluate = [
+        (idx, scenario)
+        for idx, scenario in enumerate(config.uncertainty_set.scenarios)
+        if idx not in state_indep_master_scenario_idxs
+    ]
+
+    solve_call_results_map = ComponentMap()
+    for scenario_idx, scenario in scenarios_to_evaluate:
+        for param, coord_val in zip(uncertain_param_vars, scenario):
+            param.fix(coord_val)
+
+        # ensure the first-stage and DR variables are updated
+        # according to the most recent master problem
+        # TODO: maybe this only needs to be done once, before the
+        #       outer loop?
+        initialize_separation(first_con, separation_data, master_data)
+
+        # set second-stage variable values (evaluate DR)
+        for ss_var in second_stage_vars:
+            ss_var.set_value(get_dr_expression(separation_model, ss_var))
+
+        # evaluate violations of all constraints
+        for con in state_var_indep_cons:
+            # debug statement for solving square problem for each scenario
+            con_name_repr = get_con_name_repr(separation_data.separation_model, con)
+            config.progress_logger.debug(
+                f"Evaluating violation of state variable-independent "
+                f"second-stage constraint {con_name_repr} "
+                f"subject to uncertain parameter realization {scenario} "
+                f"({scenario_idx + 1} of {len(scenarios_to_evaluate)}) "
+                "from discrete uncertainty set..."
+            )
+            point, violations, con_violated = evaluate_ss_ineq_con_violations(
+                separation_data=separation_data,
+                ss_ineq_con_to_maximize=con,
+                ss_ineq_cons_to_evaluate=state_var_indep_cons,
+            )
+
+            # placeholder solver results, for structural consistency
+            simple_results = SolverResults()
+            simple_results.solver.termination_condition = tc.optimal
+            setattr(simple_results.solver, TIC_TOC_SOLVE_TIME_ATTR, 0)
+
+            variable_values = ComponentMap(
+                (var, value(var))
+                for var in second_stage_vars + state_vars
+            )
+            solve_call_results_map.setdefault(con, {})[scenario_idx] = (
+                SeparationSolveCallResults(
+                    solved_globally=solve_globally,
+                    results_list=[simple_results],
+                    scaled_violations=violations,
+                    violating_param_realization=point,
+                    variable_values=variable_values,
+                    found_violation=con_violated,
+                    time_out=False,
+                    subsolver_error=False,
+                    discrete_set_scenario_index=scenario_idx,
+                )
+            )
+
+    con_to_worst_res_map = ComponentMap()
+    for con, res_dict in solve_call_results_map.items():
+        config.progress_logger.debug(
+            "Finalizing solver call results object for state "
+            f"variable-independent second-stage constraint {con_name_repr}..."
+        )
+        discrete_sep_res = DiscreteSeparationSolveCallResults(
+            solved_globally=solve_globally,
+            solver_call_results=res_dict,
+            second_stage_ineq_con=con,
+        )
+        # 'solve' the separation problem by enumeration
+        con_to_worst_res_map[con] = get_worst_discrete_separation_solution(
+            ss_ineq_con=con,
+            config=config,
+            ss_ineq_cons_to_evaluate=state_var_indep_cons,
+            discrete_solve_results=discrete_sep_res,
+        )
+
+    return con_to_worst_res_map
 
 
 def discrete_solve(
@@ -1345,8 +1505,10 @@ class SeparationProblemData:
                     tuple(config.nominal_uncertain_param_vals)
                 )
             ]
+            self.idxs_of_state_indep_master_scenarios = []
         else:
             self.idxs_of_master_scenarios = None
+            self.idxs_of_state_indep_master_scenarios = None
 
         self.separation_priority_groups = group_ss_ineq_constraints_by_priority(self)
 

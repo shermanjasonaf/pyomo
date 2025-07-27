@@ -242,7 +242,8 @@ def ROSolver_iterative_solve(model_data):
 
         scaled_violations = [
             solve_call_res.scaled_violations[con]
-            for con, solve_call_res in separation_results.main_loop_results.solver_call_results.items()
+            for con, solve_call_res
+            in separation_results.main_loop_results.solver_call_results.items()
             if solve_call_res.scaled_violations is not None
         ]
         if scaled_violations:
