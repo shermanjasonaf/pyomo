@@ -1232,6 +1232,10 @@ def discrete_state_var_indep_solve(separation_data, master_data, solve_globally)
         (SeparationSolveCallResults).
     """
     separation_model = separation_data.separation_model
+    state_var_indep_cons = separation_model.second_stage.all_state_var_indep_cons
+    if not state_var_indep_cons:
+        return ComponentMap()
+
     uncertain_param_vars = list(
         separation_model.uncertainty.uncertain_param_indexed_var.values()
     )
@@ -1239,7 +1243,6 @@ def discrete_state_var_indep_solve(separation_data, master_data, solve_globally)
         separation_model.effective_var_partitioning.second_stage_variables
     )
     state_vars = separation_model.effective_var_partitioning.state_variables
-    state_var_indep_cons = separation_model.second_stage.all_state_var_indep_cons
 
     # skip scenarios already added to master problem
     state_indep_master_scenario_idxs = set(
