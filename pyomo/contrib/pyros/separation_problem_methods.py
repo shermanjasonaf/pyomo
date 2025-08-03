@@ -649,16 +649,17 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
         if all_state_indep_ineqs_satisfied and state_var_dep_ss_ineqs:
             # efficiency: evaluate all separation problem solutions in
             # advance of entering loop
+            ss_ineq_con_to_maximize = (
+                separation_data
+                .separation_model
+                .second_stage
+                .all_state_var_dep_cons[0]
+            )
             discrete_state_var_dep_results = discrete_solve(
                 separation_data=separation_data,
                 master_data=master_data,
                 solve_globally=solve_globally,
-                ss_ineq_con_to_maximize=(
-                    separation_data
-                    .separation_model
-                    .second_stage
-                    .all_state_var_dep_cons[0]
-                ),
+                ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
                 ss_ineq_cons_to_evaluate=all_ss_ineq_constraints,
             )
 
