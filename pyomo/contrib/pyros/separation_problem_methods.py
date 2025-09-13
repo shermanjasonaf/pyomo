@@ -825,7 +825,7 @@ def evaluate_ss_ineq_con_violations(
     scaled_violations = ComponentMap()
     for ss_ineq_con, sep_sol_violation in violations_by_sep_solution.items():
         scaled_violation = sep_sol_violation / max(
-            1, abs(separation_data.nom_ss_ineq_con_violations[ss_ineq_con])
+            1, 1,  # abs(separation_data.nom_ss_ineq_con_violations[ss_ineq_con])
         )
         scaled_violations[ss_ineq_con] = scaled_violation
         if ss_ineq_con is ss_ineq_con_to_maximize:
