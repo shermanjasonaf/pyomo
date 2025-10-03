@@ -2787,6 +2787,31 @@ class TestPreprocessModelData(unittest.TestCase):
             coeff_matching_con_names,
         )
         self.assertEqual(
+            list(working_model.second_stage.state_var_dep_ineqs_list),
+            [
+                "var_y1_certain_lower_bound_con",
+                "ineq_con_ineq3_lower_bound_con",
+                "ineq_con_ineq3_upper_bound_con",
+            ] + ["epigraph_con"] * (obj_focus == "worst_case"),
+        )
+        self.assertEqual(
+            list(working_model.second_stage.state_var_indep_ineqs_list),
+            [
+                "var_x1_uncertain_upper_bound_con",
+                "var_z1_uncertain_upper_bound_con",
+                "var_z2_uncertain_lower_bound_con",
+                "var_z3_certain_upper_bound_con",
+                "var_z3_uncertain_lower_bound_con",
+                "var_z5_certain_lower_bound_con",
+                "ineq_con_ineq1_upper_bound_con",
+                "ineq_con_ineq4_lower_bound_con",
+                "ineq_con_ineq6_lower_bound_con",
+            ] + [
+                "reform_lower_bound_from_eq_con_eq1",
+                "reform_upper_bound_from_eq_con_eq1"
+            ] * (dr_order == 2)
+        )
+        self.assertEqual(
             list(working_model.second_stage.inequality_cons),
             (
                 [

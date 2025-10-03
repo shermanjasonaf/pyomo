@@ -14,6 +14,7 @@ Methods for constructing and solving PyROS separation problems
 and related objects.
 """
 
+import enum
 from itertools import product
 import logging
 
@@ -38,6 +39,8 @@ from pyomo.contrib.pyros.util import (
     ABS_CON_CHECK_FEAS_TOL,
     call_solver_and_backups,
     get_all_first_stage_eq_cons,
+    get_all_nonadjustable_variables,
+    get_dr_expression,
     SolverCallStatus,
     write_subproblem,
 )
@@ -93,6 +96,7 @@ def add_uncertainty_set_constraints(separation_model, config):
     # deactivate constraints that depend on only the
     # effective certain parameters
     separation_model.uncertainty.certain_param_var_cons = []
+    separation_model.uncertainty.effective_uncertain_param_var_cons = []
     for con in uncertainty_cons:
         unfixed_param_vars_in_con = (
             ComponentSet(identify_variables(con.expr)) - fixed_param_var_set
@@ -100,6 +104,8 @@ def add_uncertainty_set_constraints(separation_model, config):
         if not unfixed_param_vars_in_con:
             con.deactivate()
             separation_model.uncertainty.certain_param_var_cons.append(con)
+        else:
+            separation_model.uncertainty.effective_uncertain_param_var_cons.append(con)
 
 
 def construct_separation_problem(model_data):
@@ -857,8 +863,11 @@ def evaluate_ss_ineq_con_violations(
 
 def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data):
     """
-    Initialize separation problem variables using the solution
-    to the most recent master problem.
+    Initialize the variables of the separation model
+    using the solution to the most recent master problem.
+
+    This method does not support separation problems with
+    discrete uncertainty sets.
 
     Parameters
     ----------
@@ -871,6 +880,11 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
     master_data : MasterProblemData
         Master problem data.
 
+    Raises
+    ------
+    ValueError
+        If the uncertainty set is discrete.
+
     Note
     ----
     The point to which the separation model is initialized should,
@@ -882,6 +896,13 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
     config = separation_data.config
     master_model = master_data.master_model
     sep_model = separation_data.separation_model
+
+    if config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS:
+        raise ValueError(
+            f"Method {initialize_separation.__name__!r} should not be "
+            "used to initialize separation problems for models "
+            "with discrete uncertainty sets."
+        )
 
     def eval_master_violation(scenario_idx):
         """
@@ -904,20 +925,19 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
         master_var = worst_case_master_blk.find_component(sep_var)
         sep_var.set_value(value(master_var, exception=False))
 
-    # for discrete uncertainty sets, the uncertain parameters
-    # have already been addressed
-    if config.uncertainty_set.geometry != Geometry.DISCRETE_SCENARIOS:
-        param_vars = sep_model.uncertainty.uncertain_param_var_list
-        param_values = separation_data.points_added_to_master[worst_master_block_idx]
-        for param_var, val in zip(param_vars, param_values):
-            param_var.set_value(val)
+    # initialize the variables representing the uncertain parameters
+    # (including auxiliary uncertain parameters)
+    param_vars = sep_model.uncertainty.uncertain_param_var_list
+    param_values = separation_data.points_added_to_master[worst_master_block_idx]
+    for param_var, val in zip(param_vars, param_values):
+        param_var.set_value(val)
 
-        aux_param_vars = sep_model.uncertainty.auxiliary_var_list
-        aux_param_values = separation_data.auxiliary_values_for_master_points[
-            worst_master_block_idx
-        ]
-        for aux_param_var, aux_val in zip(aux_param_vars, aux_param_values):
-            aux_param_var.set_value(aux_val)
+    aux_param_vars = sep_model.uncertainty.auxiliary_var_list
+    aux_param_values = separation_data.auxiliary_values_for_master_points[
+        worst_master_block_idx
+    ]
+    for aux_param_var, aux_val in zip(aux_param_vars, aux_param_values):
+        aux_param_var.set_value(aux_val)
 
     # confirm the initial point is feasible for cases where
     # we expect it to be (i.e. non-discrete uncertainty sets).
@@ -927,12 +947,9 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
         ss_ineq_con_name_repr = get_con_name_repr(
             separation_model=sep_model, con=ss_ineq_con_to_maximize, with_obj_name=True
         )
-        uncertainty_set_is_discrete = (
-            config.uncertainty_set.geometry is Geometry.DISCRETE_SCENARIOS
-        )
         for con in sep_model.component_data_objects(Constraint, active=True):
             lslack, uslack = con.lslack(), con.uslack()
-            if (lslack < -tol or uslack < -tol) and not uncertainty_set_is_discrete:
+            if (lslack < -tol or uslack < -tol):
                 config.progress_logger.debug(
                     f"Initial point for separation of second-stage ineq constraint "
                     f"{ss_ineq_con_name_repr} violates the model constraint "
@@ -964,11 +981,319 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
             )
 
 
+def _prepare_simplified_separation_model(separation_model, separation_obj):
+    """
+    Prepare a separation model for the solution of a
+    'simplified separation' problem,
+    in which the state variables and second-stage inequality
+    constraints should be removed from the model scope
+    (by variable fixing and constraint deactivation).
+
+    Parameters
+    ----------
+    separation_model : ConcreteModel
+        Separation model.
+    separation_obj : ObjectiveData
+        Objective component of interest.
+    """
+    separation_obj.activate()
+    for eq_con in separation_model.second_stage.equality_cons.values():
+        eq_con.deactivate()
+    for state_var in separation_model.effective_var_partitioning.state_variables:
+        state_var.fix()
+
+
+def _restore_separation_model_from_simplified(separation_model, separation_obj):
+    """
+    Restore a separation model after the solution of
+    'simplified separation' problem,
+    in which the state variables and second-stage inequality
+    constraints were excluded from the model scope.
+
+    Parameters
+    ----------
+    separation_model : ConcreteModel
+        Separation model.
+    separation_obj : ObjectiveData
+        Objective component of interest.
+    """
+    separation_obj.deactivate()
+    for eq_con in separation_model.second_stage.equality_cons.values():
+        eq_con.activate()
+    for state_var in separation_model.effective_var_partitioning.state_variables:
+        state_var.unfix()
+
+
+def _prepare_simulation_separation_model(separation_model, separation_obj):
+    """
+    Prepare a separation model for the solution of a
+    'simulation' problem,
+    in which only the (effective) state variables should
+    be unfixed and only the equality constraints should be active.
+
+    Parameters
+    ----------
+    separation_model : ConcreteModel
+        Separation model.
+    separation_obj : ObjectiveData
+        Objective component of interest.
+    """
+    separation_obj.activate()
+    for idx in separation_model.effective_uncertain_dimensions:
+        separation_model.uncertainty.uncertain_param_var_list[idx].fix()
+    for aux_param_var in separation_model.uncertainty.auxiliary_var_list:
+        aux_param_var.fix()
+    for ss_var in separation_model.effective_var_partitioning.second_stage_variables:
+        ss_var.fix()
+    for con in separation_model.uncertainty.effective_uncertain_param_var_cons:
+        con.deactivate()
+    for eq_con in separation_model.second_stage.decision_rule_eqns.values():
+        eq_con.deactivate()
+
+
+def _restore_separation_model_from_simulation(separation_model, separation_obj):
+    """
+    Restore state of separation model after it has been used
+    to solve a 'simulation' problem.
+
+    Parameters
+    ----------
+    separation_model : ConcreteModel
+        Separation model.
+    separation_obj : ObjectiveData
+        Objective component of interest.
+    """
+    separation_obj.deactivate()
+    for idx in separation_model.effective_uncertain_dimensions:
+        separation_model.uncertainty.uncertain_param_var_list[idx].unfix()
+    for aux_param_var in separation_model.uncertainty.auxiliary_var_list:
+        aux_param_var.unfix()
+    for ss_var in separation_model.effective_var_partitioning.second_stage_variables:
+        ss_var.unfix()
+    for con in separation_model.uncertainty.effective_uncertain_param_var_cons:
+        con.activate()
+    for eq_con in separation_model.second_stage.decision_rule_eqns.values():
+        eq_con.activate()
+
+
 locally_acceptable = {tc.optimal, tc.locallyOptimal, tc.globallyOptimal}
 globally_acceptable = {tc.optimal, tc.globallyOptimal}
 
 
-def solver_call_separation(
+class SeparationProblemType(enum.Enum):
+    """
+    Indicator for the 'type' of separation model to be solved
+    by the subordinate optimizers.
+    """
+
+    FULL = "full"
+    SIMULATION = "simulation"
+    SIMPLIFIED = "simplified"
+
+    def description(self):
+        """
+        Return a `str` giving description of the separation model type.
+        """
+        desc_map = {
+            SeparationProblemType.FULL: "separation",
+            SeparationProblemType.SIMULATION: "simulation portion of the separation",
+            SeparationProblemType.SIMPLIFIED: "simplified separation",
+        }
+        return desc_map[self]
+
+    def file_desc(self):
+        """
+        Return a `str` giving an affix to use for naming
+        files generated by exporting
+        separation problems of the type of `self`.
+        """
+        file_desc_map = {
+            SeparationProblemType.FULL: "separation",
+            SeparationProblemType.SIMULATION: "separation_simul",
+            SeparationProblemType.SIMPLIFIED: "separation_simp",
+        }
+        return file_desc_map[self]
+
+    def sep_preparation_func(self):
+        """
+        Return a callable for setting up
+        separation problems of the type of `self`
+        just before solving them.
+        """
+        preparation_func_dict = {
+            SeparationProblemType.FULL: _prepare_full_separation_model,
+            SeparationProblemType.SIMULATION: _prepare_simulation_separation_model,
+            SeparationProblemType.SIMPLIFIED: _prepare_simplified_separation_model,
+        }
+        return preparation_func_dict[self]
+
+    def sep_restoration_func(self):
+        """
+        Return a callable for resetting
+        separation problems of the type of `self`
+        just after solving them.
+        """
+        restoration_func_dict = {
+            SeparationProblemType.FULL: _restore_full_separation_model,
+            SeparationProblemType.SIMULATION: _restore_separation_model_from_simulation,
+            SeparationProblemType.SIMPLIFIED: _restore_separation_model_from_simplified,
+        }
+        return restoration_func_dict[self]
+
+
+def _solver_call_separation(
+    separation_data,
+    solve_globally,
+    ss_ineq_con_to_maximize,
+    sep_problem_type,
+):
+    """
+    Invoke the subordinate solver(s) on a separation model of
+    interest.
+
+    If desired, write the model to the desired file format(s)
+    provided that the subsolver(s) do not solve the model
+    to an acceptable level.
+
+    Parameters
+    ----------
+    separation_data : SeparationProblemData
+        Separation problem data.
+    solve_globally : bool
+        True to solve the model globally, False to solve locally.
+    ss_ineq_con_to_maximize : Constraint
+        Second-stage inequality constraint
+        for which to solve separation problem.
+        Informs the objective (constraint violation) to maximize.
+    sep_problem_type : SeparationProblemType
+        'Type' of separation-like model to solve.
+
+    Returns
+    -------
+    solve_res_list : list of pyomo.opt.SolverResults
+        List of Pyomo solver results objects obtained from
+        invoking the subordinate solvers.
+    solve_status : SolverCallStatus
+        Indicator for the reason the subsolvers terminated.
+    """
+    config = separation_data.config
+    separation_model = separation_data.separation_model
+    separation_obj = separation_model.second_stage_ineq_con_to_obj_map[
+        ss_ineq_con_to_maximize
+    ]
+
+    sep_problem_type.sep_preparation_func()(separation_model, separation_obj)
+
+    # get name (index) of constraint for loggers
+    con_name_repr = get_con_name_repr(
+        separation_model=separation_model,
+        con=ss_ineq_con_to_maximize,
+        with_obj_name=True,
+    )
+
+    # keep track of solver statuses for output logging
+    solve_mode = "global" if solve_globally else "local"
+
+    solve_res_list, solve_status = call_solver_and_backups(
+        model=separation_model,
+        solve_globally=solve_globally,
+        config=config,
+        timing_obj=separation_data.timing,
+        timer_name=f"main.{solve_mode}_separation",
+        problem_desc=(
+            f"{sep_problem_type.description()} model for constraint "
+            f"{con_name_repr} in iteration {separation_data.iteration}"
+        ),
+        acceptable_terminations=(
+            globally_acceptable if solve_globally else locally_acceptable
+        ),
+    )
+
+    if solve_status == SolverCallStatus.SUBSOLVER_ERROR:
+        simpl_sep_term_cond_strs = [
+            str(res.solver.termination_condition) for res in solve_res_list
+        ]
+        solve_call_results_message = (
+            f"Could not successfully solve {sep_problem_type.description()} "
+            f"model of iteration {separation_data.iteration} "
+            f"for second-stage inequality constraint {con_name_repr} "
+            f"with any of the provided subordinate {solve_mode} optimizers. "
+            f"(Termination statuses: {simpl_sep_term_cond_strs}.)"
+        )
+        config.progress_logger.warning(solve_call_results_message)
+
+        if config.keepfiles and config.subproblem_file_directory is not None:
+            separation_obj = separation_model.second_stage_ineq_con_to_obj_map[
+                ss_ineq_con_to_maximize
+            ]
+            write_subproblem(
+                model=separation_model,
+                fname=(
+                    f"{config.uncertainty_set.type}_{separation_model.name}"
+                    f"_{sep_problem_type.file_desc()}_{separation_data.iteration}"
+                    f"_obj_{separation_obj.name}"
+                ),
+                config=config,
+            )
+
+    sep_problem_type.sep_restoration_func()(separation_model, separation_obj)
+
+    return solve_res_list, solve_status
+
+
+def _process_successful_separation_problem(
+    separation_data,
+    solve_call_results,
+    ss_ineq_con_to_maximize,
+    ss_ineq_cons_to_evaluate,
+):
+    """
+    Process the successful solution of a separation model.
+
+    This involves recording the optimal variable values
+    and evaluating the violations of the second-stage inequality
+    constraints of interest.
+
+    Parameters
+    ----------
+    separation_data : SeparationProblemData
+        Separation problem data.
+    solve_call_results : SeparationSolveCallResults
+        Solve results for separation problem of interest.
+        This object will be updated according to the solution found.
+    ss_ineq_con_to_maximize : Constraint
+        Second-stage inequality constraint
+        for which to solve separation problem.
+        Informs the objective (constraint violation) to maximize.
+    ss_ineq_cons_to_evaluate : list of Constraint
+        Second-stage inequality constraints whose expressions are to be
+        evaluated at the separation problem solution
+        obtained.
+    """
+    separation_model = separation_data.separation_model
+    # record second-stage and state variable values
+    solve_call_results.variable_values = ComponentMap()
+    for var in separation_model.all_adjustable_variables:
+        solve_call_results.variable_values[var] = value(var)
+
+    # record uncertain parameter realization
+    # and constraint violations
+    (
+        solve_call_results.violating_param_realization,
+        solve_call_results.scaled_violations,
+        solve_call_results.found_violation,
+    ) = evaluate_ss_ineq_con_violations(
+        separation_data=separation_data,
+        ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+        ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+    )
+    solve_call_results.auxiliary_param_values = [
+        auxvar.value
+        for auxvar in separation_model.uncertainty.auxiliary_var_list
+    ]
+
+
+def solver_call_separation_decompose(
     separation_data,
     master_data,
     solve_globally,
@@ -976,7 +1301,18 @@ def solver_call_separation(
     ss_ineq_cons_to_evaluate,
 ):
     """
-    Invoke subordinate solver(s) on separation problem.
+    Invoke subordinate solver(s) on a separation problem
+    for which the uncertainty set is not discrete
+    and the corresponding second-stage inequality constraint
+    does not depend on the state variables.
+
+    The separation problem is solved as follows:
+
+    1. (Simplified problem): The state variables are fixed
+       and the state equations are deactivated,
+       then the resulting model is solved.
+    2. (Simulation problem): The state equations are solved
+       to compute the state variables.
 
     Parameters
     ----------
@@ -1001,99 +1337,200 @@ def solver_call_separation(
     solve_call_results : pyros.solve_data.SeparationSolveCallResults
         Solve results for separation problem of interest.
     """
-    config = separation_data.config
     separation_model = separation_data.separation_model
-    objectives_map = separation_data.separation_model.second_stage_ineq_con_to_obj_map
 
-    # prepare the separation problem
-    separation_obj = objectives_map[ss_ineq_con_to_maximize]
     initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
-    separation_obj.activate()
-
-    # get name (index) of constraint for loggers
-    con_name_repr = get_con_name_repr(
-        separation_model=separation_model,
-        con=ss_ineq_con_to_maximize,
-        with_obj_name=True,
+    simpl_sep_solve_res_list, simpl_sep_solve_status = _solver_call_separation(
+        separation_data=separation_data,
+        solve_globally=solve_globally,
+        ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+        sep_problem_type=SeparationProblemType.SIMPLIFIED,
     )
 
-    # keep track of solver statuses for output logging
-    solve_mode = "global" if solve_globally else "local"
+    if simpl_sep_solve_status == SolverCallStatus.SUCCESSFUL:
+        separation_model.solutions.load_from(simpl_sep_solve_res_list[-1])
 
-    all_opt_results, solve_status = call_solver_and_backups(
-        model=separation_model,
+    if simpl_sep_solve_status != SolverCallStatus.SUCCESSFUL:
+        # solving the state variable-independent portion failed,
+        # so stop here
+        return SeparationSolveCallResults(
+            solved_globally=solve_globally,
+            time_out=simpl_sep_solve_status == SolverCallStatus.TIME_OUT,
+            results_list=simpl_sep_solve_res_list,
+            subsolver_error=(
+                simpl_sep_solve_status
+                == SolverCallStatus.SUBSOLVER_ERROR
+            ),
+        )
+
+    separation_state_vars = separation_model.effective_var_partitioning.state_variables
+    if not separation_state_vars:
+        # there are no state variables, so no simulation model to solve
+        simul_solve_results_list, simul_solve_status = [], SolverCallStatus.SUCCESSFUL
+    else:
+        simul_solve_results_list, simul_solve_status = _solver_call_separation(
+            separation_data=separation_data,
+            solve_globally=solve_globally,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            sep_problem_type=SeparationProblemType.SIMULATION,
+        )
+
+    solve_call_results = SeparationSolveCallResults(
+        solved_globally=solve_globally,
+        time_out=simul_solve_status == SolverCallStatus.TIME_OUT,
+        results_list=simpl_sep_solve_res_list + simul_solve_results_list,
+        subsolver_error=simul_solve_status == SolverCallStatus.SUBSOLVER_ERROR,
+    )
+
+    if simul_solve_status == SolverCallStatus.SUCCESSFUL:
+        if simul_solve_results_list:
+            separation_model.solutions.load_from(simul_solve_results_list[-1])
+        _process_successful_separation_problem(
+            separation_data=separation_data,
+            solve_call_results=solve_call_results,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+        )
+
+    return solve_call_results
+
+
+def _prepare_full_separation_model(separation_model, separation_obj):
+    separation_obj.activate()
+
+
+def _restore_full_separation_model(separation_model, separation_obj):
+    separation_obj.deactivate()
+
+
+def solver_call_separation_full(
+    separation_data,
+    master_data,
+    solve_globally,
+    ss_ineq_con_to_maximize,
+    ss_ineq_cons_to_evaluate,
+):
+    """
+    Invoke subordinate solver(s) on full classical separation problem
+    for which the uncertainty set is non-discrete.
+
+    Parameters
+    ----------
+    separation_data : SeparationProblemData
+        Separation problem data.
+    master_data : MasterProblemData
+        Master problem data.
+    solve_globally : bool
+        True to solve separation problems globally,
+        False to solve locally.
+    ss_ineq_con_to_maximize : Constraint
+        Second-stage inequality constraint
+        for which to solve separation problem.
+        Informs the objective (constraint violation) to maximize.
+    ss_ineq_cons_to_evaluate : list of Constraint
+        Second-stage inequality constraints whose expressions are to be
+        evaluated at the separation problem solution
+        obtained.
+
+    Returns
+    -------
+    solve_call_results : pyros.solve_data.SeparationSolveCallResults
+        Solve results for separation problem of interest.
+    """
+    initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
+
+    solve_results_list, solve_status = _solver_call_separation(
+        separation_data=separation_data,
         solve_globally=solve_globally,
-        config=config,
-        timing_obj=separation_data.timing,
-        timer_name=f"main.{solve_mode}_separation",
-        problem_desc=(
-            f"separation problem for constraint "
-            f"{con_name_repr} in iteration {separation_data.iteration}"
-        ),
-        acceptable_terminations=(
-            globally_acceptable if solve_globally else locally_acceptable
-        ),
+        ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+        sep_problem_type=SeparationProblemType.FULL,
     )
 
     solve_call_results = SeparationSolveCallResults(
         solved_globally=solve_globally,
         time_out=solve_status == SolverCallStatus.TIME_OUT,
-        results_list=all_opt_results,
+        results_list=solve_results_list,
         subsolver_error=solve_status == SolverCallStatus.SUBSOLVER_ERROR,
     )
 
+    separation_model = separation_data.separation_model
     if solve_status == SolverCallStatus.SUCCESSFUL:
-        separation_model.solutions.load_from(all_opt_results[-1])
-
-        # record second-stage and state variable values
-        solve_call_results.variable_values = ComponentMap()
-        for var in separation_model.all_adjustable_variables:
-            solve_call_results.variable_values[var] = value(var)
-
-        # record uncertain parameter realization
-        #   and constraint violations
-        (
-            solve_call_results.violating_param_realization,
-            solve_call_results.scaled_violations,
-            solve_call_results.found_violation,
-        ) = evaluate_ss_ineq_con_violations(
+        separation_model.solutions.load_from(solve_results_list[-1])
+        _process_successful_separation_problem(
             separation_data=separation_data,
+            solve_call_results=solve_call_results,
             ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
             ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
         )
-        solve_call_results.auxiliary_param_values = [
-            auxvar.value
-            for auxvar in separation_model.uncertainty.auxiliary_var_list
-        ]
-
-    if solve_status == SolverCallStatus.SUBSOLVER_ERROR:
-        # All subordinate solvers failed to optimize model to appropriate
-        # termination condition. PyROS will terminate with subsolver
-        # error. At this point, export model if desired
-        solve_call_results.message = (
-            "Could not successfully solve separation problem of iteration "
-            f"{separation_data.iteration} "
-            f"for second-stage inequality constraint {con_name_repr} "
-            f"with any of the provided subordinate {solve_mode} optimizers. "
-            f"(Termination statuses: "
-            f"{[str(res.solver.termination_condition) for res in all_opt_results]}.)"
-        )
-        config.progress_logger.warning(solve_call_results.message)
-
-        if config.keepfiles and config.subproblem_file_directory is not None:
-            write_subproblem(
-                model=separation_model,
-                fname=(
-                    f"{config.uncertainty_set.type}_{separation_model.name}"
-                    f"_separation_{separation_data.iteration}"
-                    f"_obj_{separation_obj.name}"
-                ),
-                config=config,
-            )
-
-    separation_obj.deactivate()
 
     return solve_call_results
+
+
+def solver_call_separation(
+    separation_data,
+    master_data,
+    solve_globally,
+    ss_ineq_con_to_maximize,
+    ss_ineq_cons_to_evaluate,
+):
+    """
+    Invoke subordinate solver(s) on a separation problem
+    for which the uncertainty set is not discrete.
+
+    Parameters
+    ----------
+    separation_data : SeparationProblemData
+        Separation problem data.
+    master_data : MasterProblemData
+        Master problem data.
+    solve_globally : bool
+        True to solve separation problems globally,
+        False to solve locally.
+    ss_ineq_con_to_maximize : Constraint
+        Second-stage inequality constraint
+        for which to solve separation problem.
+        Informs the objective (constraint violation) to maximize.
+    ss_ineq_cons_to_evaluate : list of Constraint
+        Second-stage inequality constraints whose expressions are to be
+        evaluated at the separation problem solution
+        obtained.
+
+    Returns
+    -------
+    solve_call_results : pyros.solve_data.SeparationSolveCallResults
+        Solve results for separation problem of interest.
+
+    Note
+    ----
+    If the second-stage inequality constraint expression
+    depends on the state variables, then the separation problem
+    is solved monothically. Otherwise, the separation problem
+    is solved as follows:
+
+    1. The state variables are fixed and the state equations
+       are deactivated, then the resulting model is solved.
+    2. The state equations are solved to compute the state
+       variables.
+    """
+    state_var_dep_ineqs_list = (
+        separation_data.separation_model.second_stage.state_var_dep_ineqs_list
+    )
+    if ss_ineq_con_to_maximize.index() in state_var_dep_ineqs_list:
+        return solver_call_separation_full(
+            separation_data=separation_data,
+            master_data=master_data,
+            solve_globally=solve_globally,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+        )
+    else:
+        return solver_call_separation_decompose(
+            separation_data=separation_data,
+            master_data=master_data,
+            solve_globally=solve_globally,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+        )
 
 
 def discrete_solve(
@@ -1149,6 +1586,10 @@ def discrete_solve(
     of scenarios in the uncertainty set.
     """
     config = separation_data.config
+    separation_model = separation_data.separation_model
+    effective_second_stage_vars = (
+        separation_model.effective_var_partitioning.second_stage_variables
+    )
 
     uncertain_param_vars = list(
         separation_data.separation_model.uncertainty.uncertain_param_var_list
@@ -1162,6 +1603,14 @@ def discrete_solve(
         if idx not in master_scenario_idxs
     ]
 
+    # update nonadjustable variables of the separation model
+    master_nadj_var_list = get_all_nonadjustable_variables(
+        master_data.master_model.scenarios[0, 0]
+    )
+    sep_nadj_var_list = get_all_nonadjustable_variables(separation_model)
+    for sep_nadj_var, master_nadj_var in zip(sep_nadj_var_list, master_nadj_var_list):
+        sep_nadj_var.fix(master_nadj_var.value)
+
     solve_call_results_dict = {}
     for idx, scenario_idx in enumerate(scenario_idxs_to_separate):
         # fix uncertain parameters to scenario value
@@ -1170,33 +1619,50 @@ def discrete_solve(
         for param, coord_val in zip(uncertain_param_vars, scenario):
             param.fix(coord_val)
 
-        # debug statement for solving square problem for each scenario
+        # use the decision rules to compute the second-stage variables
+        for ss_var in effective_second_stage_vars:
+            ss_var.fix(value(get_dr_expression(separation_model, ss_var)))
+
+        # debug statement for solving simulation problem for each scenario
         config.progress_logger.debug(
-            f"Attempting to solve square problem for discrete scenario {scenario}"
+            f"Attempting to solve simulation problem for discrete scenario {scenario}"
             f" ({idx + 1} of {len(scenario_idxs_to_separate)} total)"
         )
 
         # obtain separation problem solution
-        solve_call_results = solver_call_separation(
+        solve_results_list, solve_status = _solver_call_separation(
             separation_data=separation_data,
-            master_data=master_data,
             solve_globally=solve_globally,
             ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+            sep_problem_type=SeparationProblemType.SIMULATION,
         )
-        solve_call_results.discrete_set_scenario_index = scenario_idx
+
+        solve_call_results = SeparationSolveCallResults(
+            solved_globally=solve_globally,
+            time_out=solve_status == SolverCallStatus.TIME_OUT,
+            results_list=solve_results_list,
+            subsolver_error=solve_status == SolverCallStatus.SUBSOLVER_ERROR,
+            discrete_set_scenario_index=scenario_idx,
+        )
+        if solve_status == SolverCallStatus.SUCCESSFUL:
+            separation_model.solutions.load_from(solve_results_list[-1])
+            _process_successful_separation_problem(
+                separation_data=separation_data,
+                solve_call_results=solve_call_results,
+                ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+                ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+            )
         solve_call_results_dict[scenario_idx] = solve_call_results
 
         # halt at first encounter of unacceptable termination
-        termination_not_ok = solve_call_results.time_out
-        if termination_not_ok:
+        if solve_call_results.time_out:
             break
 
         # report any subsolver errors, but continue
         if solve_call_results.subsolver_error:
             config.progress_logger.warning(
-                f"All solvers failed to solve discrete scenario {scenario_idx}: "
-                f"{scenario}"
+                f"All solvers failed to solve simulation model for "
+                f"discrete scenario {scenario_idx}: {scenario}"
             )
 
     return DiscreteSeparationSolveCallResults(

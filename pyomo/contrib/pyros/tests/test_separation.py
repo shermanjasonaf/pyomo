@@ -600,7 +600,6 @@ class TestInitializeSeparation(unittest.TestCase):
             ]
         )
 
-        sep_usr_blk = separation_data.separation_model.user_model
         sep_model = separation_data.separation_model
 
         # fix uncertain parameters to off-nominal value;
@@ -615,50 +614,13 @@ class TestInitializeSeparation(unittest.TestCase):
         sep_model.uncertainty.uncertain_param_var_list[0].fix()
         sep_model.uncertainty.uncertain_param_var_list[1].fix()
 
-        with LoggingIntercept(module=__name__, level=logging.DEBUG) as LOG:
+        exc_str = "Method.*initialize_separation.*should not be used.*discrete"
+        with self.assertRaisesRegex(ValueError, exc_str):
             initialize_separation(
                 ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
                 separation_data=separation_data,
                 master_data=master_data,
             )
-        log_output = LOG.getvalue()
-        self.assertFalse(log_output, "DEBUG-level log output should be empty.")
-
-        # first-stage variables added by PyROS
-        self.assertEqual(
-            value(sep_model.first_stage.epigraph_var),
-            value(nom_scenario_blk.first_stage.epigraph_var),
-        )
-        self.assertEqual(
-            value(sep_model.first_stage.decision_rule_vars[0][0]),
-            value(nom_scenario_blk.first_stage.decision_rule_vars[0][0]),
-        )
-        self.assertEqual(
-            value(sep_model.first_stage.decision_rule_vars[0][1]),
-            value(nom_scenario_blk.first_stage.decision_rule_vars[0][1]),
-        )
-        self.assertEqual(
-            value(sep_model.first_stage.decision_rule_vars[0][2]),
-            value(nom_scenario_blk.first_stage.decision_rule_vars[0][2]),
-        )
-
-        # variables of original user model
-        self.assertEqual(value(sep_usr_blk.x1), value(nom_scenario_blk.user_model.x1))
-        self.assertEqual(value(sep_usr_blk.x2), value(nom_scenario_blk.user_model.x2))
-        self.assertEqual(value(sep_usr_blk.x3), value(nom_scenario_blk.user_model.x3))
-
-        # uncertain parameter variable state should not have been
-        # modified by the initialization
-        self.assertEqual(
-            value(sep_model.uncertainty.uncertain_param_indexed_var[0]),
-            off_nominal_scenario[0],
-        )
-        self.assertEqual(
-            value(sep_model.uncertainty.uncertain_param_indexed_var[1]),
-            off_nominal_scenario[1],
-        )
-        self.assertTrue(sep_model.uncertainty.uncertain_param_var_list[0].fixed)
-        self.assertTrue(sep_model.uncertainty.uncertain_param_var_list[1].fixed)
 
 
 if __name__ == "__main__":

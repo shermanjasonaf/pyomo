@@ -2948,6 +2948,23 @@ def preprocess_model_data(model_data, user_var_partitioning):
     for priority_sfx in model_data.separation_priority_suffix_finder.all_suffixes:
         priority_sfx.deactivate()
 
+    # classify the second-stage inequality constraints by expression
+    # dependence on the state variables
+    working_model = model_data.working_model
+    working_model.second_stage.state_var_indep_ineqs_list = []
+    working_model.second_stage.state_var_dep_ineqs_list = []
+    eff_state_vars = ComponentSet(
+        working_model.effective_var_partitioning.state_variables
+    )
+    for idx, ss_ineq in working_model.second_stage.inequality_cons.items():
+        state_vars_in_con = (
+            eff_state_vars & ComponentSet(identify_variables(ss_ineq.expr))
+        )
+        if state_vars_in_con:
+            working_model.second_stage.state_var_dep_ineqs_list.append(idx)
+        else:
+            working_model.second_stage.state_var_indep_ineqs_list.append(idx)
+
     return robust_infeasible
 
 

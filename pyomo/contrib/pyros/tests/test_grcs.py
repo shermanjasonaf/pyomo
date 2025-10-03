@@ -496,6 +496,21 @@ class TestPyROSRobustInfeasible(unittest.TestCase):
 global_solver = "baron"
 
 
+class NonOptimalSolver:
+    """
+    Solver that returns a nonoptimal termination status when
+    its solve() method is invoked.
+    """
+    def available(self, exception_flag=True):
+        return True
+
+    def solve(self, *args, **kwargs):
+        res = SolverResults()
+        res.solver.termination_condition = TerminationCondition.unknown
+        res.solver.status = SolverStatus.warning
+        return res
+
+
 # === regression test for the solver
 @unittest.skipUnless(baron_available, "Global NLP solver is not available.")
 class RegressionTest(unittest.TestCase):
@@ -743,42 +758,14 @@ class RegressionTest(unittest.TestCase):
             )
 
     @unittest.skipUnless(
-        baron_license_is_valid, "Global NLP solver is not available and licensed."
+        baron_license_is_valid, "BARON is not available and licensed."
     )
     def test_pyros_backup_solvers(self):
         m = ConcreteModel()
-        m.name = "s381"
-
-        class BadSolver:
-            def __init__(self, max_num_calls):
-                self.max_num_calls = max_num_calls
-                self.num_calls = 0
-
-            def available(self, exception_flag=True):
-                return True
-
-            def solve(self, *args, **kwargs):
-                if self.num_calls < self.max_num_calls:
-                    self.num_calls += 1
-                    return SolverFactory("baron").solve(*args, **kwargs)
-                res = SolverResults()
-                res.solver.termination_condition = TerminationCondition.maxIterations
-                res.solver.status = SolverStatus.warning
-                return res
-
+        m.p = Param(range(4), initialize=2, mutable=True)
         m.x1 = Var(within=Reals, bounds=(0, None), initialize=0.1)
         m.x2 = Var(within=Reals, bounds=(0, None), initialize=0.1)
         m.x3 = Var(within=Reals, bounds=(0, None), initialize=0.1)
-
-        # === State Vars = [x13]
-        # === Decision Vars ===
-        m.decision_vars = [m.x1, m.x2, m.x3]
-
-        # === Uncertain Params ===
-        m.set_params = Set(initialize=list(range(4)))
-        m.p = Param(m.set_params, initialize=2, mutable=True)
-        m.uncertain_params = [m.p]
-
         m.obj = Objective(expr=(m.x1 - 1) * 2, sense=minimize)
         m.con1 = Constraint(expr=m.p[1] * m.x1 + m.x2 + m.x3 <= 2)
 
@@ -786,15 +773,12 @@ class RegressionTest(unittest.TestCase):
         pyros = SolverFactory("pyros")
         results = pyros.solve(
             model=m,
-            first_stage_variables=m.decision_vars,
+            first_stage_variables=[m.x1, m.x2, m.x3],
             second_stage_variables=[],
             uncertain_params=[m.p[1]],
             uncertainty_set=box_set,
-            # note: allow 4 calls to work normally
-            #       to permit successful solution of uncertainty
-            #       bounding problems
-            local_solver=BadSolver(4),
-            global_solver=BadSolver(4),
+            local_solver=NonOptimalSolver(),
+            global_solver=NonOptimalSolver(),
             backup_local_solvers=[SolverFactory("baron")],
             backup_global_solvers=[SolverFactory("baron")],
             options={"objective_focus": ObjectiveType.nominal},
@@ -1161,7 +1145,8 @@ class RegressionTest(unittest.TestCase):
 
         err_str = LOG.getvalue()
         self.assertRegex(
-            err_str, "Optimizer.*exception.*separation problem.*iteration 0"
+            err_str,
+            "Optimizer.*exception.*simulation portion.*separation model.*iteration 0"
         )
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
@@ -2177,20 +2162,23 @@ class TestPyROSSeparationPriorityOrder(unittest.TestCase):
         self.assertEqual(m.y.value, 1)
 
     def test_priority_skip_all_separation(self):
-        m = build_leyffer_two_cons()
-        m_det = m.clone()
+        m = ConcreteModel()
+        m.q = Param([1, 2], initialize=0.5, mutable=True)
+        m.x = Var([1, 2], initialize=0.5, bounds=[0, 1])
+        m.con = Constraint([1, 2], rule={i: m.x[i] >= m.q[i] for i in [1, 2]})
+        m.obj = Objective(expr=sum(m.x.values()))
         m.pyros_separation_priority = Suffix()
         m.pyros_separation_priority[None] = None
-        interval = BoxSet(bounds=[(0.25, 2)])
+        interval = BoxSet(bounds=[(0, 1)] * 2)
         pyros_solver = SolverFactory("pyros")
         local_subsolver = SolverFactory('ipopt')
         global_subsolver = SolverFactory("ipopt")
 
         res = pyros_solver.solve(
             model=m,
-            first_stage_variables=[m.x1],
-            second_stage_variables=[m.x2],
-            uncertain_params=[m.u],
+            first_stage_variables=m.x,
+            second_stage_variables=[],
+            uncertain_params=m.q,
             uncertainty_set=interval,
             local_solver=local_subsolver,
             global_solver=global_subsolver,
@@ -2198,7 +2186,7 @@ class TestPyROSSeparationPriorityOrder(unittest.TestCase):
             bypass_global_separation=True,
             # note: this gets overridden by the priority suffix,
             #       and is therefore ignored
-            separation_priority_order={"con1": 2},
+            separation_priority_order={"con[1]": 2, "con[2]": 1},
             decision_rule_order=1,
         )
 
@@ -2208,14 +2196,12 @@ class TestPyROSSeparationPriorityOrder(unittest.TestCase):
             msg="Returned termination condition is not return robust_optimal.",
         )
         self.assertEqual(res.iterations, 1)
-        assert_optimal_termination(local_subsolver.solve(m_det))
         # when all separation problems bypassed, PyROS reduces to a
         # solving the deterministic model
-        self.assertAlmostEqual(m.x1.value, m_det.x1.value, places=4)
-        self.assertAlmostEqual(m.x2.value, m_det.x2.value, places=4)
-        self.assertAlmostEqual(m.x3.value, m_det.x3.value, places=4)
-        self.assertAlmostEqual(value(m.obj), value(m_det.obj), places=4)
-        self.assertAlmostEqual(res.final_objective_value, value(m_det.obj), places=4)
+        self.assertAlmostEqual(m.x[1].value, 0.5, places=4)
+        self.assertAlmostEqual(m.x[2].value, 0.5, places=4)
+        self.assertAlmostEqual(value(m.obj), 1, places=4)
+        self.assertAlmostEqual(res.final_objective_value, 1, places=4)
 
     def test_priority_order_invariant(self):
         m = build_leyffer_two_cons()
@@ -4017,7 +4003,7 @@ class TestPyROSSubproblemWriter(unittest.TestCase):
             tmpdir = TMP.create_tempdir()
             expected_subproblem_filenames = [
                 os.path.join(
-                    tmpdir, f"box_unknown_separation_0_obj_separation_obj_0.{fmt}"
+                    tmpdir, f"box_unknown_separation_simp_0_obj_separation_obj_0.{fmt}"
                 )
                 for fmt in subproblem_format_options.keys()
             ]
