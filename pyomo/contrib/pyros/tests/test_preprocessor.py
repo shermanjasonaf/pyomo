@@ -2792,7 +2792,8 @@ class TestPreprocessModelData(unittest.TestCase):
                 "var_y1_certain_lower_bound_con",
                 "ineq_con_ineq3_lower_bound_con",
                 "ineq_con_ineq3_upper_bound_con",
-            ] + ["epigraph_con"] * (obj_focus == "worst_case"),
+            ]
+            + ["epigraph_con"] * (obj_focus == "worst_case"),
         )
         self.assertEqual(
             list(working_model.second_stage.state_var_indep_ineqs_list),
@@ -2806,10 +2807,12 @@ class TestPreprocessModelData(unittest.TestCase):
                 "ineq_con_ineq1_upper_bound_con",
                 "ineq_con_ineq4_lower_bound_con",
                 "ineq_con_ineq6_lower_bound_con",
-            ] + [
+            ]
+            + [
                 "reform_lower_bound_from_eq_con_eq1",
-                "reform_upper_bound_from_eq_con_eq1"
-            ] * (dr_order == 2)
+                "reform_upper_bound_from_eq_con_eq1",
+            ]
+            * (dr_order == 2),
         )
         self.assertEqual(
             list(working_model.second_stage.inequality_cons),

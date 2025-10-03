@@ -2966,8 +2966,8 @@ def preprocess_model_data(model_data, user_var_partitioning):
         working_model.effective_var_partitioning.state_variables
     )
     for idx, ss_ineq in working_model.second_stage.inequality_cons.items():
-        state_vars_in_con = (
-            eff_state_vars & ComponentSet(identify_variables(ss_ineq.expr))
+        state_vars_in_con = eff_state_vars & ComponentSet(
+            identify_variables(ss_ineq.expr)
         )
         if state_vars_in_con:
             working_model.second_stage.state_var_dep_ineqs_list.append(idx)
@@ -3376,15 +3376,15 @@ class SolverCallStatus(Enum):
 
 
 def call_solver_and_backups(
-        model,
-        config,
-        solve_globally,
-        timing_obj,
-        timer_name,
-        problem_desc,
-        acceptable_terminations,
-        backup_solver_terminations=None,
-        ):
+    model,
+    config,
+    solve_globally,
+    timing_obj,
+    timer_name,
+    problem_desc,
+    acceptable_terminations,
+    backup_solver_terminations=None,
+):
     """
     Invoke primary and, if needed, backup solvers on a given model.
 

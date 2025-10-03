@@ -505,6 +505,7 @@ class NonOptimalSolver:
     Solver that returns a nonoptimal termination status when
     its solve() method is invoked.
     """
+
     def available(self, exception_flag=True):
         return True
 
@@ -761,9 +762,7 @@ class RegressionTest(unittest.TestCase):
                 ),
             )
 
-    @unittest.skipUnless(
-        baron_license_is_valid, "BARON is not available and licensed."
-    )
+    @unittest.skipUnless(baron_license_is_valid, "BARON is not available and licensed.")
     def test_pyros_backup_solvers(self):
         m = ConcreteModel()
         m.p = Param(range(4), initialize=2, mutable=True)
@@ -1150,7 +1149,7 @@ class RegressionTest(unittest.TestCase):
         err_str = LOG.getvalue()
         self.assertRegex(
             err_str,
-            "Optimizer.*exception.*simulation portion.*separation model.*iteration 0"
+            "Optimizer.*exception.*simulation portion.*separation model.*iteration 0",
         )
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")

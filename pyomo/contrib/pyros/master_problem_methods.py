@@ -743,8 +743,7 @@ def solver_call_master(master_data):
     )
 
     master_soln = MasterResults(
-        master_model=master_model,
-        master_results_list=solver_results_list,
+        master_model=master_model, master_results_list=solver_results_list
     )
 
     final_solve_res = solver_results_list[-1]

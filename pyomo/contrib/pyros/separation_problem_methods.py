@@ -949,7 +949,7 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
         )
         for con in sep_model.component_data_objects(Constraint, active=True):
             lslack, uslack = con.lslack(), con.uslack()
-            if (lslack < -tol or uslack < -tol):
+            if lslack < -tol or uslack < -tol:
                 config.progress_logger.debug(
                     f"Initial point for separation of second-stage ineq constraint "
                     f"{ss_ineq_con_name_repr} violates the model constraint "
@@ -1142,10 +1142,7 @@ class SeparationProblemType(enum.Enum):
 
 
 def _solver_call_separation(
-    separation_data,
-    solve_globally,
-    ss_ineq_con_to_maximize,
-    sep_problem_type,
+    separation_data, solve_globally, ss_ineq_con_to_maximize, sep_problem_type
 ):
     """
     Invoke the subordinate solver(s) on a separation model of
@@ -1288,8 +1285,7 @@ def _process_successful_separation_problem(
         ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
     )
     solve_call_results.auxiliary_param_values = [
-        auxvar.value
-        for auxvar in separation_model.uncertainty.auxiliary_var_list
+        auxvar.value for auxvar in separation_model.uncertainty.auxiliary_var_list
     ]
 
 
@@ -1358,8 +1354,7 @@ def solver_call_separation_decompose(
             time_out=simpl_sep_solve_status == SolverCallStatus.TIME_OUT,
             results_list=simpl_sep_solve_res_list,
             subsolver_error=(
-                simpl_sep_solve_status
-                == SolverCallStatus.SUBSOLVER_ERROR
+                simpl_sep_solve_status == SolverCallStatus.SUBSOLVER_ERROR
             ),
         )
 
