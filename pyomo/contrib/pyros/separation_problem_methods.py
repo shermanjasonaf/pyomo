@@ -36,9 +36,9 @@ from pyomo.contrib.pyros.solve_data import (
 from pyomo.contrib.pyros.uncertainty_sets import Geometry
 from pyomo.contrib.pyros.util import (
     ABS_CON_CHECK_FEAS_TOL,
-    call_solver,
-    check_time_limit_reached,
+    call_solver_and_backups,
     get_all_first_stage_eq_cons,
+    SolverCallStatus,
     write_subproblem,
 )
 
@@ -1002,9 +1002,10 @@ def solver_call_separation(
         Solve results for separation problem of interest.
     """
     config = separation_data.config
-    # prepare the problem
     separation_model = separation_data.separation_model
     objectives_map = separation_data.separation_model.second_stage_ineq_con_to_obj_map
+
+    # prepare the separation problem
     separation_obj = objectives_map[ss_ineq_con_to_maximize]
     initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
     separation_obj.activate()
@@ -1018,124 +1019,77 @@ def solver_call_separation(
 
     # keep track of solver statuses for output logging
     solve_mode = "global" if solve_globally else "local"
-    solver_status_dict = {}
-    if solve_globally:
-        solvers = [config.global_solver] + config.backup_global_solvers
-    else:
-        solvers = [config.local_solver] + config.backup_local_solvers
-    solve_mode_adverb = "globally" if solve_globally else "locally"
+
+    all_opt_results, solve_status = call_solver_and_backups(
+        model=separation_model,
+        solve_globally=solve_globally,
+        config=config,
+        timing_obj=separation_data.timing,
+        timer_name=f"main.{solve_mode}_separation",
+        problem_desc=(
+            f"separation problem for constraint "
+            f"{con_name_repr} in iteration {separation_data.iteration}"
+        ),
+        acceptable_terminations=(
+            globally_acceptable if solve_globally else locally_acceptable
+        ),
+    )
 
     solve_call_results = SeparationSolveCallResults(
         solved_globally=solve_globally,
-        time_out=False,
-        results_list=[],
-        found_violation=False,
-        subsolver_error=False,
+        time_out=solve_status == SolverCallStatus.TIME_OUT,
+        results_list=all_opt_results,
+        subsolver_error=solve_status == SolverCallStatus.SUBSOLVER_ERROR,
     )
-    for idx, opt in enumerate(solvers):
-        if idx > 0:
-            config.progress_logger.debug(
-                f"Invoking backup solver {opt!r} "
-                f"(solver {idx + 1} of {len(solvers)}) for {solve_mode} "
-                f"separation of second-stage inequality constraint {con_name_repr} "
-                f"in iteration {separation_data.iteration}."
+
+    if solve_status == SolverCallStatus.SUCCESSFUL:
+        separation_model.solutions.load_from(all_opt_results[-1])
+
+        # record second-stage and state variable values
+        solve_call_results.variable_values = ComponentMap()
+        for var in separation_model.all_adjustable_variables:
+            solve_call_results.variable_values[var] = value(var)
+
+        # record uncertain parameter realization
+        #   and constraint violations
+        (
+            solve_call_results.violating_param_realization,
+            solve_call_results.scaled_violations,
+            solve_call_results.found_violation,
+        ) = evaluate_ss_ineq_con_violations(
+            separation_data=separation_data,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+        )
+        solve_call_results.auxiliary_param_values = [
+            auxvar.value
+            for auxvar in separation_model.uncertainty.auxiliary_var_list
+        ]
+
+    if solve_status == SolverCallStatus.SUBSOLVER_ERROR:
+        # All subordinate solvers failed to optimize model to appropriate
+        # termination condition. PyROS will terminate with subsolver
+        # error. At this point, export model if desired
+        solve_call_results.message = (
+            "Could not successfully solve separation problem of iteration "
+            f"{separation_data.iteration} "
+            f"for second-stage inequality constraint {con_name_repr} "
+            f"with any of the provided subordinate {solve_mode} optimizers. "
+            f"(Termination statuses: "
+            f"{[str(res.solver.termination_condition) for res in all_opt_results]}.)"
+        )
+        config.progress_logger.warning(solve_call_results.message)
+
+        if config.keepfiles and config.subproblem_file_directory is not None:
+            write_subproblem(
+                model=separation_model,
+                fname=(
+                    f"{config.uncertainty_set.type}_{separation_model.name}"
+                    f"_separation_{separation_data.iteration}"
+                    f"_obj_{separation_obj.name}"
+                ),
+                config=config,
             )
-            # TODO: confirm this is sufficient for tracking
-            #       discrete separation backup solver usage
-            solve_call_results.backup_solver_used = True
-        results = call_solver(
-            model=separation_model,
-            solver=opt,
-            config=config,
-            timing_obj=separation_data.timing,
-            timer_name=f"main.{solve_mode}_separation",
-            err_msg=(
-                f"Optimizer {repr(opt)} ({idx + 1} of {len(solvers)}) "
-                f"encountered exception attempting "
-                f"to {solve_mode_adverb} solve separation problem for constraint "
-                f"{con_name_repr} in iteration {separation_data.iteration}."
-            ),
-        )
-
-        # record termination condition for this particular solver
-        solver_status_dict[str(opt)] = results.solver.termination_condition
-        solve_call_results.results_list.append(results)
-
-        # has PyROS time limit been reached?
-        if check_time_limit_reached(separation_data.timing, config):
-            solve_call_results.time_out = True
-            separation_obj.deactivate()
-            return solve_call_results
-
-        # if separation problem solved to optimality, record results
-        # and exit
-        acceptable_conditions = (
-            globally_acceptable if solve_globally else locally_acceptable
-        )
-        optimal_termination = solve_call_results.termination_acceptable(
-            acceptable_conditions
-        )
-        if optimal_termination:
-            separation_model.solutions.load_from(results)
-
-            # record second-stage and state variable values
-            solve_call_results.variable_values = ComponentMap()
-            for var in separation_model.all_adjustable_variables:
-                solve_call_results.variable_values[var] = value(var)
-
-            # record uncertain parameter realization
-            #   and constraint violations
-            (
-                solve_call_results.violating_param_realization,
-                solve_call_results.scaled_violations,
-                solve_call_results.found_violation,
-            ) = evaluate_ss_ineq_con_violations(
-                separation_data=separation_data,
-                ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-                ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
-            )
-            solve_call_results.auxiliary_param_values = [
-                auxvar.value
-                for auxvar in separation_model.uncertainty.auxiliary_var_list
-            ]
-
-            separation_obj.deactivate()
-
-            return solve_call_results
-        else:
-            config.progress_logger.debug(
-                f"Solver {opt} ({idx + 1} of {len(solvers)}) "
-                f"failed for {solve_mode} separation of second-stage inequality "
-                f"constraint {con_name_repr} in iteration "
-                f"{separation_data.iteration}. Termination condition: "
-                f"{results.solver.termination_condition!r}."
-            )
-            config.progress_logger.debug(f"Results:\n{results.solver}")
-
-    # All subordinate solvers failed to optimize model to appropriate
-    # termination condition. PyROS will terminate with subsolver
-    # error. At this point, export model if desired
-    solve_call_results.subsolver_error = True
-    solve_call_results.message = (
-        "Could not successfully solve separation problem of iteration "
-        f"{separation_data.iteration} "
-        f"for second-stage inequality constraint {con_name_repr} with any of the "
-        f"provided subordinate {solve_mode} optimizers. "
-        f"(Termination statuses: "
-        f"{[str(term_cond) for term_cond in solver_status_dict.values()]}.)"
-    )
-    config.progress_logger.warning(solve_call_results.message)
-
-    if config.keepfiles and config.subproblem_file_directory is not None:
-        write_subproblem(
-            model=separation_model,
-            fname=(
-                f"{config.uncertainty_set.type}_{separation_model.name}"
-                f"_separation_{separation_data.iteration}"
-                f"_obj_{separation_obj.name}"
-            ),
-            config=config,
-        )
 
     separation_obj.deactivate()
 

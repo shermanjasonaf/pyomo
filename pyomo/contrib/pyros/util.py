@@ -3338,6 +3338,132 @@ def call_solver(model, solver, config, timing_obj, timer_name, err_msg):
     return results
 
 
+class SolverCallStatus(Enum):
+    """
+    Indicator for the nature of the terminations
+    of a sequence of solvers invoked on a model.
+    """
+
+    SUCCESSFUL = "successful"
+    TIME_OUT = "time_out"
+    SUBSOLVER_ERROR = "subsolver_error"
+
+
+def call_solver_and_backups(
+        model,
+        config,
+        solve_globally,
+        timing_obj,
+        timer_name,
+        problem_desc,
+        acceptable_terminations,
+        backup_solver_terminations=None,
+        ):
+    """
+    Invoke primary and, if needed, backup solvers on a given model.
+
+    Parameters
+    ----------
+    model : ConcreteModel
+        Model to be solved.
+    config : ConfigDict
+        PyROS solver options.
+    solve_globally : bool
+        True to solve with global solvers in `config`,
+        False to solve with local solvers in `config`.
+    timing_obj : TimingData
+        Timing data object.
+    timer_name : str
+        Name of sub-timer to start/stop when solvers are invoked.
+    problem_desc : str
+        Description of the problem to be solved.
+    acceptable_terminations : set of TerminationCondition
+        Pyomo termination conditions which, if established,
+        are considered acceptable.
+    backup_solver_terminations : set of TerminationCondition, optional
+        Pyomo termination conditions which, if established,
+        signify that the next backup solver should be invoked.
+        If `None` is passed, then this is interpreted as any
+        Pyomo termination condition that is not in
+        `acceptable_terminations`.
+
+    Returns
+    -------
+    all_results : list of pyomo.opt.SolverResults
+        Solver results objects returned by the solvers that
+        were invoked.
+    solver_status : SolverCallStatus
+        Indicator for the nature of the termination status
+        arrived at by the solver(s) used.
+
+    Raises
+    ------
+    NotImplementedError
+        If the termination condition reported by a solver
+        is not in `acceptable_terminations` or
+        `backup_solver_terminations`.
+    """
+    optimality_desc = "global" if solve_globally else "local"
+    if solve_globally:
+        solvers = [config.global_solver] + config.backup_global_solvers
+    else:
+        solvers = [config.local_solver] + config.backup_local_solvers
+
+    all_results = []
+    for idx, opt in enumerate(solvers):
+        if idx > 0:
+            config.progress_logger.debug(
+                f"Invoking backup {optimality_desc} solver {opt!r} "
+                f"(solver {idx + 1} of {len(solvers)}) for {problem_desc}."
+            )
+        res = call_solver(
+            model=model,
+            solver=opt,
+            config=config,
+            timing_obj=timing_obj,
+            timer_name=timer_name,
+            err_msg=(
+                f"Optimizer {repr(opt)} ({idx + 1} of {len(solvers)}) "
+                f"encountered exception attempting to {optimality_desc}ly solve "
+                f"{problem_desc}."
+            ),
+        )
+        all_results.append(res)
+
+        termination_condition = res.solver.termination_condition
+        if check_time_limit_reached(timing_obj, config):
+            solver_call_status = SolverCallStatus.TIME_OUT
+            config.progress_logger.debug(
+                f"PyROS time limit reached while using optimizer "
+                f"{opt} ({idx + 1} of {len(solvers)}) "
+                f"to solve {problem_desc}."
+            )
+            break
+        elif termination_condition in acceptable_terminations:
+            solver_call_status = SolverCallStatus.SUCCESSFUL
+            break
+        elif (
+            backup_solver_terminations is not None
+            and termination_condition not in backup_solver_terminations
+        ):
+            raise NotImplementedError(
+                f"Processing of termination condition {termination_condition} "
+                f"for {optimality_desc} solution of {problem_desc} "
+                "is currently not supported by PyROS. "
+                "Please report this issue to the PyROS developers."
+            )
+        else:
+            solver_call_status = SolverCallStatus.SUBSOLVER_ERROR
+
+        config.progress_logger.debug(
+            f"Optimizer {opt} ({idx + 1} of {len(solvers)}) "
+            f"failed to {optimality_desc}ly solve {problem_desc}."
+        )
+        config.progress_logger.debug(f"Results:\n{res.solver}")
+
+    return all_results, solver_call_status
+
+
 class IterationLogRecord:
     """
     PyROS solver iteration log record.

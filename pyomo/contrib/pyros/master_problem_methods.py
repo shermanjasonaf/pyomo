@@ -26,6 +26,7 @@ from pyomo.repn.standard_repn import generate_standard_repn
 from pyomo.contrib.pyros.solve_data import MasterResults
 from pyomo.contrib.pyros.util import (
     call_solver,
+    call_solver_and_backups,
     DR_POLISHING_PARAM_PRODUCT_ZERO_TOL,
     enforce_dr_degree,
     get_all_first_stage_eq_cons,
@@ -34,6 +35,7 @@ from pyomo.contrib.pyros.util import (
     generate_all_decision_rule_var_data_objects,
     ObjectiveType,
     pyrosTerminationCondition,
+    SolverCallStatus,
     TIC_TOC_SOLVE_TIME_ATTR,
     write_subproblem,
 )
@@ -683,77 +685,6 @@ def log_master_solve_results(master_model, config, results, desc="Optimized"):
     )
 
 
-def process_termination_condition_master_problem(config, results):
-    """
-    Process master problem solve termination condition.
-
-    Parameters
-    ----------
-    config : ConfigDict
-        PyROS solver options.
-    results : SolverResults
-        Solver results.
-
-    Returns
-    -------
-    optimality_acceptable : bool
-        True if problem was solved to an acceptable optimality target,
-        False otherwise.
-    infeasible : bool
-        True if problem was found to be infeasible, False otherwise.
-
-    Raises
-    ------
-    NotImplementedError
-        If a particular solver termination is not supported by
-        PyROS.
-    """
-    locally_acceptable = [tc.optimal, tc.locallyOptimal, tc.globallyOptimal]
-    globally_acceptable = [tc.optimal, tc.globallyOptimal]
-    robust_infeasible = [tc.infeasible]
-    try_backups = [
-        tc.feasible,
-        tc.maxTimeLimit,
-        tc.maxIterations,
-        tc.maxEvaluations,
-        tc.minStepLength,
-        tc.minFunctionValue,
-        tc.other,
-        tc.solverFailure,
-        tc.internalSolverError,
-        tc.error,
-        tc.unbounded,
-        tc.infeasibleOrUnbounded,
-        tc.invalidProblem,
-        tc.intermediateNonInteger,
-        tc.noSolution,
-        tc.unknown,
-    ]
-
-    termination_condition = results.solver.termination_condition
-    optimality_acceptable = (
-        (termination_condition in globally_acceptable)
-        if config.solve_master_globally
-        else (termination_condition in locally_acceptable)
-    )
-    infeasible = termination_condition in robust_infeasible
-    try_backup_solver = termination_condition in try_backups
-
-    unsupported_termination = not (
-        optimality_acceptable or try_backup_solver or infeasible
-    )
-    if unsupported_termination:
-        solve_type = "global" if config.solve_master_globally else "local"
-        raise NotImplementedError(
-            f"Processing of termination condition {termination_condition} "
-            f"for attempt at {solve_type} solution of master problem "
-            "is currently not supported by PyROS. "
-            "Please report this issue to the PyROS developers."
-        )
-
-    return optimality_acceptable, infeasible
-
-
 def solver_call_master(master_data):
     """
     Invoke subsolver(s) on PyROS master problem,
@@ -775,100 +706,108 @@ def solver_call_master(master_data):
         master_model=master_model, pyros_termination_condition=None
     )
 
-    if config.solve_master_globally:
-        solvers = [config.global_solver] + config.backup_global_solvers
-    else:
-        solvers = [config.local_solver] + config.backup_local_solvers
-
-    solve_mode = "global" if config.solve_master_globally else "local"
     config.progress_logger.debug("Solving master problem")
 
     higher_order_decision_rule_efficiency(master_data)
 
-    for idx, opt in enumerate(solvers):
-        if idx > 0:
-            config.progress_logger.debug(
-                f"Invoking backup solver {opt!r} "
-                f"(solver {idx + 1} of {len(solvers)}) for "
-                f"master problem of iteration {master_data.iteration}."
-            )
-        results = call_solver(
-            model=master_model,
-            solver=opt,
-            config=config,
-            timing_obj=master_data.timing,
-            timer_name="main.master",
-            err_msg=(
-                f"Optimizer {repr(opt)} ({idx + 1} of {len(solvers)}) "
-                "encountered exception attempting to "
-                f"solve master problem in iteration {master_data.iteration}"
-            ),
-        )
+    acceptable_optimal_terminations = {tc.optimal, tc.globallyOptimal}
+    if not config.solve_master_globally:
+        acceptable_optimal_terminations.add(tc.locallyOptimal)
 
-        master_soln.master_results_list.append(results)
-        optimality_acceptable, infeasible = (
-            process_termination_condition_master_problem(config=config, results=results)
-        )
-        time_out = check_time_limit_reached(master_data.timing, config)
+    solver_results_list, solve_status = call_solver_and_backups(
+        model=master_model,
+        config=config,
+        solve_globally=config.solve_master_globally,
+        timing_obj=master_data.timing,
+        timer_name="main.master",
+        problem_desc=f"master problem of iteration {master_data.iteration}",
+        acceptable_terminations=acceptable_optimal_terminations | {tc.infeasible},
+        backup_solver_terminations={
+            tc.feasible,
+            tc.maxTimeLimit,
+            tc.maxIterations,
+            tc.maxEvaluations,
+            tc.minStepLength,
+            tc.minFunctionValue,
+            tc.other,
+            tc.solverFailure,
+            tc.internalSolverError,
+            tc.error,
+            tc.unbounded,
+            tc.infeasibleOrUnbounded,
+            tc.invalidProblem,
+            tc.intermediateNonInteger,
+            tc.noSolution,
+            tc.unknown,
+        },
+    )
 
-        if optimality_acceptable:
-            master_model.solutions.load_from(results)
-            log_master_solve_results(master_model, config, results)
-        if time_out:
-            master_soln.pyros_termination_condition = pyrosTerminationCondition.time_out
-        if infeasible:
+    master_soln = MasterResults(
+        master_model=master_model,
+        master_results_list=solver_results_list,
+    )
+
+    final_solve_res = solver_results_list[-1]
+    if solve_status == SolverCallStatus.SUCCESSFUL:
+        infeasible = final_solve_res.solver.termination_condition == tc.infeasible
+        optimal = (
+            final_solve_res.solver.termination_condition
+            in acceptable_optimal_terminations
+        )
+        if optimal:
+            master_soln.pyros_termination_condition = None
+            master_model.solutions.load_from(final_solve_res)
+            log_master_solve_results(master_model, config, final_solve_res)
+        elif infeasible:
             master_soln.pyros_termination_condition = (
                 pyrosTerminationCondition.robust_infeasible
             )
 
-        final_result_established = optimality_acceptable or time_out or infeasible
-        if final_result_established:
-            return master_soln
+    if solve_status == SolverCallStatus.TIME_OUT:
+        master_soln.pyros_termination_condition = pyrosTerminationCondition.time_out
 
-    # all solvers have failed to return an acceptable status.
-    # we will terminate PyROS with subsolver error status.
-
-    # log subproblem solve failure warning
-    deterministic_model_qual = (
-        " (i.e., the deterministic model)" if master_data.iteration == 0 else ""
-    )
-    deterministic_msg = (
-        (
-            " Please ensure that your deterministic model, "
-            "subject to the nominal uncertain parameter realization "
-            "you have provided, "
-            f"is solvable by at least one of the subordinate {solve_mode} "
-            "optimizers provided."
+    if solve_status == SolverCallStatus.SUBSOLVER_ERROR:
+        solve_mode = "global" if config.solve_master_globally else "local"
+        master_soln.pyros_termination_condition = (
+            pyrosTerminationCondition.subsolver_error
         )
-        if master_data.iteration == 0
-        else ""
-    )
-    master_soln.pyros_termination_condition = pyrosTerminationCondition.subsolver_error
-    subsolver_termination_conditions = [
-        res.solver.termination_condition for res in master_soln.master_results_list
-    ]
-    config.progress_logger.warning(
-        f"Could not successfully solve master problem of iteration "
-        f"{master_data.iteration}{deterministic_model_qual} with any of the "
-        f"provided subordinate {solve_mode} optimizers. "
-        f"(Termination statuses: "
-        f"{[term_cond for term_cond in subsolver_termination_conditions]}.)"
-        f"{deterministic_msg}"
-    )
-
-    # at this point, export subproblem to file, if desired.
-    # NOTE: subproblem is written with variables set to their
-    #       initial values (not the final subsolver iterate)
-    if config.keepfiles and config.subproblem_file_directory is not None:
-        write_subproblem(
-            model=master_model,
-            fname=(
-                f"{config.uncertainty_set.type}"
-                f"_{master_data.original_model_name}"
-                f"_master_{master_data.iteration}"
-            ),
-            config=config,
+        # log subproblem solve failure warning
+        deterministic_model_qual = (
+            " (i.e., the deterministic model)" if master_data.iteration == 0 else ""
         )
+        deterministic_msg = (
+            (
+                " Please ensure that your deterministic model, "
+                "subject to the nominal uncertain parameter realization "
+                "you have provided, "
+                f"is solvable by at least one of the subordinate {solve_mode} "
+                "optimizers provided."
+            )
+            if master_data.iteration == 0
+            else ""
+        )
+        config.progress_logger.warning(
+            f"Could not successfully solve master problem of iteration "
+            f"{master_data.iteration}{deterministic_model_qual} with any of the "
+            f"provided subordinate {solve_mode} optimizers. "
+            f"(Termination statuses: "
+            f"{[res.solver.termination_condition for res in solver_results_list]}.)"
+            f"{deterministic_msg}"
+        )
+
+        # at this point, export subproblem to file, if desired.
+        # NOTE: subproblem is written with variables set to their
+        #       initial values (not the final subsolver iterate)
+        if config.keepfiles and config.subproblem_file_directory is not None:
+            write_subproblem(
+                model=master_model,
+                fname=(
+                    f"{config.uncertainty_set.type}"
+                    f"_{master_data.original_model_name}"
+                    f"_master_{master_data.iteration}"
+                ),
+                config=config,
+            )
 
     return master_soln
 
