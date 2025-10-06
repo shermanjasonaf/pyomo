@@ -14,7 +14,6 @@ Functions for construction and solution of the PyROS master problem.
 """
 
 from pyomo.common.collections import ComponentMap, ComponentSet
-from pyomo.common.modeling import unique_component_name
 from pyomo.core import TransformationFactory
 from pyomo.core.base import ConcreteModel, Block, Var, Objective, Constraint
 from pyomo.core.base.set_types import NonNegativeIntegers, NonNegativeReals
