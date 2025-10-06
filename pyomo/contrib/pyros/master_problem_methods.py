@@ -289,8 +289,7 @@ def solve_master_feasibility_problem(master_data):
 
         # update the adjustable variables of the master model
         scenario_blk_zip = zip(
-            master_model.scenarios.values(),
-            model.scenarios.values(),
+            master_model.scenarios.values(), model.scenarios.values()
         )
         for master_blk, mfeas_blk in scenario_blk_zip:
             adj_var_zip = zip(
