@@ -162,29 +162,8 @@ def construct_master_feasibility_problem(master_data):
     slack_model : ConcreteModel
         Slack variable model.
     """
-    # to prevent use of find_component when copying variable values
-    # from the slack model to the master problem later, we will
-    # map corresponding variables before/during slack model construction
-    varmap_name = unique_component_name(master_data.master_model, 'pyros_var_map')
-    setattr(
-        master_data.master_model,
-        varmap_name,
-        list(master_data.master_model.component_data_objects(Var)),
-    )
-
     slack_model = master_data.master_model.clone()
 
-    master_data.feasibility_problem_varmap = list(
-        zip(
-            getattr(master_data.master_model, varmap_name),
-            getattr(slack_model, varmap_name),
-        )
-    )
-    delattr(master_data.master_model, varmap_name)
-    delattr(slack_model, varmap_name)
-
-    for obj in slack_model.component_data_objects(Objective):
-        obj.deactivate()
     iteration = master_data.iteration
 
     # add slacks only to second-stage inequality constraints for the
@@ -202,6 +181,8 @@ def construct_master_feasibility_problem(master_data):
 
     # add slack variables and objective
     # inequalities g(v) <= b become g(v) - s^- <= b
+    # note: this automatically deactivates all hitherto active
+    #       objectives
     TransformationFactory("core.add_slack_variables").apply_to(
         slack_model, targets=targets
     )
@@ -297,6 +278,26 @@ def solve_master_feasibility_problem(master_data):
         config.progress_logger.debug(
             f" Solve time: {getattr(results.solver, TIC_TOC_SOLVE_TIME_ATTR)}s"
         )
+
+        master_model = master_data.master_model
+
+        # update the nonadjustable variables of the master model
+        master_nadj_vars = master_model.scenarios[0, 0].all_nonadjustable_variables
+        mfeas_nadj_vars = model.scenarios[0, 0].all_nonadjustable_variables
+        for master_nadj_var, mfeas_nadj_var in zip(master_nadj_vars, mfeas_nadj_vars):
+            master_nadj_var.set_value(mfeas_nadj_var.value, skip_validation=True)
+
+        # update the adjustable variables of the master model
+        scenario_blk_zip = zip(
+            master_model.scenarios.values(),
+            model.scenarios.values(),
+        )
+        for master_blk, mfeas_blk in scenario_blk_zip:
+            adj_var_zip = zip(
+                master_blk.all_adjustable_variables, mfeas_blk.all_adjustable_variables
+            )
+            for master_adj_var, mfeas_adj_var in adj_var_zip:
+                master_adj_var.set_value(mfeas_adj_var.value, skip_validation=True)
     else:
         config.progress_logger.debug(
             "Could not successfully solve master feasibility problem "
@@ -306,10 +307,6 @@ def solve_master_feasibility_problem(master_data):
             f"Termination stats:\n{results.solver}\n"
             "Maintaining unoptimized point for master problem initialization."
         )
-
-    # load master feasibility point to master model
-    for master_var, feas_var in master_data.feasibility_problem_varmap:
-        master_var.set_value(feas_var.value, skip_validation=True)
 
     return results
 

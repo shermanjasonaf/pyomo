@@ -249,26 +249,6 @@ class TestNewConstructMasterFeasibilityProblem(unittest.TestCase):
 
         return master_data
 
-    def test_construct_master_feasibility_problem_var_map(self):
-        """
-        Test construction of feasibility problem var map.
-        """
-        master_data = self.build_simple_master_data()
-        slack_model = construct_master_feasibility_problem(master_data)
-
-        self.assertTrue(master_data.feasibility_problem_varmap)
-        for mvar, feasvar in master_data.feasibility_problem_varmap:
-            self.assertIs(
-                mvar,
-                master_data.master_model.find_component(feasvar),
-                msg=f"{mvar.name!r} is not same as find_component({feasvar.name!r})",
-            )
-            self.assertIs(
-                feasvar,
-                slack_model.find_component(mvar),
-                msg=f"{feasvar.name!r} is not same as find_component({mvar.name!r})",
-            )
-
     def test_construct_master_feasibility_problem_slack_vars(self):
         """
         Check master feasibility slack variables.
