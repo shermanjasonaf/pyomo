@@ -39,7 +39,6 @@ from pyomo.contrib.pyros.util import (
     ABS_CON_CHECK_FEAS_TOL,
     call_solver_and_backups,
     get_all_first_stage_eq_cons,
-    get_all_nonadjustable_variables,
     get_dr_expression,
     SolverCallStatus,
     write_subproblem,
@@ -1614,10 +1613,10 @@ def discrete_solve(
     ]
 
     # update nonadjustable variables of the separation model
-    master_nadj_var_list = get_all_nonadjustable_variables(
-        master_data.master_model.scenarios[0, 0]
-    )
-    sep_nadj_var_list = get_all_nonadjustable_variables(separation_model)
+    master_nadj_var_list = master_data.master_model.scenarios[
+        0, 0
+    ].all_nonadjustable_variables
+    sep_nadj_var_list = separation_model.all_nonadjustable_variables
     for sep_nadj_var, master_nadj_var in zip(sep_nadj_var_list, master_nadj_var_list):
         sep_nadj_var.fix(master_nadj_var.value)
 
