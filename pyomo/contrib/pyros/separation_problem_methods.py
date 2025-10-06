@@ -911,14 +911,15 @@ def initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
         Evaluate violation of `ss_ineq_con` by variables of
         specified master block.
         """
-        master_con = master_model.scenarios[scenario_idx].find_component(
-            ss_ineq_con_to_maximize
-        )
+        master_con = master_model.scenarios[scenario_idx].second_stage.inequality_cons[
+            ss_ineq_con_index
+        ]
         return value(master_con)
 
     # initialize from master block with max violation of the
     # second-stage ineq constraint of interest. Gives the best known
     # feasible solution (for case of non-discrete uncertainty sets).
+    ss_ineq_con_index = ss_ineq_con_to_maximize.index()
     worst_master_block_idx = max(
         master_model.scenarios.keys(), key=eval_master_violation
     )
