@@ -792,6 +792,39 @@ class RegressionTest(unittest.TestCase):
             pyrosTerminationCondition.robust_feasible,
         )
 
+    @unittest.skipUnless(baron_license_is_valid, "BARON is not available and licensed.")
+    def test_pyros_backup_solvers_discrete_set(self):
+        """
+        Test PyROS works when solving model with discrete uncertainty set
+        and backup solvers are required.
+        """
+        m = ConcreteModel()
+        m.p = Param(range(4), initialize=2, mutable=True)
+        m.x1 = Var(within=Reals, bounds=(0, None), initialize=0.1)
+        m.x2 = Var(within=Reals, bounds=(0, None), initialize=0.1)
+        m.x3 = Var(within=Reals, bounds=(0, None), initialize=0.1)
+        m.obj = Objective(expr=(m.x1 - 1) * 2, sense=minimize)
+        m.con1 = Constraint(expr=m.p[1] * m.x1 + m.x2 + m.x3 <= 2)
+
+        pyros = SolverFactory("pyros")
+        results = pyros.solve(
+            model=m,
+            first_stage_variables=[m.x1, m.x2, m.x3],
+            second_stage_variables=[],
+            uncertain_params=[m.p[1]],
+            uncertainty_set=DiscreteScenarioSet(scenarios=[[1.8], [2], [2.2]]),
+            local_solver=NonOptimalSolver(),
+            global_solver=NonOptimalSolver(),
+            backup_local_solvers=[SolverFactory("baron")],
+            backup_global_solvers=[SolverFactory("baron")],
+            options={"objective_focus": ObjectiveType.nominal},
+            solve_master_globally=True,
+        )
+        self.assertTrue(
+            results.pyros_termination_condition,
+            pyrosTerminationCondition.robust_feasible,
+        )
+
     @unittest.skipUnless(
         SolverFactory('baron').license_is_valid(),
         "Global NLP solver is not available and licensed.",

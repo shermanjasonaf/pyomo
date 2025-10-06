@@ -521,6 +521,7 @@ def get_worst_discrete_separation_solution(
         time_out=False,
         subsolver_error=subsolver_error_flag,
         discrete_set_scenario_index=worst_case_res.discrete_set_scenario_index,
+        backup_solver_used=discrete_solve_results.backup_solver_used,
     )
 
 
@@ -644,6 +645,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
                     results_list=results_list,
                     time_out=discrete_sep_results.time_out,
                     subsolver_error=discrete_sep_results.subsolver_error,
+                    backup_solver_used=discrete_sep_results.backup_solver_used,
                 )
             )
             return SeparationLoopResults(
@@ -1356,6 +1358,7 @@ def solver_call_separation_decompose(
             subsolver_error=(
                 simpl_sep_solve_status == SolverCallStatus.SUBSOLVER_ERROR
             ),
+            backup_solver_used=len(simpl_sep_solve_res_list) > 1,
         )
 
     separation_state_vars = separation_model.effective_var_partitioning.state_variables
@@ -1375,6 +1378,9 @@ def solver_call_separation_decompose(
         time_out=simul_solve_status == SolverCallStatus.TIME_OUT,
         results_list=simpl_sep_solve_res_list + simul_solve_results_list,
         subsolver_error=simul_solve_status == SolverCallStatus.SUBSOLVER_ERROR,
+        backup_solver_used=(
+            len(simpl_sep_solve_res_list) > 1 or len(simul_solve_results_list) > 1
+        ),
     )
 
     if simul_solve_status == SolverCallStatus.SUCCESSFUL:
@@ -1446,6 +1452,7 @@ def solver_call_separation_full(
         time_out=solve_status == SolverCallStatus.TIME_OUT,
         results_list=solve_results_list,
         subsolver_error=solve_status == SolverCallStatus.SUBSOLVER_ERROR,
+        backup_solver_used=len(solve_results_list) > 1,
     )
 
     separation_model = separation_data.separation_model
@@ -1645,6 +1652,7 @@ def discrete_solve(
             results_list=solve_results_list,
             subsolver_error=solve_status == SolverCallStatus.SUBSOLVER_ERROR,
             discrete_set_scenario_index=scenario_idx,
+            backup_solver_used=len(solve_results_list) > 1,
         )
         if solve_status == SolverCallStatus.SUCCESSFUL:
             separation_model.solutions.load_from(solve_results_list[-1])

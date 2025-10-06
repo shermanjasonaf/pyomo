@@ -275,30 +275,21 @@ class DiscreteSeparationSolveCallResults:
     second_stage_ineq_con : Constraint
         Separation problem second-stage inequality constraint for which
         `self` was generated.
-    backup_solver_used : bool
-        True if backup solver was used to solve the problem,
-        False otherwise.
 
     Attributes
     ----------
     solved_globally
     solver_call_results
     second_stage_ineq_con
-    backup_solver_used
     """
 
     def __init__(
-        self,
-        solved_globally,
-        solver_call_results=None,
-        second_stage_ineq_con=None,
-        backup_solver_used=None,
+        self, solved_globally, solver_call_results=None, second_stage_ineq_con=None
     ):
         """Initialize self (see class docstring)."""
         self.solved_globally = solved_globally
         self.solver_call_results = solver_call_results
         self.second_stage_ineq_con = second_stage_ineq_con
-        self.backup_solver_used = backup_solver_used
 
     @property
     def time_out(self):
@@ -317,6 +308,15 @@ class DiscreteSeparationSolveCallResults:
         in `self`, False otherwise.
         """
         return all(res.subsolver_error for res in self.solver_call_results.values())
+
+    @property
+    def backup_solver_used(self):
+        """
+        bool : True if a backup solver was used in any of the
+        ``SeparationSolveCallResults`` objects listed
+        in `self`, False otherwise.
+        """
+        return any(res.backup_solver_used for res in self.solver_call_results.values())
 
 
 class SeparationLoopResults:
