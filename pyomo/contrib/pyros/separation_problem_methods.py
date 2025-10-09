@@ -1312,6 +1312,13 @@ def solver_call_separation_decompose(
     2. (Simulation problem): The state equations are solved
        to compute the state variables.
 
+    The simulation problem is solved only if:
+
+    1. The simplified problem was solved successfully
+    2. The optimal solution of the simplified problem confirms
+       the second-stage inequality constraint is violated
+    3. There is at least one effective state variable
+
     Parameters
     ----------
     separation_data : SeparationProblemData
@@ -1335,31 +1342,40 @@ def solver_call_separation_decompose(
     solve_call_results : pyros.solve_data.SeparationSolveCallResults
         Solve results for separation problem of interest.
     """
-    separation_model = separation_data.separation_model
-
     initialize_separation(ss_ineq_con_to_maximize, separation_data, master_data)
+
     simpl_sep_solve_res_list, simpl_sep_solve_status = _solver_call_separation(
         separation_data=separation_data,
         solve_globally=solve_globally,
         ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
         sep_problem_type=SeparationProblemType.SIMPLIFIED,
     )
-
+    solve_call_results = SeparationSolveCallResults(
+        solved_globally=solve_globally,
+        time_out=simpl_sep_solve_status == SolverCallStatus.TIME_OUT,
+        results_list=simpl_sep_solve_res_list,
+        subsolver_error=(simpl_sep_solve_status == SolverCallStatus.SUBSOLVER_ERROR),
+        backup_solver_used=len(simpl_sep_solve_res_list) > 1,
+    )
+    separation_model = separation_data.separation_model
     if simpl_sep_solve_status == SolverCallStatus.SUCCESSFUL:
         separation_model.solutions.load_from(simpl_sep_solve_res_list[-1])
-
-    if simpl_sep_solve_status != SolverCallStatus.SUCCESSFUL:
-        # solving the state variable-independent portion failed,
-        # so stop here
-        return SeparationSolveCallResults(
-            solved_globally=solve_globally,
-            time_out=simpl_sep_solve_status == SolverCallStatus.TIME_OUT,
-            results_list=simpl_sep_solve_res_list,
-            subsolver_error=(
-                simpl_sep_solve_status == SolverCallStatus.SUBSOLVER_ERROR
-            ),
-            backup_solver_used=len(simpl_sep_solve_res_list) > 1,
+        _process_successful_separation_problem(
+            separation_data=separation_data,
+            solve_call_results=solve_call_results,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            # we only want the violation of the current inequality
+            # being assessed
+            ss_ineq_cons_to_evaluate=[ss_ineq_con_to_maximize],
         )
+    if not solve_call_results.found_violation:
+        # no need to solve the simulation problem for the state variables,
+        # since we don't need to compute the violations of any of
+        # the other second-stage inequality constraints
+        # (including the ones that depend on the state variables).
+        # we only consider violated inequalities when
+        # choosing cuts for the next master problem
+        return solve_call_results
 
     separation_state_vars = separation_model.effective_var_partitioning.state_variables
     if not separation_state_vars:
@@ -1373,16 +1389,18 @@ def solver_call_separation_decompose(
             sep_problem_type=SeparationProblemType.SIMULATION,
         )
 
-    solve_call_results = SeparationSolveCallResults(
-        solved_globally=solve_globally,
-        time_out=simul_solve_status == SolverCallStatus.TIME_OUT,
-        results_list=simpl_sep_solve_res_list + simul_solve_results_list,
-        subsolver_error=simul_solve_status == SolverCallStatus.SUBSOLVER_ERROR,
-        backup_solver_used=(
-            len(simpl_sep_solve_res_list) > 1 or len(simul_solve_results_list) > 1
-        ),
+    # update solve call results according to solution of the
+    # simulation problem
+    solve_call_results.results_list = (
+        simpl_sep_solve_res_list + simul_solve_results_list
     )
-
+    solve_call_results.time_out = simul_solve_status == SolverCallStatus.TIME_OUT
+    solve_call_results.subsolver_error = (
+        simul_solve_status == SolverCallStatus.SUBSOLVER_ERROR
+    )
+    solve_call_results.backup_solver_used = (
+        len(simpl_sep_solve_res_list) > 1 or len(simul_solve_results_list) > 1
+    )
     if simul_solve_status == SolverCallStatus.SUCCESSFUL:
         if simul_solve_results_list:
             separation_model.solutions.load_from(simul_solve_results_list[-1])
@@ -1599,6 +1617,7 @@ def discrete_solve(
     effective_second_stage_vars = (
         separation_model.effective_var_partitioning.second_stage_variables
     )
+    effective_state_vars = separation_model.effective_var_partitioning.state_variables
 
     uncertain_param_vars = list(
         separation_data.separation_model.uncertainty.uncertain_param_var_list
@@ -1638,13 +1657,17 @@ def discrete_solve(
             f" ({idx + 1} of {len(scenario_idxs_to_separate)} total)"
         )
 
-        # obtain separation problem solution
-        solve_results_list, solve_status = _solver_call_separation(
-            separation_data=separation_data,
-            solve_globally=solve_globally,
-            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-            sep_problem_type=SeparationProblemType.SIMULATION,
-        )
+        # solve for the state variables (if there are any)
+        solve_results_list, solve_status = [], SolverCallStatus.SUCCESSFUL
+        if effective_state_vars:
+            solve_results_list, solve_status = _solver_call_separation(
+                separation_data=separation_data,
+                solve_globally=solve_globally,
+                ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+                sep_problem_type=SeparationProblemType.SIMULATION,
+            )
+            if solve_status == SolverCallStatus.SUCCESSFUL:
+                separation_model.solutions.load_from(solve_results_list[-1])
 
         solve_call_results = SeparationSolveCallResults(
             solved_globally=solve_globally,
@@ -1655,7 +1678,6 @@ def discrete_solve(
             backup_solver_used=len(solve_results_list) > 1,
         )
         if solve_status == SolverCallStatus.SUCCESSFUL:
-            separation_model.solutions.load_from(solve_results_list[-1])
             _process_successful_separation_problem(
                 separation_data=separation_data,
                 solve_call_results=solve_call_results,

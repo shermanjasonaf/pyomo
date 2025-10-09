@@ -1091,47 +1091,29 @@ class RegressionTest(unittest.TestCase):
         Test PyROS for two-stage problem with discrete type set,
         subsolver error status.
         """
-
-        class BadSeparationSolver:
-            def __init__(self, solver):
-                self.solver = solver
-
-            def available(self, exception_flag=False):
-                return self.solver.available(exception_flag=exception_flag)
-
-            def solve(self, model, *args, **kwargs):
-                is_separation = hasattr(model, "uncertainty")
-                if is_separation:
-                    res = SolverResults()
-                    res.solver.termination_condition = TerminationCondition.unknown
-                else:
-                    res = self.solver.solve(model, *args, **kwargs)
-                return res
-
         m = ConcreteModel()
-
         m.q = Param(initialize=1, mutable=True)
-        m.x1 = Var(initialize=1, bounds=(0, 1))
-        m.x2 = Var(initialize=2, bounds=(0, m.q))
-        m.obj = Objective(expr=m.x1 + m.x2, sense=maximize)
-
-        discrete_set = DiscreteScenarioSet(scenarios=[(1,), (0,)])
-
-        local_solver = SolverFactory("ipopt")
-        global_solver = SolverFactory("baron")
+        m.x = Var(initialize=1, bounds=(0, 1))
+        m.y = Var(initialize=1)
+        m.obj = Objective(expr=m.x + m.y)
+        m.eq = Constraint(expr=m.y == m.x * m.q)
         pyros_solver = SolverFactory("pyros")
-
         with LoggingIntercept(level=logging.WARNING) as LOG:
             res = pyros_solver.solve(
                 model=m,
-                first_stage_variables=[m.x1],
-                second_stage_variables=[m.x2],
-                uncertain_params=[m.q],
-                uncertainty_set=discrete_set,
-                local_solver=BadSeparationSolver(local_solver),
-                global_solver=BadSeparationSolver(global_solver),
+                first_stage_variables=m.x,
+                second_stage_variables=[],
+                uncertain_params=m.q,
+                uncertainty_set=DiscreteScenarioSet(scenarios=[(1,), (0,)]),
+                # using this as the local solver
+                # should make separation problem fail
+                # in the first iteration
+                local_solver=SimpleTestSolver(),
+                global_solver="baron",
                 decision_rule_order=1,
+                solve_master_globally=True,
                 tee=True,
+                objective_focus="worst_case",
             )
 
         self.assertRegex(LOG.getvalue(), "Could not.*separation.*iteration 0.*")
@@ -1151,13 +1133,12 @@ class RegressionTest(unittest.TestCase):
         m = ConcreteModel()
 
         m.q = Param(initialize=1, mutable=True)
-        m.x1 = Var(initialize=1, bounds=(0, 1))
-
-        # upper bound induces invalid value error: separation
-        # max(x2 - log(m.q)) will force subsolver to q = 0
-        m.x2 = Var(initialize=2, bounds=(None, log(m.q)))
-
-        m.obj = Objective(expr=m.x1 + m.x2, sense=maximize)
+        m.x = Var(initialize=1, bounds=(0, 1))
+        m.y = Var(initialize=0)
+        m.obj = Objective(expr=m.x + m.y)
+        # when q = 0, this should lead to subsolver encountering
+        # error evaluating y during separation
+        m.eq = Constraint(expr=m.y == log(m.q))
 
         discrete_set = DiscreteScenarioSet(scenarios=[(1,), (0,)])
 
@@ -1169,13 +1150,17 @@ class RegressionTest(unittest.TestCase):
             with self.assertRaises(InvalidValueError):
                 pyros_solver.solve(
                     model=m,
-                    first_stage_variables=[m.x1],
-                    second_stage_variables=[m.x2],
-                    uncertain_params=[m.q],
+                    first_stage_variables=m.x,
+                    second_stage_variables=[],
+                    uncertain_params=m.q,
                     uncertainty_set=discrete_set,
                     local_solver=local_solver,
                     global_solver=global_solver,
                     decision_rule_order=1,
+                    # make the epigraph constraint a second-stage
+                    # inequality, so that there is at least one
+                    # separation problem
+                    objective_focus="worst_case",
                     tee=True,
                 )
 
@@ -1431,6 +1416,78 @@ class RegressionTest(unittest.TestCase):
             pyrosTerminationCondition.robust_optimal,
             msg="Returned termination condition is not return robust_optimal.",
         )
+
+    @unittest.skipUnless(baron_available, "BARON is not available")
+    def test_separation_different_con_types(self):
+        """
+        Test PyROS works when there is a state variable-dependent
+        inequality and a state variable-independent equality.
+        """
+        m = ConcreteModel()
+        m.q = Param(initialize=0.5, mutable=True)
+        m.x = Var(bounds=[0, 1])
+        m.z = Var(bounds=[0, 1])
+        m.y = Var()
+        m.obj = Objective(expr=m.x + m.z)
+        m.con1 = Constraint(expr=m.z <= m.q)
+        m.con2 = Constraint(expr=m.y >= m.q)
+        m.eq = Constraint(expr=m.y == 2 * m.z)
+
+        pyros = SolverFactory("pyros")
+        res = pyros.solve(
+            model=m,
+            first_stage_variables=m.x,
+            second_stage_variables=m.z,
+            uncertain_params=m.q,
+            uncertainty_set=BoxSet([[0, 1]]),
+            local_solver="baron",
+            global_solver="baron",
+            bypass_global_separation=True,
+            objective_focus="worst_case",
+            solve_master_globally=True,
+            # need this to ensure z is effective second-stage,
+            # so that y is effective state
+            decision_rule_order=1,
+        )
+        self.assertEqual(res.iterations, 3)
+        self.assertEqual(
+            res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
+        )
+        self.assertEqual(m.x.value, 0)
+        # worst-case values
+        self.assertAlmostEqual(res.final_objective_value, 0.5)
+        self.assertAlmostEqual(m.z.value, 0.5)
+        self.assertAlmostEqual(m.y.value, 1)
+
+    @unittest.skipUnless(ipopt_available, "IPOPT is not available")
+    def test_discrete_separation_no_state_vars(self):
+        """
+        Test PyROS with discrete uncertainty set works as expected
+        when there are no (effective) state variables.
+        """
+        m = ConcreteModel()
+        m.q = Param(initialize=0.5, mutable=True)
+        m.x1 = Var(bounds=[0, 1])
+        m.x2 = Var(bounds=[0, 1])
+        m.obj = Objective(expr=m.x1 + m.x2)
+        m.con = Constraint(expr=m.x2 >= m.q)
+
+        ipopt = SolverFactory("ipopt")
+        pyros = SolverFactory("pyros")
+
+        res = pyros.solve(
+            model=m,
+            first_stage_variables=m.x1,
+            second_stage_variables=m.x2,
+            uncertain_params=m.q,
+            uncertainty_set=DiscreteScenarioSet([[0], [0.5], [1]]),
+            local_solver=ipopt,
+            global_solver=ipopt,
+            bypass_local_separation=True,
+            objective_focus="worst_case",
+            solve_master_globally=True,
+        )
+        self.assertEqual(res.iterations, 2)
 
     @unittest.skipUnless(
         scip_available and scip_license_is_valid, "SCIP is not available and licensed."
