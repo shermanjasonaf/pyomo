@@ -1532,32 +1532,32 @@ def solver_call_separation(
     2. The state equations are solved to compute the state
        variables.
     """
-    return solver_call_separation_full(
-        separation_data=separation_data,
-        master_data=master_data,
-        solve_globally=solve_globally,
-        ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-        ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
-    )
-    # state_var_dep_ineqs_list = (
-    #     separation_data.separation_model.second_stage.state_var_dep_ineqs_list
+    # return solver_call_separation_full(
+    #     separation_data=separation_data,
+    #     master_data=master_data,
+    #     solve_globally=solve_globally,
+    #     ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+    #     ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
     # )
-    # if ss_ineq_con_to_maximize.index() in state_var_dep_ineqs_list:
-    #     return solver_call_separation_full(
-    #         separation_data=separation_data,
-    #         master_data=master_data,
-    #         solve_globally=solve_globally,
-    #         ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-    #         ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
-    #     )
-    # else:
-    #     return solver_call_separation_decompose(
-    #         separation_data=separation_data,
-    #         master_data=master_data,
-    #         solve_globally=solve_globally,
-    #         ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
-    #         ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
-    #     )
+    state_var_dep_ineqs_list = (
+        separation_data.separation_model.second_stage.state_var_dep_ineqs_list
+    )
+    if ss_ineq_con_to_maximize.index() in state_var_dep_ineqs_list:
+        return solver_call_separation_full(
+            separation_data=separation_data,
+            master_data=master_data,
+            solve_globally=solve_globally,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+        )
+    else:
+        return solver_call_separation_decompose(
+            separation_data=separation_data,
+            master_data=master_data,
+            solve_globally=solve_globally,
+            ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
+            ss_ineq_cons_to_evaluate=ss_ineq_cons_to_evaluate,
+        )
 
 
 def discrete_solve(
