@@ -4097,7 +4097,7 @@ class TestPyROSSubproblemWriter(unittest.TestCase):
             tmpdir = TMP.create_tempdir()
             expected_subproblem_filenames = [
                 os.path.join(
-                    tmpdir, f"box_unknown_separation_simp_0_obj_separation_obj_0.{fmt}"
+                    tmpdir, f"box_unknown_separation_0_obj_separation_obj_0.{fmt}"
                 )
                 for fmt in subproblem_format_options.keys()
             ]
