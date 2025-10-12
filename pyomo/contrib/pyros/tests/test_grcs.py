@@ -3223,7 +3223,7 @@ class TestIterationLogRecord(unittest.TestCase):
         """Test logging function for PyROS IterationLogRecord."""
 
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3298,7 +3298,7 @@ class TestIterationLogRecord(unittest.TestCase):
     def test_log_iter_record_polishing_failed(self):
         """Test iteration log record in event of polishing failure."""
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3340,7 +3340,7 @@ class TestIterationLogRecord(unittest.TestCase):
         was bypassed.
         """
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3376,7 +3376,7 @@ class TestIterationLogRecord(unittest.TestCase):
 
     def test_iter_log_record_master_backup(self):
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3412,7 +3412,7 @@ class TestIterationLogRecord(unittest.TestCase):
 
     def test_iter_log_record_separation_backup(self):
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3477,7 +3477,7 @@ class TestIterationLogRecord(unittest.TestCase):
         inequality constraints found to be violated.
         """
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3517,7 +3517,7 @@ class TestIterationLogRecord(unittest.TestCase):
         separation failed.
         """
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=4,
             objective=1.234567,
@@ -3560,7 +3560,7 @@ class TestIterationLogRecord(unittest.TestCase):
         in which there is no first-stage shift or DR shift.
         """
         # for some fields, we choose floats with more than four
-        # four decimal points to ensure rounding also matches
+        # decimal points to ensure rounding also matches
         iter_record = IterationLogRecord(
             iteration=0,
             objective=-1.234567,
@@ -3666,8 +3666,9 @@ class TestPyROSSolverLogIntros(unittest.TestCase):
 
     def test_log_config_user_values_all_default(self):
         """
-        Test method for logging config user values logs
-        nothing if all values are set to default.
+        Test that the method for logging the user-specified
+        optional PyROS solver arguments logs nothing if
+        there are no such arguments.
         """
         pyros_solver = SolverFactory("pyros")
         config = pyros_solver.CONFIG(
