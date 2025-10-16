@@ -1401,6 +1401,11 @@ def solver_call_separation_decompose(
     solve_call_results.backup_solver_used = (
         len(simpl_sep_solve_res_list) > 1 or len(simul_solve_results_list) > 1
     )
+    # reset found_violation indicator so that it is never True
+    # if the simulation problem was solved unsuccessfully.
+    # this ensures that the present separation solution is not
+    # considered for selecting cuts to add to the master problem
+    solve_call_results.found_violation = None
     if simul_solve_status == SolverCallStatus.SUCCESSFUL:
         if simul_solve_results_list:
             separation_model.solutions.load_from(simul_solve_results_list[-1])

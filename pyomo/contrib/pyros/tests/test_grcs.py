@@ -1085,6 +1085,60 @@ class RegressionTest(unittest.TestCase):
         )
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
+    def test_separation_decompose_violation_subsolver_error(self):
+        """
+        Test PyROS terminates with subsolver error for
+        case where separation problem solved with decomposition
+        approach yields a violation when the simplified problem
+        is solved, but an unacceptable solver termination
+        when the simulation problem is solved afterwards.
+        """
+        m = ConcreteModel()
+        m.q = Param(initialize=0, mutable=True)
+        m.x = Var(bounds=[m.q, 1])
+        m.y = Var()
+        m.eq = Constraint(expr=m.y == m.q)
+        m.obj = Objective(expr=m.x)
+        pyros_solver = SolverFactory("pyros")
+        ipopt = SolverFactory("ipopt")
+
+        with LoggingIntercept(level=logging.WARNING) as LOG:
+            res = pyros_solver.solve(
+                model=m,
+                first_stage_variables=m.x,
+                second_stage_variables=[],
+                uncertain_params=m.q,
+                uncertainty_set=BoxSet([[0, 1]]),
+                # note: there is only one separation problem,
+                #       which comes from the uncertain lower bound for `x`.
+                #       since the objective q - x
+                #       is independent of y, this will be solved with
+                #       the simplification/simulation approach.
+                #       With the solver setup used here, solution of
+                #       the simplified problem should be successful
+                #       (first call to the local solver),
+                #       but solution of the simplified problem fails
+                local_solver=NumCallTriggerSolver(solver=ipopt, max_num_calls=1),
+                global_solver=ipopt,
+                solve_master_globally=True,
+                bypass_global_separation=True,
+            )
+        warning_msgs = LOG.getvalue()
+        self.assertRegex(
+            warning_msgs,
+            "Could not successfully.*simulation.* separation.*iteration 0.*"
+            "'var_x_uncertain_lower_bound_con'.*"
+            "Termination statuses.*unknown",
+        )
+        self.assertRegex(
+            warning_msgs, r"PyROS failed to find a constraint violation.*error."
+        )
+        self.assertEqual(
+            res.pyros_termination_condition, pyrosTerminationCondition.subsolver_error
+        )
+        self.assertEqual(res.iterations, 1)
+
+    @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
     @unittest.skipUnless(baron_license_is_valid, "BARON is not available and licensed.")
     def test_discrete_separation_subsolver_error(self):
         """
@@ -4041,6 +4095,25 @@ class SimpleTestSolver:
         res = SolverResults()
         res.solver.termination_condition = TerminationCondition.unknown
 
+        return res
+
+
+class NumCallTriggerSolver:
+    def __init__(self, solver, max_num_calls):
+        self.max_num_calls = max_num_calls
+        self.num_calls = 0
+        self.solver = solver
+
+    def available(self, exception_flag=True):
+        return True
+
+    def solve(self, *args, **kwargs):
+        if self.num_calls < self.max_num_calls:
+            self.num_calls += 1
+            return self.solver.solve(*args, **kwargs)
+        res = SolverResults()
+        res.solver.termination_condition = TerminationCondition.unknown
+        res.solver.status = SolverStatus.warning
         return res
 
 
