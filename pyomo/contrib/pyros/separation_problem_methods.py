@@ -1616,13 +1616,9 @@ def discrete_solve(
         separation_model.effective_var_partitioning.second_stage_variables
     )
     effective_state_vars = separation_model.effective_var_partitioning.state_variables
-    nom_master_state_vars = (
-        master_data
-        .master_model
-        .scenarios[0, 0]
-        .effective_var_partitioning
-        .state_variables
-    )
+    nom_master_state_vars = master_data.master_model.scenarios[
+        0, 0
+    ].effective_var_partitioning.state_variables
 
     uncertain_param_vars = list(
         separation_data.separation_model.uncertainty.uncertain_param_var_list
