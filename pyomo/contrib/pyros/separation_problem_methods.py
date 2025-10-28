@@ -1616,6 +1616,13 @@ def discrete_solve(
         separation_model.effective_var_partitioning.second_stage_variables
     )
     effective_state_vars = separation_model.effective_var_partitioning.state_variables
+    nom_master_state_vars = (
+        master_data
+        .master_model
+        .scenarios[0, 0]
+        .effective_var_partitioning
+        .state_variables
+    )
 
     uncertain_param_vars = list(
         separation_data.separation_model.uncertainty.uncertain_param_var_list
@@ -1648,6 +1655,11 @@ def discrete_solve(
         # use the decision rules to compute the second-stage variables
         for ss_var in effective_second_stage_vars:
             ss_var.fix(value(get_dr_expression(separation_model, ss_var)))
+
+        # initialize the state variables
+        state_var_zip = zip(effective_state_vars, nom_master_state_vars)
+        for sep_state_var, master_state_var in state_var_zip:
+            sep_state_var.set_value(master_state_var)
 
         # debug statement for solving simulation problem for each scenario
         config.progress_logger.debug(
