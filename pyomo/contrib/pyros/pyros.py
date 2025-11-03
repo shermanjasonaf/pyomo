@@ -505,8 +505,8 @@ class PyROS(object):
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
-        config.progress_logger.debug(f"Timing breakdown:\n\n{model_data.timing}")
-        config.progress_logger.debug("-" * self._LOG_LINE_LENGTH)
+        config.progress_logger.info(f"Timing breakdown:\n\n{model_data.timing}")
+        config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
         config.progress_logger.info(return_soln)
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
         config.progress_logger.info("All done. Exiting PyROS.")
