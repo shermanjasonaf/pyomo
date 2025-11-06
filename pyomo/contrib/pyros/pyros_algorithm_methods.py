@@ -287,8 +287,9 @@ def ROSolver_iterative_solve(model_data):
 
         # terminate on time limit
         if separation_results.time_out or separation_results.subsolver_error:
-            # report PyROS failure to find violated constraint for subsolver error
-            if separation_results.subsolver_error:
+            if separation_results.subsolver_error and not separation_results.time_out:
+                # report PyROS failure to find violated
+                # constraint for subsolver error
                 config.progress_logger.warning(
                     "PyROS failed to find a constraint violation and "
                     "will terminate with sub-solver error."
