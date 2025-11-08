@@ -393,6 +393,16 @@ def group_ss_ineq_constraints_by_priority(separation_data):
         "Grouping second-stage inequality constraints by separation priority..."
     )
 
+    max_flat_ineq_priority = max(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    min_flat_ineq_priority = min(
+        separation_data.separation_priority_order.values(), default=0
+    )
+    priority_tier_gap = max_flat_ineq_priority - min_flat_ineq_priority + 2
+    for name in separation_data.separation_model.second_stage.state_var_indep_ineqs_list:
+        separation_data.separation_priority_order[name] += priority_tier_gap
+
     ss_ineq_cons = separation_data.separation_model.second_stage.inequality_cons
     separation_priority_groups = dict()
     for name, ss_ineq_con in ss_ineq_cons.items():
