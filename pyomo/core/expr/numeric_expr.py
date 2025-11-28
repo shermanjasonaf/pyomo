@@ -13,6 +13,7 @@ import collections
 import logging
 import math
 import operator
+import sys
 
 logger = logging.getLogger('pyomo.core')
 
@@ -161,7 +162,7 @@ def enable_expression_optimizations(zero=None, one=None):
             _zero_one_optimizations.discard(key)
 
 
-class mutable_expression(object):
+class mutable_expression:
     """Context manager for mutable sums.
 
     This context manager is used to compute a sum while treating the
@@ -1205,7 +1206,12 @@ class SumExpression(NumericExpression):
         return self.__class__(_args)
 
     def _apply_operation(self, result):
-        return sum(result)
+        # Avoid 0 being added to summations by specifying the start
+        if result:
+            _iter = iter(result)
+            return sum(_iter, start=next(_iter))
+        else:
+            return 0
 
     def _compute_polynomial_degree(self, result):
         # NB: We can't use max() here because None (non-polynomial)
@@ -1332,6 +1338,8 @@ class LinearExpression(SumExpression):
                 assert arg.is_potentially_variable()
                 coef.append(1)
                 var.append(arg)
+        coef = tuple(coef)
+        var = tuple(var)
         LinearExpression._cache = (self, const, coef, var)
 
     @property
@@ -3771,8 +3779,10 @@ def _fcn_mutable(a, name, fcn):
 
 
 def _fcn_invalid(a, name, fcn):
-    fcn(a)
-    # returns None
+    try:
+        return a._op(fcn, a)
+    except:
+        return _invalid(str(sys.exc_info()[1]))
 
 
 def _fcn_native(a, name, fcn):
