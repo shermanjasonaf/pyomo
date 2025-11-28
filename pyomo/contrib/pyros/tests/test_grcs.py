@@ -495,6 +495,7 @@ class TestPyROSRobustInfeasible(unittest.TestCase):
         self.assertEqual(results.iterations, 1)
         # since x was not initialized
         self.assertEqual(results.final_objective_value, None)
+        self.assertEqual(results.decision_rule_coeffs, None)
 
 
 global_solver = "baron"
@@ -570,6 +571,11 @@ class RegressionTest(unittest.TestCase):
             results.pyros_termination_condition,
             pyrosTerminationCondition.robust_feasible,
         )
+        self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
+        self.assertIsNone(results.decision_rule_coeffs["affine"])
+        self.assertIsNone(results.decision_rule_coeffs["quadratic"])
+        self.assertEqual(results.nominal_param_values, [2])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -597,6 +603,11 @@ class RegressionTest(unittest.TestCase):
             results.pyros_termination_condition,
             pyrosTerminationCondition.robust_feasible,
         )
+        self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
+        self.assertEqual(results.decision_rule_coeffs["affine"].shape, (0, 1))
+        self.assertIsNone(results.decision_rule_coeffs["quadratic"])
+        self.assertEqual(results.nominal_param_values, [2])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -624,6 +635,11 @@ class RegressionTest(unittest.TestCase):
             results.pyros_termination_condition,
             pyrosTerminationCondition.robust_feasible,
         )
+        self.assertEqual(results.decision_rule_coeffs["static"].shape, (0,))
+        self.assertEqual(results.decision_rule_coeffs["affine"].shape, (0, 1))
+        self.assertEqual(results.decision_rule_coeffs["quadratic"].shape, (0, 1, 1))
+        self.assertEqual(results.nominal_param_values, [2])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -744,6 +760,9 @@ class RegressionTest(unittest.TestCase):
             pyrosTerminationCondition.time_out,
             msg="Returned termination condition is not return time_out.",
         )
+        self.assertIsNone(results.decision_rule_coeffs)
+        self.assertEqual(results.nominal_param_values, [1.125])
+        self.assertIsNone(results.worst_case_param_values)
 
         # verify subsolver options are unchanged
         subsolvers = [local_subsolver, global_subsolver]
@@ -867,6 +886,8 @@ class RegressionTest(unittest.TestCase):
             pyrosTerminationCondition.time_out,
             msg="Returned termination condition is not return time_out.",
         )
+        self.assertEqual(results.nominal_param_values, [1.125])
+        self.assertIsNone(results.worst_case_param_values)
 
     @unittest.skipUnless(
         ipopt_available
@@ -1037,6 +1058,7 @@ class RegressionTest(unittest.TestCase):
                 "test is not {pyrosTerminationCondition.subsolver_error}.",
             ),
         )
+        self.assertIsNone(res.decision_rule_coeffs)
 
     @unittest.skipUnless(
         baron_license_is_valid, "Global NLP solver is not available and licensed."
@@ -1083,6 +1105,7 @@ class RegressionTest(unittest.TestCase):
                 f"test is not {pyrosTerminationCondition.subsolver_error}."
             ),
         )
+        self.assertIsNone(res.decision_rule_coeffs)
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
     def test_separation_decompose_violation_subsolver_error(self):
@@ -1175,6 +1198,7 @@ class RegressionTest(unittest.TestCase):
             res.pyros_termination_condition, pyrosTerminationCondition.subsolver_error
         )
         self.assertEqual(res.iterations, 1)
+        self.assertIsNone(res.decision_rule_coeffs)
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
     @unittest.skipUnless(
@@ -1714,6 +1738,11 @@ class RegressionTest(unittest.TestCase):
                     f"subsolver {name} not as expected"
                 ),
             )
+            np.testing.assert_allclose(
+                res.decision_rule_coeffs["static"], [m.x1.value, m.x2.value, m.x3.value]
+            )
+            self.assertIsNone(res.decision_rule_coeffs["affine"])
+            self.assertIsNone(res.decision_rule_coeffs["quadratic"])
 
     @unittest.skipUnless(
         scip_available and scip_license_is_valid, "SCIP is not available and licensed."

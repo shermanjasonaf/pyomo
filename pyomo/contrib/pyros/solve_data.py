@@ -33,6 +33,8 @@ class ROSolveResults:
         Final objective function value to report.
     pyros_termination_condition : pyrosTerminationCondition, optional
         PyROS-specific termination condition.
+    decision_rule_coeffs : dict
+        Decision rule coefficients.
 
     Attributes
     ----------
@@ -50,6 +52,29 @@ class ROSolveResults:
         the value of the worst-case objective function is reported.
     pyros_termination_condition : pyrosTerminationCondition
         Indicator of the manner of termination.
+    decision_rule_coeffs : dict
+        Decision rule coefficients.
+        Should have three entries, namely:
+
+        - `static`: A ``numpy.ndarray`` with as many entries
+          as ``self.config.second_stage_variables``
+        - `affine`: If ``config.decision_rule_order`` equals 0,
+          then None. Otherwise, a 2D ``numpy.ndarray`` with
+          as many rows as entries in `static` and as many
+          columns as entries in ``self.config.uncertain_params``.
+        - `quadratic`: If ``config.decision_rule_order`` equals 0 or 1,
+          then None. Otherwise, a 3D ``numpy.ndarray`` of length
+          ``len(self.config.second_stage_variables)`` along
+          the first axis and ``len(self.config.uncertain_params``)
+          along the other two axes.
+
+    nominal_param_values : list of float
+        Nominal uncertain parameter realization.
+    worst_case_param_values : None or list of float
+        If the RO problem was solved with a worst-case objective
+        focus, then this attribute contains an uncertain
+        parameter realization that induces the worst-case
+        objective value. Otherwise, the attribute is set to None.
     """
 
     def __init__(
@@ -59,6 +84,9 @@ class ROSolveResults:
         time=None,
         final_objective_value=None,
         pyros_termination_condition=None,
+        decision_rule_coeffs=None,
+        nominal_param_values=None,
+        worst_case_param_values=None,
     ):
         """Initialize self (see class docstring)."""
         self.config = config
@@ -66,6 +94,27 @@ class ROSolveResults:
         self.time = time
         self.final_objective_value = final_objective_value
         self.pyros_termination_condition = pyros_termination_condition
+        self.decision_rule_coeffs = decision_rule_coeffs
+        self.nominal_param_values = nominal_param_values
+        self.worst_case_param_values = worst_case_param_values
+
+    def create_dr_interface(self):
+        """
+        Instantiate an interface to the decision rule coefficients
+        contained in ``self``.
+
+        Returns
+        -------
+        DecisionRuleInterface
+            An interface to the decision rule coefficients.
+        """
+        from pyomo.contrib.pyros.dr_interface import DecisionRuleInterface
+
+        return DecisionRuleInterface(
+            static_coeffs=self.decision_rule_coeffs["static"],
+            affine_coeffs=self.decision_rule_coeffs["affine"],
+            quadratic_coeffs=self.decision_rule_coeffs["quadratic"],
+        )
 
     def __str__(self):
         """
