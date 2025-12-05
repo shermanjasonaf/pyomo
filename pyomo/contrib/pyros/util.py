@@ -3251,7 +3251,7 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     for orig_var, master_blk_var in zip(original_model_vars, master_soln_vars):
         orig_var.set_value(master_blk_var.value, skip_validation=True)
 
-    dr_coeffs_tuple = assemble_final_dr_coefficients(soln_master_blk)
+    dr_coeffs_tuple = assemble_final_dr_coefficients(soln_master_blk, config)
     dr_coeffs_dict = dict(
         static=dr_coeffs_tuple[0],
         affine=dr_coeffs_tuple[1] if config.decision_rule_order >= 1 else None,
@@ -3265,7 +3265,7 @@ def load_final_solution(model_data, master_soln, original_user_var_partitioning)
     return dr_coeffs_dict, worst_case_param_realization
 
 
-def assemble_final_dr_coefficients(working_model):
+def assemble_final_dr_coefficients(working_model, config):
     """
     Assemble final DR coefficients into matrices.
     """
@@ -3286,11 +3286,12 @@ def assemble_final_dr_coefficients(working_model):
     param_to_idx_map = ComponentMap(
         (param, idx) for idx, param in enumerate(uncertain_params_set)
     )
-    for ss_idx, ss_var in enumerate(second_stage_vars_set):
-        if ss_var not in effective_second_stage_vars_set:
-            static_coeffs[ss_idx] = ss_var.value
+    for ss_idx, ss_var in enumerate(config.second_stage_variables):
+        working_ss_var = working_model.user_model.find_component(ss_var)
+        if working_ss_var not in effective_second_stage_vars_set:
+            static_coeffs[ss_idx] = working_ss_var.value
         else:
-            indexed_dr_var = working_model.eff_ss_var_to_dr_var_map[ss_var]
+            indexed_dr_var = working_model.eff_ss_var_to_dr_var_map[working_ss_var]
             for dr_vdata in indexed_dr_var.values():
                 dr_monomial_params = working_model.dr_var_to_param_combo_map[dr_vdata]
                 if not dr_monomial_params:

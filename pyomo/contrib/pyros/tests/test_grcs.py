@@ -2186,6 +2186,50 @@ class RegressionTest(unittest.TestCase):
         self.assertAlmostEqual(m.x1.value, 1)
         self.assertAlmostEqual(m.x2.value, 1)
 
+    @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
+    def test_pyros_dr_interface_ordering(self):
+        """
+        Test PyROS DR interface returns coefficients in expected order.
+        """
+        m = ConcreteModel()
+        m.q1 = Param(initialize=0.5, mutable=True)
+        m.q2 = Param(initialize=0.5, mutable=True)
+        m.x1 = Var(bounds=[1, 1])
+        m.x2 = Var(bounds=[m.q1, m.q1])
+        x3_bound_expr = 3 + m.q1 * m.q2
+        m.x3 = Var(bounds=[x3_bound_expr, x3_bound_expr])
+        m.obj = Objective(expr=m.x1 + m.x2 + m.x3 + m.q2)
+        res = SolverFactory("pyros").solve(
+            model=m,
+            first_stage_variables=[],
+            second_stage_variables=[m.x1, m.x2, m.x3],
+            uncertain_params=[m.q1, m.q2],
+            uncertainty_set=BoxSet([[0, 1]] * 2),
+            local_solver="ipopt",
+            global_solver="ipopt",
+            decision_rule_order=2,
+        )
+        self.assertEqual(
+            res.pyros_termination_condition,
+            pyrosTerminationCondition.robust_feasible,
+        )
+        self.assertEqual(m.x1.value, 1)
+        self.assertAlmostEqual(m.x2.value, 0.5)  # nominal realization
+        self.assertAlmostEqual(m.x3.value, 3.25)
+        # nominal objective
+        self.assertAlmostEqual(res.final_objective_value, 5.25)
+        # test DR coefficients: easily inferred from the
+        # variable bound expressions
+        np.testing.assert_allclose(res.decision_rule_coeffs["static"], [1, 0, 3])
+        np.testing.assert_allclose(
+            res.decision_rule_coeffs["affine"],
+            [[0, 0], [1, 0], [0, 0]],
+        )
+        np.testing.assert_allclose(
+            res.decision_rule_coeffs["quadratic"],
+            [[[0, 0], [0, 0]]] * 2 + [[[0, 0.5], [0.5, 0]]],
+        )
+
 
 @unittest.skipUnless(ipopt_available, "IPOPT not available.")
 class TestPyROSSeparationPriorityOrder(unittest.TestCase):
@@ -2540,6 +2584,10 @@ class TestReformulateSecondStageEqualitiesDiscrete(unittest.TestCase):
         self.assertAlmostEqual(res.final_objective_value, 2, places=4)
         self.assertAlmostEqual(m.x.value, 4, places=4)
         self.assertAlmostEqual(m.z.value, -2, places=4)
+        # optimal DR can be computed analytically
+        np.testing.assert_allclose(res.decision_rule_coeffs["static"], [-10/3])
+        np.testing.assert_allclose(res.decision_rule_coeffs["affine"], [[2/3]])
+        self.assertIsNone(res.decision_rule_coeffs["quadratic"])
 
     def test_two_stage_discrete_set_fullrank_affine_dr(self):
         m = self.build_two_stage_model()
@@ -2568,6 +2616,10 @@ class TestReformulateSecondStageEqualitiesDiscrete(unittest.TestCase):
         # variables must be 0
         self.assertAlmostEqual(m.x.value, 0, places=4)
         self.assertAlmostEqual(m.z.value, 0, places=4)
+        # optimal DR can be calculated analytically
+        np.testing.assert_allclose(res.decision_rule_coeffs["static"], [0])
+        np.testing.assert_allclose(res.decision_rule_coeffs["affine"], [[0]])
+        self.assertIsNone(res.decision_rule_coeffs["quadratic"])
 
 
 @unittest.skipUnless(ipopt_available, "IPOPT not available.")
