@@ -853,11 +853,11 @@ def validate_variable_partitioning(model, config):
         ),
         config=config,
     )
-    check_variables_continuous(model, active_model_vars, config)
 
     first_stage_vars = ComponentSet(config.first_stage_variables) & active_model_vars
     second_stage_vars = ComponentSet(config.second_stage_variables) & active_model_vars
     state_vars = active_model_vars - (first_stage_vars | second_stage_vars)
+    check_variables_continuous(model, active_model_vars - first_stage_vars, config)
 
     if not active_model_vars:
         config.progress_logger.warning(
