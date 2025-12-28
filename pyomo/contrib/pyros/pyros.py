@@ -424,6 +424,23 @@ class PyROS(object):
             config, user_var_partitioning = self._resolve_and_validate_pyros_args(
                 model, **kwds
             )
+
+            # for multi-stage: confirm there's a match
+            config.nested_second_stage_variables = second_stage_variables
+            config.nested_uncertain_params = uncertain_params
+            matching_stages = (
+                len(config.nested_uncertain_params)
+                == len(config.nested_second_stage_variables)
+            )
+            if config.second_stage_variables and not matching_stages:
+                raise ValueError(
+                    "Number of stages mismatch: "
+                    f"there are {len(config.nested_second_stage_variables)} "
+                    "stages of second-stage variables, but "
+                    f"{len(config.nested_uncertain_params)} "
+                    "stages of uncertain parameters."
+                )
+
             self._log_config_user_values(
                 logger=config.progress_logger,
                 config=config,
@@ -431,13 +448,21 @@ class PyROS(object):
                     self._DEFAULT_CONFIG_USER_OPTIONS
                     + ["nominal_uncertain_param_vals"]
                     * (not nominal_param_vals_in_kwds)
+                    # for multi-stage
+                    + ["nested_second_stage_variables"]
+                    + ["nested_uncertain_params"]
                 ),
                 level=logging.INFO,
             )
             self._log_config(
                 logger=config.progress_logger,
                 config=config,
-                exclude_options=None,
+                exclude_options=(
+                    self._DEFAULT_CONFIG_USER_OPTIONS
+                    # for multi-stage
+                    + ["nested_second_stage_variables"]
+                    + ["nested_uncertain_params"]
+                ),
                 level=logging.DEBUG,
             )
             model_data.config = config

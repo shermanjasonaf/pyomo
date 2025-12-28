@@ -1933,6 +1933,11 @@ def setup_working_model(model_data, user_var_partitioning):
     orig_temp_util_block.user_var_partitioning = VariablePartitioning(
         **user_var_partitioning._asdict()
     )
+    # for multi-stage
+    orig_temp_util_block.nested_second_stage_variables = (
+        config.nested_second_stage_variables
+    )
+    orig_temp_util_block.nested_uncertain_params = config.nested_uncertain_params
 
     # now set up working model
     model_data.working_model = working_model = ConcreteModel()
@@ -1959,6 +1964,14 @@ def setup_working_model(model_data, user_var_partitioning):
     )
     working_model.user_var_partitioning = VariablePartitioning(
         **working_temp_util_block.user_var_partitioning._asdict()
+    )
+
+    # for multi-stage
+    working_model.nested_second_stage_variables = (
+        working_temp_util_block.nested_second_stage_variables
+    )
+    working_model.nested_uncertain_params = (
+        working_temp_util_block.nested_uncertain_params
     )
 
     # we are done with the util blocks
@@ -2016,6 +2029,22 @@ def setup_working_model(model_data, user_var_partitioning):
             working_model.original_active_equality_cons.append(con)
         else:
             working_model.original_active_inequality_cons.append(con)
+
+    # for multi-stage: map adjustable vars to stages
+    # and also uncertain params (assuming all were originally Params)
+    working_model.adj_var_to_stage_map = ComponentMap()
+    working_model.param_to_stage_map = ComponentMap()
+    ss_vars_param_zip = zip(
+        working_model.nested_second_stage_variables,
+        working_model.nested_uncertain_params,
+    )
+    for stage_idx, (varlist, paramlist) in enumerate(ss_vars_param_zip):
+        working_model.adj_var_to_stage_map.update(
+            (var, stage_idx) for var in varlist
+        )
+        working_model.param_to_stage_map.update(
+            (param, stage_idx) for param in paramlist
+        )
 
 
 def standardize_inequality_constraints(model_data):
@@ -3140,6 +3169,7 @@ def add_decision_rule_constraints(model_data):
     indexed_dr_var_list = model_data.working_model.first_stage.decision_rule_vars
     uncertain_params = model_data.working_model.effective_uncertain_params
     degree = config.decision_rule_order
+    param_to_stage_map = model_data.working_model.param_to_stage_map
 
     model_data.working_model.second_stage.decision_rule_eqns = decision_rule_eqns = (
         Constraint(range(len(effective_second_stage_vars)))
@@ -3161,6 +3191,9 @@ def add_decision_rule_constraints(model_data):
     model_data.working_model.eff_ss_var_to_dr_eqn_map = eff_ss_var_to_dr_eqn_map = (
         ComponentMap()
     )
+
+    # for multi-stage
+    model_data.working_model.dr_var_to_stage_map = dr_var_to_stage_map = ComponentMap()
 
     # set up uncertain parameter combinations for
     # construction of the monomials of the DR expressions
@@ -3192,6 +3225,10 @@ def add_decision_rule_constraints(model_data):
             # associated monomial with respect to the uncertain params
             dr_var_to_exponent_map[dr_var] = len(param_combo)
             dr_var_to_param_combo_map[dr_var] = param_combo
+            # for multi-stage
+            dr_var_to_stage_map[dr_var] = max(
+                param_to_stage_map[param] for param in param_combo
+            ) if param_combo else 0
 
         # declare constraint on model
         decision_rule_eqns[idx] = dr_expression - eff_ss_var == 0
@@ -3213,13 +3250,24 @@ def enforce_dr_degree(working_blk, config, degree):
     degree : int
         Degree of the DR polynomials that is to be enforced.
     """
-    for indexed_dr_var in working_blk.first_stage.decision_rule_vars:
+    # account for multi-stage setup
+    dr_var_to_stage_map = working_blk.dr_var_to_stage_map
+    adj_var_to_stage_map = working_blk.adj_var_to_stage_map
+    for eff_ss_var, indexed_dr_var in working_blk.eff_ss_var_to_dr_var_map.items():
         for dr_var in indexed_dr_var.values():
             dr_var_degree = working_blk.dr_var_to_exponent_map[dr_var]
-            if dr_var_degree > degree:
+            dr_var_stage = dr_var_to_stage_map[dr_var]
+            ss_var_stage = adj_var_to_stage_map[eff_ss_var]
+            if (dr_var_degree > degree) or (dr_var_stage > ss_var_stage):
                 dr_var.fix(0)
             else:
                 dr_var.unfix()
+
+            # config.progress_logger.debug(
+            #     f"{dr_var.name}, SS var {eff_ss_var.name}, "
+            #     f"{dr_var_degree=}, {ss_var_stage=}, {dr_var_stage=}, "
+            #     f"{dr_var.fixed=}, DR > SS stage {dr_var_stage > ss_var_stage}"
+            # )
 
 
 def load_final_solution(model_data, master_soln, original_user_var_partitioning):
