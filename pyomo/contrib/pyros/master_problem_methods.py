@@ -811,11 +811,11 @@ def solve_master(master_data):
     """
     feasibility_problem_results = None
     time_out_after_feasibility = False
-    if master_data.iteration > 0:
-        feasibility_problem_results = solve_master_feasibility_problem(master_data)
-        time_out_after_feasibility = check_time_limit_reached(
-            master_data.timing, master_data.config
-        )
+    # if master_data.iteration > 0:
+    #     feasibility_problem_results = solve_master_feasibility_problem(master_data)
+    #     time_out_after_feasibility = check_time_limit_reached(
+    #         master_data.timing, master_data.config
+    #     )
 
     if time_out_after_feasibility:
         master_soln = MasterResults(
