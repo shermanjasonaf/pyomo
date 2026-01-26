@@ -1145,7 +1145,7 @@ class SeparationProblemType(enum.Enum):
 
 
 def _solver_call_separation(
-    separation_data, solve_globally, ss_ineq_con_to_maximize, sep_problem_type
+    separation_data, solve_globally, ss_ineq_con_to_maximize, sep_problem_type, scenario_idx=None,
 ):
     """
     Invoke the subordinate solver(s) on a separation model of
@@ -1167,6 +1167,11 @@ def _solver_call_separation(
         Informs the objective (constraint violation) to maximize.
     sep_problem_type : SeparationProblemType
         'Type' of separation-like model to solve.
+    scenario_idx : int, optional
+        If the separation problem is to be solved
+        subject to discrete uncertainty, the index
+        of the scenario in the sequence of scenarios
+        contained in the `UncertaintySet` object.
 
     Returns
     -------
@@ -1226,12 +1231,14 @@ def _solver_call_separation(
             separation_obj = separation_model.second_stage_ineq_con_to_obj_map[
                 ss_ineq_con_to_maximize
             ]
+            scenario_qual = f"_scenario_{scenario_idx}" * (scenario_idx is not None)
             write_subproblem(
                 model=separation_model,
                 fname=(
                     f"{config.uncertainty_set.type}_{separation_model.name}"
                     f"_{sep_problem_type.file_desc()}_{separation_data.iteration}"
                     f"_obj_{separation_obj.name}"
+                    f"{scenario_qual}"
                 ),
                 config=config,
             )
