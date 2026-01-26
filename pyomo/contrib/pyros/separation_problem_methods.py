@@ -1686,6 +1686,7 @@ def discrete_solve(
                 solve_globally=solve_globally,
                 ss_ineq_con_to_maximize=ss_ineq_con_to_maximize,
                 sep_problem_type=SeparationProblemType.SIMULATION,
+                scenario_idx=scenario_idx,
             )
             if solve_status == SolverCallStatus.SUCCESSFUL:
                 separation_model.solutions.load_from(solve_results_list[-1])
