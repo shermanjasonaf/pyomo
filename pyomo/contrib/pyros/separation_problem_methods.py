@@ -287,6 +287,12 @@ def get_argmax_sum_violations(solver_call_results_map, ss_ineq_cons_to_evaluate)
         )
 
     worst_col_idx = np.argmax(np.sum(violations_arr, axis=0))
+    logging.getLogger("pyomo.contrib.pyros").debug(f"Old worst {worst_col_idx}")
+    worst_col_idx = np.argmin([
+        solver_call_results_map[idx_to_ss_ineq_con_map[idx]].distance_to_nominal
+        for idx in idxs_of_violated_cons
+    ])
+    logging.getLogger("pyomo.contrib.pyros").debug(f"New worst {worst_col_idx}")
 
     return idx_to_ss_ineq_con_map[idxs_of_violated_cons[worst_col_idx]]
 
@@ -1297,6 +1303,10 @@ def _process_successful_separation_problem(
     solve_call_results.auxiliary_param_values = [
         auxvar.value for auxvar in separation_model.uncertainty.auxiliary_var_list
     ]
+    solve_call_results.distance_to_nominal = np.linalg.norm(
+        np.array(solve_call_results.violating_param_realization)
+        - np.array(separation_data.config.nominal_uncertain_param_vals)
+    )
 
 
 def solver_call_separation_decompose(
