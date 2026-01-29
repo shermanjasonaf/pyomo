@@ -517,7 +517,7 @@ def get_worst_discrete_separation_solution(
     else:
         subsolver_error_flag = False
 
-    return SeparationSolveCallResults(
+    final_res = SeparationSolveCallResults(
         solved_globally=worst_case_res.solved_globally,
         results_list=results_list,
         scaled_violations=eval_ss_ineq_con_scaled_violations,
@@ -529,6 +529,11 @@ def get_worst_discrete_separation_solution(
         discrete_set_scenario_index=worst_case_res.discrete_set_scenario_index,
         backup_solver_used=discrete_solve_results.backup_solver_used,
     )
+    final_res.distance_to_nominal = np.linalg.norm(
+        np.array(worst_case_res.violating_param_realization)
+        - np.array(config.nominal_uncertain_param_vals)
+    )
+    return final_res
 
 
 def get_con_name_repr(separation_model, con, with_obj_name=True):
