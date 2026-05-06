@@ -231,12 +231,15 @@ def get_argmax_sum_violations(solver_call_results_map, ss_ineq_cons_to_evaluate)
 
     Returns
     -------
-    worst_ss_ineq_con : None or Constraint
-        Second-stage inequality constraint corresponding to solver call
-        results object containing solution with maximal sum
-        of violations across all second-stage inequality constraints.
+    ranked_ss_ineq_cons : list of ConstraintData
+        Each entry is a second-stage inequality constraints corresponding
+        to a solver call results object containing a separation solution
+        that was found to violate the inequality constraints
+        (based on the ``found_violation`` attribute of the solver call
+        results object).
+        The entries are sorted in descending order of maximal violation.
         If ``found_violation`` attribute of all value entries of
-        `solver_call_results_map` is False, then `None` is
+        `solver_call_results_map` is False, then an empty list is
         returned, as this means
         none of the second-stage inequality constraints
         were found to be violated.
@@ -255,7 +258,7 @@ def get_argmax_sum_violations(solver_call_results_map, ss_ineq_cons_to_evaluate)
     num_violated_cons = len(idxs_of_violated_cons)
 
     if num_violated_cons == 0:
-        return None
+        return []
 
     # assemble square matrix (2D array) of constraint violations.
     # matrix size: number of constraints for which violation was found
@@ -279,9 +282,13 @@ def get_argmax_sum_violations(solver_call_results_map, ss_ineq_cons_to_evaluate)
             ),
         )
 
-    worst_col_idx = np.argmax(np.sum(violations_arr, axis=0))
+    # sort in descending order of column totals
+    sorted_col_idx = np.flip(np.argsort(np.sum(violations_arr, axis=0)))
 
-    return idx_to_ss_ineq_con_map[idxs_of_violated_cons[worst_col_idx]]
+    return [
+        idx_to_ss_ineq_con_map[idxs_of_violated_cons[col_idx]]
+        for col_idx in sorted_col_idx
+    ]
 
 
 def solve_separation_problem(separation_data, master_data):
@@ -576,7 +583,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
         return SeparationLoopResults(
             solver_call_results=ComponentMap(),
             solved_globally=solve_globally,
-            worst_case_ss_ineq_con=None,
+            sorted_ss_ineq_cons=None,
         )
 
     # needed for normalizing separation solution constraint violations
@@ -600,7 +607,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
             return SeparationLoopResults(
                 solver_call_results=ComponentMap(),
                 solved_globally=solve_globally,
-                worst_case_ss_ineq_con=None,
+                sorted_ss_ineq_cons=None,
                 all_discrete_scenarios_exhausted=True,
             )
 
@@ -642,7 +649,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
             return SeparationLoopResults(
                 solver_call_results=single_solver_call_res,
                 solved_globally=solve_globally,
-                worst_case_ss_ineq_con=None,
+                sorted_ss_ineq_cons=None,
             )
 
     all_solve_call_results = ComponentMap()
@@ -689,7 +696,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
                 return SeparationLoopResults(
                     solver_call_results=all_solve_call_results,
                     solved_globally=solve_globally,
-                    worst_case_ss_ineq_con=None,
+                    sorted_ss_ineq_cons=None,
                 )
             elif not solve_call_results.subsolver_error:
                 config.progress_logger.debug("Separation successful. Results: ")
@@ -724,43 +731,19 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
         # there may be multiple separation problem solutions
         # found to have violated a second-stage inequality constraint.
         # we choose just one for master problem of next iteration
-        worst_case_ss_ineq_con = get_argmax_sum_violations(
+        sorted_ss_ineq_cons = get_argmax_sum_violations(
             solver_call_results_map=all_solve_call_results,
             ss_ineq_cons_to_evaluate=ss_ineq_constraints,
         )
-        if worst_case_ss_ineq_con is not None:
-            # take note of chosen separation solution
-            worst_case_res = all_solve_call_results[worst_case_ss_ineq_con]
-            if uncertainty_set_is_discrete:
-                separation_data.idxs_of_master_scenarios.append(
-                    worst_case_res.discrete_set_scenario_index
-                )
-
-            # # auxiliary log messages
+        if sorted_ss_ineq_cons:
             violated_con_names = "\n ".join(
                 get_con_name_repr(separation_data.separation_model, con)
-                for con, res in all_solve_call_results.items()
-                if res.found_violation
+                for con in sorted_ss_ineq_cons
             )
             config.progress_logger.debug(
-                f"Violated constraints:\n {violated_con_names} "
+                f"Violated constraints (in descending order of sum max violation):"
+                f"\n {violated_con_names} "
             )
-            config.progress_logger.debug(
-                "Worst-case constraint: "
-                f"{get_con_name_repr(separation_data.separation_model, worst_case_ss_ineq_con)} "
-                "under realization "
-                f"{worst_case_res.violating_param_realization}."
-            )
-            config.progress_logger.debug(
-                f"Maximal scaled violation "
-                f"{worst_case_res.scaled_violations[worst_case_ss_ineq_con]} "
-                "from this constraint "
-                "exceeds the robust feasibility tolerance "
-                f"{config.robust_feasibility_tolerance}"
-            )
-
-            # violating separation problem solution now chosen.
-            # exit loop
             break
         else:
             config.progress_logger.debug(
@@ -770,7 +753,7 @@ def perform_separation_loop(separation_data, master_data, solve_globally):
     return SeparationLoopResults(
         solver_call_results=all_solve_call_results,
         solved_globally=solve_globally,
-        worst_case_ss_ineq_con=worst_case_ss_ineq_con,
+        sorted_ss_ineq_cons=sorted_ss_ineq_cons,
     )
 
 
