@@ -492,61 +492,37 @@ class TestHigherOrderDecisionRuleEfficiency(unittest.TestCase):
             0, 0
         ].first_stage.decision_rule_vars[0]
 
-        for iter_num in range(4):
-            master_data.iteration = iter_num
-            higher_order_decision_rule_efficiency(master_data)
-            self.assertFalse(
-                decision_rule_vars[0].fixed,
-                msg=(
-                    f"DR Var {decision_rule_vars[1].name!r} should not "
-                    f"be fixed by efficiency in iteration {iter_num}"
-                ),
-            )
-            if iter_num == 0:
-                self.assertTrue(
-                    decision_rule_vars[1].fixed,
-                    msg=(
-                        f"DR Var {decision_rule_vars[1].name!r} should "
-                        f"be fixed by efficiency in iteration {iter_num}"
-                    ),
-                )
-                self.assertTrue(
-                    decision_rule_vars[2].fixed,
-                    msg=(
-                        f"DR Var {decision_rule_vars[2].name!r} should "
-                        f"be fixed by efficiency in iteration {iter_num}"
-                    ),
-                )
-            elif iter_num <= len(master_data.config.uncertain_params):
-                self.assertFalse(
-                    decision_rule_vars[1].fixed,
-                    msg=(
-                        f"DR Var {decision_rule_vars[1].name!r} should not "
-                        f"be fixed by efficiency in iteration {iter_num}"
-                    ),
-                )
-                self.assertTrue(
-                    decision_rule_vars[2].fixed,
-                    msg=(
-                        f"DR Var {decision_rule_vars[2].name!r} should "
-                        f"be fixed by efficiency in iteration {iter_num}"
-                    ),
-                )
-            else:
-                self.assertFalse(
-                    decision_rule_vars[1].fixed,
-                    msg=(
-                        f"DR Var {decision_rule_vars[1].name!r} should not "
-                        f"be fixed by efficiency in iteration {iter_num}"
-                    ),
-                )
-                self.assertFalse(
-                    decision_rule_vars[2].fixed,
-                    msg=(
-                        f"DR Var {decision_rule_vars[2].name!r} should not "
-                        f"be fixed by efficiency in iteration {iter_num}"
-                    ),
-                )
+        # DR should be static, since there is only one scenario block
+        higher_order_decision_rule_efficiency(master_data)
+        self.assertFalse(decision_rule_vars[0].fixed)
+        self.assertTrue(decision_rule_vars[1].fixed)
+        self.assertTrue(decision_rule_vars[2].fixed)
+
+        # DR should be affine, since there are two scenario blocks
+        add_scenario_block_to_master_problem(
+            master_model=master_data.master_model,
+            scenario_idx=(1, 0),
+            param_realization=(0.6,),
+            from_block=master_data.master_model.scenarios[0, 0],
+            clone_first_stage_components=False,
+        )
+        higher_order_decision_rule_efficiency(master_data)
+        self.assertFalse(decision_rule_vars[0].fixed)
+        self.assertFalse(decision_rule_vars[1].fixed)
+        self.assertTrue(decision_rule_vars[2].fixed)
+
+        # finally, should now be quadratic
+        add_scenario_block_to_master_problem(
+            master_model=master_data.master_model,
+            scenario_idx=(1, 1),
+            param_realization=(0.7,),
+            from_block=master_data.master_model.scenarios[0, 0],
+            clone_first_stage_components=False,
+        )
+        higher_order_decision_rule_efficiency(master_data)
+        self.assertFalse(decision_rule_vars[0].fixed)
+        self.assertFalse(decision_rule_vars[1].fixed)
+        self.assertFalse(decision_rule_vars[2].fixed)
 
 
 class TestSolveMaster(unittest.TestCase):
