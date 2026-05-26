@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from pyomo.contrib.fbbt.fbbt import compute_bounds_on_expr
 from pyomo.contrib.piecewise.transform.piecewise_linear_transformation_base import (
@@ -78,7 +76,7 @@ class InnerRepresentationGDPTransformation(PiecewiseLinearTransformationBase):
             )
             linear_func_expr = linear_func(*pw_expr.args)
             disj.set_substitute = Constraint(expr=substitute_var == linear_func_expr)
-            (lb, ub) = compute_bounds_on_expr(linear_func_expr)
+            lb, ub = compute_bounds_on_expr(linear_func_expr)
             if lb is not None and lb < substitute_var_lb:
                 substitute_var_lb = lb
             if ub is not None and ub > substitute_var_ub:

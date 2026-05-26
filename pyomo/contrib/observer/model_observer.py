@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  __________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from __future__ import annotations
 import abc
@@ -50,7 +48,6 @@ from pyomo.common.numeric_types import native_numeric_types
 import warnings
 import enum
 from collections import defaultdict
-
 
 # The ModelChangeDetector is meant to be used to automatically identify changes
 # in a Pyomo model or block. Here is a list of changes that will be detected.
@@ -576,7 +573,7 @@ class ModelChangeDetector:
             for bnd in (v._lb, v._ub):
                 if bnd is None or type(bnd) in native_numeric_types:
                     continue
-                (named_exprs, _vars, parameters, external_functions) = (
+                named_exprs, _vars, parameters, external_functions = (
                     collect_components_from_expr(bnd)
                 )
                 if _vars:
@@ -641,7 +638,7 @@ class ModelChangeDetector:
                 raise ValueError(f'Constraint {con.name} has already been added')
             self._updates.cons_to_update[con] |= Reason.added
             self._active_constraints[con] = con.expr
-            (named_exprs, variables, parameters, external_functions) = (
+            named_exprs, variables, parameters, external_functions = (
                 collect_components_from_expr(con.expr)
             )
             self._check_for_new_vars(variables)
@@ -696,7 +693,7 @@ class ModelChangeDetector:
         for obj in objs:
             self._updates.objs_to_update[obj] |= Reason.added
             self._objectives[obj] = (obj.expr, obj.sense)
-            (named_exprs, variables, parameters, external_functions) = (
+            named_exprs, variables, parameters, external_functions = (
                 collect_components_from_expr(obj.expr)
             )
             self._check_for_new_vars(variables)
@@ -861,7 +858,7 @@ class ModelChangeDetector:
         for bnd in (v._lb, v._ub):
             if bnd is None or type(bnd) in native_numeric_types:
                 continue
-            (named_exprs, _vars, parameters, external_functions) = (
+            named_exprs, _vars, parameters, external_functions = (
                 collect_components_from_expr(bnd)
             )
             if _vars:
@@ -910,7 +907,7 @@ class ModelChangeDetector:
             reason = Reason.no_change
             if _fixed != fixed:
                 reason |= Reason.fixed
-            elif _fixed and (value != _value):
+            elif (_fixed or fixed) and (value != _value):
                 reason |= Reason.value
             if lb is not _lb or ub is not _ub:
                 reason |= Reason.bounds
@@ -945,7 +942,7 @@ class ModelChangeDetector:
 
     def _update_con(self, con: ConstraintData):
         self._active_constraints[con] = con.expr
-        (named_exprs, variables, parameters, external_functions) = (
+        named_exprs, variables, parameters, external_functions = (
             collect_components_from_expr(con.expr)
         )
         if named_exprs:
@@ -1077,7 +1074,7 @@ class ModelChangeDetector:
         self._updates.run()
 
     def _update_obj_expr(self, obj: ObjectiveData):
-        (named_exprs, variables, parameters, external_functions) = (
+        named_exprs, variables, parameters, external_functions = (
             collect_components_from_expr(obj.expr)
         )
         if named_exprs:

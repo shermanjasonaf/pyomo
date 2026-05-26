@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  __________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import pyomo.environ as pyo
 from pyomo.common import unittest
@@ -24,7 +22,7 @@ class TestComponentCollector(unittest.TestCase):
         m.e1 = pyo.Expression(expr=m.x + m.y)
         m.e2 = pyo.Expression(expr=m.e1 + m.z)
         e = m.e2 * pyo.exp(m.e2)
-        (named_exprs, vars, params, external_funcs) = collect_components_from_expr(e)
+        named_exprs, vars, params, external_funcs = collect_components_from_expr(e)
         self.assertEqual(len(named_exprs), 2)
         named_exprs = ComponentSet(named_exprs)
         self.assertIn(m.e1, named_exprs)

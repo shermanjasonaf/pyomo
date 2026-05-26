@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # *****************************************************************************
 # *****************************************************************************
@@ -48,7 +46,7 @@ class SOSProblem_nonindexed:
 
     def do_it(self, test_number):
         # sos, expect. result, absolute tolerance, use rule parameter, case
-        (sos, exp_res, abs_tol, use_rule, case) = self.test_vectors[test_number]
+        sos, exp_res, abs_tol, use_rule, case = self.test_vectors[test_number]
 
         model = self.set_problem_up(case=case, n=sos, use_rule=use_rule)
 
@@ -525,7 +523,7 @@ class SOSProblem_nonindexed_multivar:
 
     def do_it(self, test_number):
         # sos, expect. result, absolute tolerance, use rule parameter, case
-        (sos, exp_res, abs_tol) = self.test_vectors[test_number]
+        sos, exp_res, abs_tol = self.test_vectors[test_number]
 
         model = self.set_problem_up(n=sos)
 
@@ -621,7 +619,7 @@ class SOSProblem_indexed:
 
     def do_it(self, test_number):
         # sos, expect. result, absolute tolerance, use rule parameter, case
-        (sos, exp_res, abs_tol, use_rule, case) = self.test_vectors[test_number]
+        sos, exp_res, abs_tol, use_rule, case = self.test_vectors[test_number]
 
         model = self.set_problem_up(case=case, n=sos, use_rule=use_rule)
 
@@ -990,7 +988,7 @@ class SOSProblem_indexedmultivar:
 
     def do_it(self, test_number):
         # sos, expect. result, absolute tolerance, use rule parameter, case
-        (sos, exp_res, abs_tol) = self.test_vectors[test_number]
+        sos, exp_res, abs_tol = self.test_vectors[test_number]
 
         model = self.set_problem_up(n=sos)
 

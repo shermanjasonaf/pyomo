@@ -6,7 +6,7 @@ Publications
    Note to developers: For these references, we will use the package
    name followed by a description of the publication type.
 
-These publications describe various Pyomo capabilitites or subpackages:
+These publications describe various Pyomo capabilities or subpackages:
 
 .. [Pyomo-paper] William E. Hart, Jean-Paul Watson, David L. Woodruff.
    "Pyomo: modeling and solving mathematical programs in Python,"
@@ -134,6 +134,12 @@ Bibliography
    Intermediate Relaxations between big-M and Convex Hull
    Reformulations". 2021.  https://arxiv.org/abs/2101.12708
 
+.. [MHJ+25] M. Mundt, W. E. Hart, E. S. Johnson, B. Nicholson, and
+   J. D. Siirola. "Pyomo: Accidentally outrunning the bear", *Patterns*,
+   6(7), 101311. 2025. ISSN 2666-3899. DOI
+   `10.1016/j.patter.2025.101311
+   <https://doi.org/10.1016/j.patter.2025.101311>`_
+
 .. [NW88] G. L. Nemhauser and L. A. Wolsey. *Integer and combinatorial
    optimization*, New York: Wiley. 1988.
 
@@ -173,3 +179,7 @@ Bibliography
 
 .. [NW99] Nocedal, Jorge, and Stephen J. Wright, eds. Numerical
    optimization. New York, NY: Springer New York, 1999.
+
+.. [WD22] Wang, Jialu, and Alexander W. Dowling. "Pyomo.DOE: An open‐source
+   package for model‐based design of experiments in Python", *AIChE Journal*,
+   68(12), e17813. 2022. DOI `10.1002/aic.17813Y <https://doi.org/10.1002/aic.17813Y>`_

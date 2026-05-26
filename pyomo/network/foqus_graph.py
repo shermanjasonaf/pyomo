@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 ##############################################################################
 # The methods in this module (file) were derived from the
@@ -614,7 +612,7 @@ class FOQUSGraph:
         # Rows of A are cycles and columns of A are edges
         # 1 if an edge is in a cycle, 0 otherwise
         A, _, cycleEdges = self.cycle_edge_matrix(G)
-        (nr, nc) = A.shape
+        nr, nc = A.shape
 
         if nr == 0:
             # no cycles so we are done
