@@ -584,7 +584,7 @@ def pyros_config():
     ))
     CONFIG.declare("nested_uncertain_params", ConfigValue(
         default=[],
-        domain=MultistageInputDataStandardizer(Param, ParamData),
+        domain=MultistageInputDataStandardizer((Param, Var), (ParamData, VarData)),
         description=(
             "A two-dimensional list for extending the uncertain parameters "
             "variables to multi-stage context. Each list specifies "
