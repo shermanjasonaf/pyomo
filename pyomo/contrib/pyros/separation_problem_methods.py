@@ -286,11 +286,11 @@ def get_argmax_sum_violations(solver_call_results_map, ss_ineq_cons_to_evaluate)
 
     worst_col_idx = np.argmax(np.sum(violations_arr, axis=0))
     logging.getLogger("pyomo.contrib.pyros").debug(f"Old worst {worst_col_idx}")
-    worst_col_idx = np.argmin([
-        solver_call_results_map[idx_to_ss_ineq_con_map[idx]].distance_to_nominal
-        for idx in idxs_of_violated_cons
-    ])
-    logging.getLogger("pyomo.contrib.pyros").debug(f"New worst {worst_col_idx}")
+    # worst_col_idx = np.argmin([
+    #     solver_call_results_map[idx_to_ss_ineq_con_map[idx]].distance_to_nominal
+    #     for idx in idxs_of_violated_cons
+    # ])
+    # logging.getLogger("pyomo.contrib.pyros").debug(f"New worst {worst_col_idx}")
 
     return idx_to_ss_ineq_con_map[idxs_of_violated_cons[worst_col_idx]]
 
