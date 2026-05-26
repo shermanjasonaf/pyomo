@@ -577,8 +577,9 @@ def minimize_dr_vars(master_data):
 def get_master_dr_degree(master_data):
     """
     Determine DR polynomial degree to enforce based on
-    the iteration number and/or the presence of first-stage
-    equality constraints that depend on the decision rule variables.
+    the total number of scenario blocks added to the master problem
+    and the presence of first-stage equality constraints that
+    depend on the decision rule variables.
 
     If there are first-stage equality constraints that depend
     on the decision rule variables, such as equalities derived
@@ -588,11 +589,11 @@ def get_master_dr_degree(master_data):
 
     Otherwise, the degree is set to:
 
-    - 0 if iteration number is 0
-    - min(1, config.decision_rule_order) if iteration number
-      otherwise does not exceed number of effective
-      uncertain parameters
-    - min(2, config.decision_rule_order) otherwise.
+    - 0 if the master problem has only one scenario block
+    - min(1, config.decision_rule_order) if the number of
+      master problem scenario blocks does not exceed
+      by more than 1 the number of effective uncertain parameters
+    - min(2, config.decision_rule_order) otherwise
 
     Parameters
     ----------
@@ -608,9 +609,10 @@ def get_master_dr_degree(master_data):
     if nom_scenario_blk.first_stage.dr_dependent_equality_cons:
         return master_data.config.decision_rule_order
 
-    if master_data.iteration == 0:
+    num_scenario_blocks = len(master_data.master_model.scenarios)
+    if num_scenario_blocks == 1:
         return 0
-    elif master_data.iteration <= len(nom_scenario_blk.effective_uncertain_params):
+    elif num_scenario_blocks <= len(nom_scenario_blk.effective_uncertain_params) + 1:
         return min(1, master_data.config.decision_rule_order)
     else:
         return min(2, master_data.config.decision_rule_order)

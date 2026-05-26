@@ -378,11 +378,10 @@ class SeparationLoopResults:
     solver_call_results : ComponentMap
         Mapping from second-stage inequality constraints to corresponding
         ``SeparationSolveCallResults`` objects.
-    worst_case_ss_ineq_con : None or Constraint
-        Second-stage inequality constraint mapped to
-        ``SeparationSolveCallResults``
-        object in `self` corresponding to maximally violating
-        separation problem solution.
+    sorted_ss_ineq_cons : list of ConstraintData
+        Second-stage inequality constraints that were found to
+        be violated, sorted in descending order of the maximal
+        scaled violation.
     all_discrete_scenarios_exhausted : bool, optional
         For problems with discrete uncertainty sets,
         True if all scenarios were explicitly accounted for in master
@@ -409,14 +408,21 @@ class SeparationLoopResults:
         self,
         solved_globally,
         solver_call_results,
-        worst_case_ss_ineq_con,
+        sorted_ss_ineq_cons,
         all_discrete_scenarios_exhausted=False,
     ):
         """Initialize self (see class docstring)."""
         self.solver_call_results = solver_call_results
         self.solved_globally = solved_globally
-        self.worst_case_ss_ineq_con = worst_case_ss_ineq_con
+        self.sorted_ss_ineq_cons = sorted_ss_ineq_cons
         self.all_discrete_scenarios_exhausted = all_discrete_scenarios_exhausted
+
+    @property
+    def worst_case_ss_ineq_con(self):
+        if self.sorted_ss_ineq_cons:
+            return self.sorted_ss_ineq_cons[0]
+        else:
+            return None
 
     @property
     def backup_solver_used(self):
@@ -573,6 +579,10 @@ class SeparationResults:
         """Initialize self (see class docstring)."""
         self.local_separation_loop_results = local_separation_loop_results
         self.global_separation_loop_results = global_separation_loop_results
+
+    @property
+    def sorted_ss_ineq_cons(self):
+        return self.main_loop_results.sorted_ss_ineq_cons
 
     @property
     def backup_local_solver_used(self):

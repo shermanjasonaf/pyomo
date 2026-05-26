@@ -19,6 +19,7 @@ from pyomo.core.base import value
 
 import pyomo.contrib.pyros.master_problem_methods as mp_methods
 import pyomo.contrib.pyros.separation_problem_methods as sp_methods
+from pyomo.contrib.pyros.uncertainty_sets import Geometry
 from pyomo.contrib.pyros.util import (
     check_time_limit_reached,
     ObjectiveType,
@@ -193,7 +194,7 @@ def ROSolver_iterative_solve(model_data):
 
         polishing_successful = True
         polish_master_solution = (
-            config.decision_rule_order != 0
+            mp_methods.get_master_dr_degree(master_data) > 0
             and nominal_master_blk.first_stage.decision_rule_vars
             and k != 0
             and False
@@ -334,35 +335,51 @@ def ROSolver_iterative_solve(model_data):
             )
 
         # === Add block to master at violation
-        mp_methods.add_scenario_block_to_master_problem(
-            master_model=master_data.master_model,
-            scenario_idx=(k + 1, 0),
-            param_realization=separation_results.violating_param_realization,
-            from_block=nominal_master_blk,
-            clone_first_stage_components=False,
-        )
-
-        separation_data.points_added_to_master[(k + 1, 0)] = (
-            separation_results.violating_param_realization
-        )
-        separation_data.auxiliary_values_for_master_points[(k + 1, 0)] = (
-            separation_results.auxiliary_param_values
-        )
-
-        config.progress_logger.debug("Points added to master:")
-        config.progress_logger.debug(
-            np.array([pt for pt in separation_data.points_added_to_master.values()])
-        )
-
-        # initialize second-stage and state variables
-        # for new master block to separation
-        # solution chosen by heuristic. consequently,
-        # equality constraints should all be satisfied (up to tolerances).
-        for var, val in separation_results.violating_separation_variable_values.items():
-            master_var = master_data.master_model.scenarios[k + 1, 0].find_component(
-                var
+        for idx, ss_ineq_con in enumerate(separation_results.sorted_ss_ineq_cons[:5]):
+            solver_call_res = separation_results.main_loop_results.solver_call_results[
+                ss_ineq_con
+            ]
+            violating_realization = solver_call_res.violating_param_realization
+            new_master_scenario_idx = (k + 1, idx)
+            mp_methods.add_scenario_block_to_master_problem(
+                master_model=master_data.master_model,
+                scenario_idx=new_master_scenario_idx,
+                param_realization=violating_realization,
+                from_block=nominal_master_blk,
+                clone_first_stage_components=False,
             )
-            master_var.set_value(val)
+
+            separation_data.points_added_to_master[new_master_scenario_idx] = (
+                violating_realization
+            )
+            if config.uncertainty_set.geometry == Geometry.DISCRETE_SCENARIOS:
+                separation_data.idxs_of_master_scenarios.append(
+                    solver_call_res.discrete_set_scenario_index
+                )
+            separation_data.auxiliary_values_for_master_points[
+                new_master_scenario_idx
+            ] = solver_call_res.auxiliary_param_values
+
+            # initialize second-stage and state variables
+            # for new master block to separation
+            # solution chosen by heuristic. consequently,
+            # equality constraints should all be satisfied (up to tolerances).
+            for var, val in solver_call_res.variable_values.items():
+                master_var = master_data.master_model.scenarios[
+                    new_master_scenario_idx
+                ].find_component(var)
+                master_var.set_value(val)
+            config.progress_logger.debug(
+                f"Appended to the master model a block with index "
+                f"{new_master_scenario_idx} for "
+                f"scenario {violating_realization} "
+                "from solution to separation problem mapped to inequality "
+                f"{ss_ineq_con.index()!r}."
+            )
+
+        config.progress_logger.debug("All scenarios of master model so far:")
+        for blk_idx, pt in separation_data.points_added_to_master.items():
+            config.progress_logger.debug(f" {blk_idx}, {pt}")
 
         k += 1
 
