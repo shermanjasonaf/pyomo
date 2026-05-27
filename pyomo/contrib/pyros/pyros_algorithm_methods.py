@@ -334,13 +334,38 @@ def ROSolver_iterative_solve(model_data):
                 iterations=k + 1,
             )
 
-        # === Add block to master at violation
-        for idx, ss_ineq_con in enumerate(separation_results.sorted_ss_ineq_cons[:5]):
+        def gen_uniq_scenario_ineq_cons(sep_res):
+            idx_to_ss_ineq_map = {
+                ssidx: ss_ineq
+                for ssidx, ss_ineq in enumerate(sep_res.sorted_ss_ineq_cons)
+            }
+            scenarios = np.array([
+                sep_res
+                .main_loop_results
+                .solver_call_results[ss_ineq]
+                .violating_param_realization
+                for ss_ineq in sep_res.sorted_ss_ineq_cons
+            ])
+            for pidx, pt in enumerate(scenarios):
+                is_already_found = any([
+                    np.allclose(pt, other_pt) for other_pt in scenarios[:pidx]
+                ])
+                if not is_already_found:
+                    yield idx_to_ss_ineq_map[pidx]
+
+        # add scenario blocks to the master problem according to
+        # separation problem solutions
+        max_scenarios_per_iter = 5
+        for idx, ss_ineq_con in enumerate(
+            # filter essentially duplicate uncertain parameter realizations
+            gen_uniq_scenario_ineq_cons(separation_results)
+        ):
             solver_call_res = separation_results.main_loop_results.solver_call_results[
                 ss_ineq_con
             ]
             violating_realization = solver_call_res.violating_param_realization
             new_master_scenario_idx = (k + 1, idx)
+
             mp_methods.add_scenario_block_to_master_problem(
                 master_model=master_data.master_model,
                 scenario_idx=new_master_scenario_idx,
@@ -376,6 +401,9 @@ def ROSolver_iterative_solve(model_data):
                 "from solution to separation problem mapped to inequality "
                 f"{ss_ineq_con.index()!r}."
             )
+
+            if idx + 1 == max_scenarios_per_iter:
+                break
 
         config.progress_logger.debug("All scenarios of master model so far:")
         for blk_idx, pt in separation_data.points_added_to_master.items():
