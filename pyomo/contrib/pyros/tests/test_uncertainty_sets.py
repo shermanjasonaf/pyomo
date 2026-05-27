@@ -24,7 +24,7 @@ from pyomo.common.dependencies import (
 )
 
 from pyomo.environ import SolverFactory
-from pyomo.core.base import ConcreteModel, Param, Var,  minimize, UnitInterval
+from pyomo.core.base import ConcreteModel, Param, Var, minimize, UnitInterval
 from pyomo.core.expr import RangedExpression
 from pyomo.core.expr.compare import assertExpressionsEqual
 
@@ -3355,12 +3355,12 @@ class TestCartesianProductSet(unittest.TestCase):
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[4].expr,
-            -0.5 + 2 * (aux_vars[1] - aux_vars[2]) == m.v[3]
+            -0.5 + 2 * (aux_vars[1] - aux_vars[2]) == m.v[3],
         )
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[5].expr,
-            -0.5 + 2 * (aux_vars[3] - aux_vars[4]) == m.v[4]
+            -0.5 + 2 * (aux_vars[3] - aux_vars[4]) == m.v[4],
         )
         assertExpressionsEqual(
             self, uq.uncertainty_cons[6].expr, sum(aux_vars[1:5]) <= 2
