@@ -69,6 +69,7 @@ from pyomo.contrib.pyros.uncertainty_sets import (
     _setup_standard_uncertainty_set_constraint_block,
     AxisAlignedEllipsoidalSet,
     BoxSet,
+    CardinalitySet,
     DiscreteScenarioSet,
     FactorModelSet,
     Geometry,
@@ -257,6 +258,62 @@ def build_leyffer_two_cons_two_params():
     m.obj = Objective(expr=(m.x1 - 4) ** 2 + (m.x2 - m.u2) ** 2)
 
     return m
+
+
+class TestPyROSSolveCardinalitySet(unittest.TestCase):
+    """
+    Test PyROS successfully solves model with cardinality uncertainty
+    set.
+    """
+
+    @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
+    def test_cardinality_set_solve(self):
+        m = ConcreteModel()
+        m.q = Param(range(4), initialize=0, mutable=True)
+        m.x = Var(initialize=0, bounds=(0, None))
+        m.obj = Objective(expr=m.x)
+        m.ineq_con = Constraint(expr=m.x >= sum(m.q.values()))
+
+        cset = CardinalitySet(
+            origin=[0] * 4, positive_deviation=[1, 0, 2, 0.5], gamma=2
+        )
+        res = SolverFactory("pyros").solve(
+            model=m,
+            first_stage_variables=m.x,
+            second_stage_variables=[],
+            uncertain_params=m.q,
+            uncertainty_set=cset,
+            local_solver="ipopt",
+            global_solver="ipopt",
+            objective_focus="worst_case",
+            solve_master_globally=True,
+        )
+        self.assertEqual(res.iterations, 2)
+        # worst-case objective is just maximum sum of uncertain
+        # parameters (per cardinality set constraints)
+        self.assertAlmostEqual(res.final_objective_value, 3)
+        self.assertEqual(
+            res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
+        )
+
+        cset.deviation_signs = [0, 0, -1, 1]
+        res2 = SolverFactory("pyros").solve(
+            model=m,
+            first_stage_variables=m.x,
+            second_stage_variables=[],
+            uncertain_params=m.q,
+            uncertainty_set=cset,
+            local_solver="ipopt",
+            global_solver="ipopt",
+            objective_focus="worst_case",
+            solve_master_globally=True,
+        )
+        self.assertEqual(res2.iterations, 2)
+        # worst-case objective changes due to change of cardinality set
+        self.assertAlmostEqual(res2.final_objective_value, 1.5)
+        self.assertEqual(
+            res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
+        )
 
 
 class TestPyROSSolveFactorModelSet(unittest.TestCase):
