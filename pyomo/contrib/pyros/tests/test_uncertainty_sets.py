@@ -1982,6 +1982,11 @@ class TestCardinalitySet(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, ".*to match the set dimension.*"):
             cset.point_in_set([1, 2, 3])
 
+        # check what happens if there is an invalid deviation sign
+        cset.deviation_signs = [2, 1, -1, -1]
+        with self.assertRaisesRegex(ValueError, "Deviation sign.*2.*not supported"):
+            cset.point_in_set([2, 1, 2, -0.5])
+
     @unittest.skipUnless(baron_available, "BARON is not available.")
     def test_compute_exact_parameter_bounds(self):
         """

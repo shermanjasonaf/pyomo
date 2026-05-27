@@ -1865,6 +1865,8 @@ class CardinalitySet(UncertaintySet):
                 neg_aux_vals[idx] = (normalized_dev < 0) * (-normalized_dev)
             elif dev_sign == CardinalityDeviationSign.MINUS_ONLY:
                 neg_aux_vals[idx] = -normalized_dev
+            else:
+                raise ValueError(f"Deviation sign {dev_sign} not supported.")
 
         return aux_vals
 
