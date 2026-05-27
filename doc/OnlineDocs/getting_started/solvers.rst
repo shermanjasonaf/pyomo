@@ -44,8 +44,8 @@ the license requirements for their desired solver.
    * - cyipopt
      - ``pip install cyipopt``
      - ``conda install ‑c conda‑forge cyipopt``
-     - `License <https://cyipopt.readthedocs.io/en/stable/#copyright>`__
-       `Docs <https://cyipopt.readthedocs.io/en/stable/install.html>`__
+     - `License <https://cyipopt.readthedocs.io/stable/#copyright>`__
+       `Docs <https://cyipopt.readthedocs.io/stable/install.html>`__
    * - glpk
      - N/A
      - ``conda install ‑c conda‑forge glpk``
@@ -76,9 +76,14 @@ the license requirements for their desired solver.
      - ``conda install ‑c conda‑forge pymumps``
      - `License <https://github.com/PyMumps/pymumps/blob/master/LICENSE.txt>`__
        `Docs <https://github.com/pymumps/pymumps>`__
-   * - SCIP
+   * - SCIP (Command-line)
      - N/A
      - ``conda install ‑c conda‑forge scip``
+     - `License <https://www.scipopt.org/scip/doc/html/LICENSE.php>`__
+       `Docs <https://www.scipopt.org/index.php#download>`__
+   * - SCIP (Python)
+     - ``pip install pyscipopt``
+     - ``conda install ‑c conda‑forge pyscipopt``
      - `License <https://www.scipopt.org/scip/doc/html/LICENSE.php>`__
        `Docs <https://www.scipopt.org/index.php#download>`__
    * - XPRESS
