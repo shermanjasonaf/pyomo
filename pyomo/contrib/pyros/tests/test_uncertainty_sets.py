@@ -24,7 +24,7 @@ from pyomo.common.dependencies import (
 )
 
 from pyomo.environ import SolverFactory
-from pyomo.core.base import ConcreteModel, Param, Var, maximize, minimize, UnitInterval
+from pyomo.core.base import ConcreteModel, Param, Var, minimize, UnitInterval
 from pyomo.core.expr import RangedExpression
 from pyomo.core.expr.compare import assertExpressionsEqual
 
@@ -32,6 +32,7 @@ from pyomo.contrib.pyros.uncertainty_sets import (
     AxisAlignedEllipsoidalSet,
     BoxSet,
     BudgetSet,
+    CardinalityDeviationSign,
     CartesianProductSet,
     CardinalitySet,
     DiscreteScenarioSet,
@@ -1471,7 +1472,7 @@ class TestIntersectionSet(unittest.TestCase):
 
         self.assertIs(uq.block, m)
         self.assertEqual(uq.uncertain_param_vars, [m.v1, m.v2])
-        self.assertEqual(len(uq.auxiliary_vars), 4)
+        self.assertEqual(len(uq.auxiliary_vars), 6)
         self.assertEqual(len(uq.uncertainty_cons), 9)
 
         # box set constraints
@@ -1504,16 +1505,22 @@ class TestIntersectionSet(unittest.TestCase):
 
         # cardinality set constraints
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[5].expr, -0.5 + 2 * aux_vars[2] == m.v1
+            self,
+            uq.uncertainty_cons[5].expr,
+            -0.5 + 2 * (aux_vars[2] - aux_vars[3]) == m.v1,
         )
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[6].expr, -0.5 + 2 * aux_vars[3] == m.v2
+            self,
+            uq.uncertainty_cons[6].expr,
+            -0.5 + 2 * (aux_vars[4] - aux_vars[5]) == m.v2,
         )
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[7].expr, sum(aux_vars[2:4]) <= 2
+            self, uq.uncertainty_cons[7].expr, sum(aux_vars[2:6]) <= 2
         )
         self.assertEqual(aux_vars[2].bounds, (0, 1))
-        self.assertEqual(uq.auxiliary_vars[3].bounds, (0, 1))
+        self.assertEqual(aux_vars[3].bounds, (0, 0))
+        self.assertEqual(aux_vars[4].bounds, (0, 1))
+        self.assertEqual(aux_vars[5].bounds, (0, 0))
 
         # axis-aligned ellipsoid constraint
         assertExpressionsEqual(
@@ -1722,13 +1729,13 @@ class TestIntersectionSet(unittest.TestCase):
 
         # auxiliary parameter value calculations
         np.testing.assert_allclose(
-            iset.compute_auxiliary_uncertain_param_vals([0, 0]), np.zeros(4)
+            iset.compute_auxiliary_uncertain_param_vals([0, 0]), np.zeros(6)
         )
 
         # check uncertainty set constraints setup
         uq = iset.set_as_constraint()
         self.assertEqual(len(uq.uncertain_param_vars), 2)
-        self.assertEqual(len(uq.auxiliary_vars), 4)
+        self.assertEqual(len(uq.auxiliary_vars), 6)
         self.assertEqual(len(uq.uncertainty_cons), 6)
         param_vars = uq.uncertain_param_vars
         aux_vars = uq.auxiliary_vars
@@ -1750,13 +1757,17 @@ class TestIntersectionSet(unittest.TestCase):
         )
         # cardinality constraints
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[3].expr, 0.0 + 0.8 * aux_vars[2] == param_vars[0]
+            self,
+            uq.uncertainty_cons[3].expr,
+            0.0 + 0.8 * (aux_vars[2] - aux_vars[3]) == param_vars[0],
         )
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[4].expr, 0.0 + 0.8 * aux_vars[3] == param_vars[1]
+            self,
+            uq.uncertainty_cons[4].expr,
+            0.0 + 0.8 * (aux_vars[4] - aux_vars[5]) == param_vars[1],
         )
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[5].expr, aux_vars[2] + aux_vars[3] <= 1
+            self, uq.uncertainty_cons[5].expr, sum(aux_vars[2:6]) <= 1
         )
 
     def test_intersection_discrete_set(self):
@@ -1827,18 +1838,21 @@ class TestCardinalitySet(unittest.TestCase):
         self.assertEqual(cset.type, "cardinality")
         self.assertEqual(cset.dim, 2)
         np.testing.assert_allclose(
-            cset.compute_auxiliary_uncertain_param_vals(cset.origin), [0] * 2
+            cset.compute_auxiliary_uncertain_param_vals(cset.origin), [0] * 4
         )
+        np.testing.assert_equal(cset.deviation_signs, [1, 1])
 
         # update the set
         cset.origin = [1, 2]
         cset.positive_deviation = [3, 0]
         cset.gamma = 0.5
+        cset.deviation_signs = [0, -1]
 
         # check updates work
         np.testing.assert_allclose(cset.origin, [1, 2])
         np.testing.assert_allclose(cset.positive_deviation, [3, 0])
         np.testing.assert_allclose(cset.gamma, 0.5)
+        np.testing.assert_equal(cset.deviation_signs, [0, -1])
 
     def test_error_on_cardinality_set_dim_change(self):
         """
@@ -1856,30 +1870,50 @@ class TestCardinalitySet(unittest.TestCase):
             cset.origin = [0, 0, 0]
         with self.assertRaisesRegex(ValueError, exc_str):
             cset.positive_deviation = [1, 1, 1]
+        with self.assertRaisesRegex(ValueError, exc_str):
+            cset.deviation_signs = [1, 1, 1]
 
     def test_set_as_constraint(self):
         """
         Test method for setting up constraints works correctly.
         """
         m = ConcreteModel()
-        cset = CardinalitySet([-0.5, 1, 2], [2.5, 3, 0], 1.5)
+        cset = CardinalitySet([-0.5, 1, 2], [2.5, 3, 0], 1.5, [1, 0, -1])
         uq = cset.set_as_constraint(uncertain_params=None, block=m)
 
         self.assertEqual(len(uq.uncertainty_cons), 4)
-        self.assertEqual(len(uq.auxiliary_vars), 3)
+        self.assertEqual(len(uq.auxiliary_vars), 6)
         self.assertEqual(len(uq.uncertain_param_vars), 3)
         self.assertIs(uq.block, m)
 
         *hadamard_cons, gamma_con = uq.uncertainty_cons
         var1, var2, var3 = uq.uncertain_param_vars
-        auxvar1, auxvar2, auxvar3 = uq.auxiliary_vars
+        auxvars = uq.auxiliary_vars
 
         assertExpressionsEqual(
-            self, hadamard_cons[0].expr, -0.5 + 2.5 * auxvar1 == var1
+            self, hadamard_cons[0].expr, -0.5 + 2.5 * (auxvars[0] - auxvars[1]) == var1
         )
-        assertExpressionsEqual(self, hadamard_cons[1].expr, 1.0 + 3.0 * auxvar2 == var2)
-        assertExpressionsEqual(self, hadamard_cons[2].expr, 2.0 + 0.0 * auxvar3 == var3)
-        assertExpressionsEqual(self, gamma_con.expr, auxvar1 + auxvar2 + auxvar3 <= 1.5)
+        assertExpressionsEqual(
+            self, hadamard_cons[1].expr, 1.0 + 3.0 * (auxvars[2] - auxvars[3]) == var2
+        )
+        assertExpressionsEqual(
+            self, hadamard_cons[2].expr, 2.0 + 0.0 * (auxvars[4] - auxvars[5]) == var3
+        )
+        assertExpressionsEqual(self, gamma_con.expr, sum(auxvars) <= 1.5)
+
+        # only positive deviation allowed
+        self.assertEqual(auxvars[0].bounds, (0, 1))
+        self.assertEqual(auxvars[1].bounds, (0, 0))
+        # both positive and negative deviations allowed
+        self.assertEqual(auxvars[2].bounds, (0, 1))
+        self.assertEqual(auxvars[3].bounds, (0, 1))
+        # only negative deviation allowed
+        self.assertEqual(auxvars[4].bounds, (0, 0))
+        self.assertEqual(auxvars[5].bounds, (0, 1))
+
+        cset.deviation_signs = [1, 0, 2]
+        with self.assertRaisesRegex(ValueError, "Deviation sign .*2.*not supported"):
+            cset.set_as_constraint()
 
     def test_set_as_constraint_dim_mismatch(self):
         """
@@ -1908,28 +1942,50 @@ class TestCardinalitySet(unittest.TestCase):
 
     def test_point_in_set(self):
         cset = CardinalitySet(
-            origin=[-0.5, 1, 2], positive_deviation=[2.5, 3, 0], gamma=1.5
+            origin=[-0.5, 1, 2, 0],
+            positive_deviation=[2.5, 3, 0, 1],
+            gamma=1.5,
+            deviation_signs=[0, 1, -1, -1],
         )
 
+        # origin: no deviations
         self.assertTrue(cset.point_in_set(cset.origin))
-
         # first param full deviation
-        self.assertTrue(cset.point_in_set([-0.5, 4, 2]))
+        self.assertTrue(cset.point_in_set([2, 1, 2, 0]))
+        self.assertTrue(cset.point_in_set([-3, 1, 2, 0]))
         # second param full deviation
-        self.assertTrue(cset.point_in_set([2, 1, 2]))
+        self.assertTrue(cset.point_in_set([-0.5, 4, 2, 0]))
+        # out of set due to sign restriction
+        self.assertFalse(cset.point_in_set([-0.5, -2, 2, 0]))
+        # fourth param full deviation
+        self.assertTrue(cset.point_in_set([-0.5, 1, 2, -1]))
+        # out of set due to sign restriction
+        self.assertFalse(cset.point_in_set([-0.5, 1, 2, 1]))
         # one and a half deviations (max)
-        self.assertTrue(cset.point_in_set([2, 2.5, 2]))
+        self.assertTrue(cset.point_in_set([2, 2.5, 2, 0]))
+        self.assertTrue(cset.point_in_set([-3, 2.5, 2, 0]))
+        self.assertTrue(cset.point_in_set([2, 1, 2, -0.5]))
+        self.assertTrue(cset.point_in_set([-3, 1, 2, -0.5]))
+        self.assertTrue(cset.point_in_set([-0.5, 4, 2, -0.5]))
 
         # over one and a half deviations; out of set
-        self.assertFalse(cset.point_in_set([2.05, 2.5, 2]))
-        self.assertFalse(cset.point_in_set([2, 2.55, 2]))
+        self.assertFalse(cset.point_in_set([2, 2.55, 2, 0]))
+        self.assertFalse(cset.point_in_set([-3, 2.55, 2, 0]))
+        self.assertFalse(cset.point_in_set([2, 1, 2, -0.55]))
+        self.assertFalse(cset.point_in_set([-3, 1, 2, -0.55]))
+        self.assertFalse(cset.point_in_set([-0.5, 4, 2, -0.55]))
 
         # deviation in dimension that has been fixed
-        self.assertFalse(cset.point_in_set([-0.25, 4, 2.01]))
+        self.assertFalse(cset.point_in_set([-0.5, 1, 2.1, 0]))
 
         # check what happens if dimensions are off
         with self.assertRaisesRegex(ValueError, ".*to match the set dimension.*"):
-            cset.point_in_set([1, 2, 3, 4])
+            cset.point_in_set([1, 2, 3])
+
+        # check what happens if there is an invalid deviation sign
+        cset.deviation_signs = [2, 1, -1, -1]
+        with self.assertRaisesRegex(ValueError, "Deviation sign.*2.*not supported"):
+            cset.point_in_set([2, 1, 2, -0.5])
 
     @unittest.skipUnless(baron_available, "BARON is not available.")
     def test_compute_exact_parameter_bounds(self):
@@ -1937,10 +1993,13 @@ class TestCardinalitySet(unittest.TestCase):
         Test parameter bounds computations give expected results.
         """
         cset = CardinalitySet(
-            origin=[-0.5, 1, 2], positive_deviation=[2.5, 3, 0], gamma=1.5
+            origin=[-0.5, 1, 2, 0],
+            positive_deviation=[2.5, 3, 0, 1],
+            gamma=1.5,
+            deviation_signs=[0, 1, -1, -1],
         )
         computed_bounds = cset._compute_exact_parameter_bounds(SolverFactory("baron"))
-        np.testing.assert_allclose(computed_bounds, [[-0.5, 2], [1, 4], [2, 2]])
+        np.testing.assert_allclose(computed_bounds, [[-3, 2], [1, 4], [2, 2], [-1, 0]])
         np.testing.assert_allclose(computed_bounds, cset.parameter_bounds)
 
     def test_add_bounds_on_uncertain_parameters(self):
@@ -2038,6 +2097,27 @@ class TestCardinalitySet(unittest.TestCase):
         exc_str = (
             r".*attribute 'gamma' must be a real number "
             r"between 0 and dimension 2 \(provided value -1\)"
+        )
+        with self.assertRaisesRegex(ValueError, exc_str):
+            cardinality_set.validate(config=CONFIG)
+
+    def test_validate_deviation_signs(self):
+        CONFIG = Bunch()
+
+        # construct a valid cardinality set
+        cardinality_set = CardinalitySet(
+            origin=[0.0, 0.0, 0.0],
+            positive_deviation=[1.0, 1.0, 1.0],
+            gamma=3,
+            deviation_signs=[0, 1, -1],
+        )
+
+        # check when deviation signs are invalid
+        cardinality_set.deviation_signs = [1, 2, 0]
+        exc_str = (
+            r"Entry 2 of attribute 'deviation_signs' "
+            "is not equal to any of the members of "
+            f"{CardinalityDeviationSign.__name__}"
         )
         with self.assertRaisesRegex(ValueError, exc_str):
             cardinality_set.validate(config=CONFIG)
@@ -3248,7 +3328,7 @@ class TestCartesianProductSet(unittest.TestCase):
 
         self.assertIs(uq.block, m)
         self.assertEqual(uq.uncertain_param_vars, list(m.v.values()))
-        self.assertEqual(len(uq.auxiliary_vars), 3)
+        self.assertEqual(len(uq.auxiliary_vars), 5)
         self.assertEqual(len(uq.uncertainty_cons), 8)
 
         # box constraint
@@ -3273,16 +3353,22 @@ class TestCartesianProductSet(unittest.TestCase):
 
         # cardinality set constraints
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[4].expr, -0.5 + 2 * aux_vars[1] == m.v[3]
+            self,
+            uq.uncertainty_cons[4].expr,
+            -0.5 + 2 * (aux_vars[1] - aux_vars[2]) == m.v[3],
         )
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[5].expr, -0.5 + 2 * aux_vars[2] == m.v[4]
+            self,
+            uq.uncertainty_cons[5].expr,
+            -0.5 + 2 * (aux_vars[3] - aux_vars[4]) == m.v[4],
         )
         assertExpressionsEqual(
-            self, uq.uncertainty_cons[6].expr, sum(aux_vars[1:3]) <= 2
+            self, uq.uncertainty_cons[6].expr, sum(aux_vars[1:5]) <= 2
         )
         self.assertEqual(aux_vars[1].bounds, (0, 1))
-        self.assertEqual(aux_vars[2].bounds, (0, 1))
+        self.assertEqual(aux_vars[2].bounds, (0, 0))
+        self.assertEqual(aux_vars[1].bounds, (0, 1))
+        self.assertEqual(aux_vars[2].bounds, (0, 0))
 
         # axis-aligned ellipsoid constraint
         assertExpressionsEqual(
@@ -3623,7 +3709,7 @@ class TestCartesianProductSet(unittest.TestCase):
                 FactorModelSet(
                     origin=[0, 1], number_of_factors=1, beta=0.75, psi_mat=[[1], [4]]
                 ),
-                CardinalitySet([-0.5, -0.5], [2, 2], 1),
+                CardinalitySet([-0.5, -0.5], [2, 2], 1, deviation_signs=[0, 1]),
                 AxisAlignedEllipsoidalSet([0, 0, 0], [0.25, 0.25, 0.25]),
             ]
         )
@@ -3631,58 +3717,58 @@ class TestCartesianProductSet(unittest.TestCase):
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0, 1] + [-0.5, -0.5] + [0, 0, 0]
             ),
-            [0, 0, 0],
+            [0, 0, 0, 0, 0],
         )
         # deviations from factor model origin
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0.75, 4] + [-0.5, -0.5] + [0, 0, 0]
             ),
-            [0.75, 0, 0],
+            [0.75, 0, 0, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [-0.75, -2] + [-0.5, -0.5] + [0, 0, 0]
             ),
-            [-0.75, 0, 0],
+            [-0.75, 0, 0, 0, 0],
         )
         # deviations from cardinality origin
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0, 1] + [1.5, -0.5] + [0, 0, 0]
             ),
-            [0, 1, 0],
+            [0, 1, 0, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0, 1] + [-0.5, 1.5] + [0, 0, 0]
             ),
-            [0, 0, 1],
+            [0, 0, 0, 1, 0],
         )
         # deviations from cardinality and factor model origins
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0.75, 4] + [-0.5, 1.5] + [0, 0, 0]
             ),
-            [0.75, 0, 1],
+            [0.75, 0, 0, 1, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [-0.75, -2] + [-0.5, 1.5] + [0, 0, 0]
             ),
-            [-0.75, 0, 1],
+            [-0.75, 0, 0, 1, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0.75, 4] + [1.5, -0.5] + [0, 0, 0]
             ),
-            [0.75, 1, 0],
+            [0.75, 1, 0, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [-0.75, -2] + [1.5, -0.5] + [0, 0, 0]
             ),
-            [-0.75, 1, 0],
+            [-0.75, 1, 0, 0, 0],
         )
 
 
