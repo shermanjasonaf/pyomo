@@ -1486,7 +1486,7 @@ class CardinalityDeviationSign(IntEnum):
     @staticmethod
     def is_positive_deviation_allowed(val):
         """
-        Invoke :meth:`numpy.isin()` to determine whether
+        Invoke :func:`numpy.isin` to determine whether
         an object (or each entry of an array-like) is in the
         set of members signifying that positive deviations
         from the origin of a :class:`CardinalitySet` are allowed.
@@ -1512,7 +1512,7 @@ class CardinalityDeviationSign(IntEnum):
     @staticmethod
     def is_negative_deviation_allowed(val):
         """
-        Invoke :meth:`numpy.isin()` to determine whether
+        Invoke :func:`numpy.isin` to determine whether
         an object (or each entry of an array-like) is in the
         set of members signifying that positive deviations
         from the origin of a :class:`CardinalitySet` are allowed.
