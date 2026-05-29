@@ -1545,21 +1545,24 @@ class CardinalitySet(UncertaintySet):
     origin : (N,) array_like
         Origin of the set (e.g., nominal uncertain parameter values).
     positive_deviation : (N,) array_like
-        Maximal absolute coordinate deviation from the origin
-        in each dimension.
+        Upper bounds for absolute values of the individual coordinate
+        deviations from the origin.
     gamma : numeric type
         Upper bound for the number of uncertain parameters which
         may realize their maximal deviations from the origin
         simultaneously.
-    deviation_signs : (N,) array_like of CardinalityDeviationSign, optional
-        Allowable deviation signs in each dimension of the
-        uncertainty set. By default, this argument is set to
+    deviation_signs : (N,) array_like, optional
+        Indicators for allowed signs (i.e., directions)
+        of individual coordinate deviations from the origin.
+        Each entry should be numerically equal to a member of
+        :class:`CardinalityDeviationSign`.
+        By default, this argument is set to
         an array with all entries equal to
         :attr:`CardinalityDeviationSign.PLUS_ONLY`.
 
     Notes
     -----
-    The :math:`n`-dimensional cardinality set is defined by
+    The :math:`n`-dimensional cardinality-constrained set is defined by
 
     .. math::
 
@@ -1584,18 +1587,45 @@ class CardinalitySet(UncertaintySet):
     and
     :math:`\\Delta \\in \\{-1, 0, +1\\}^n` refers to ``deviation_signs``.
     The operator ":math:`\\circ`" denotes the element-wise product.
-    TODO: Update ReadTheDocs uncertainty sets page, as well.
+
+    .. note::
+
+       If :math:`\\Delta_i = 0` for
+       :math:`i = 1, 2, \\dots, n`,
+       then this set is mathematically equal to
+
+       .. math::
+
+           \\left\\{ q \\in \\mathbb{R}^n\\,\\middle|
+                \\,\\exists\\, \\xi \\in [-1, 1]^n \\,:\\,
+                \\left[
+                    \\begin{array}{l}
+                       q = q^0 + \\hat{q} \\circ \\xi \\\\
+                       \\displaystyle \\sum_{i=1}^n |\\xi_i|
+                           \\leq \\Gamma
+                    \\end{array}
+                \\right]
+           \\right\\},
+
+       the cardinality-constrained set implicitly defined
+       in the popular robust optimization literature [1]_.
+
+    References
+    ----------
+    .. [1] D. Bertsimas and M. Sim. "The price of robustness",
+       *Operations research*, 52(1), 35-53, 2004. DOI
+       `10.1287/opre.1030.0065 <https://doi.org/10.1287/opre.1030.0065>`_.
 
     Examples
     --------
-    A 3D cardinality set:
+    A 3D cardinality-constrained set:
 
     >>> from pyomo.contrib.pyros import CardinalitySet
     >>> gamma_set = CardinalitySet(
     ...     origin=[0, 0, 0],
     ...     positive_deviation=[1.0, 2.0, 1.5],
     ...     gamma=1,
-    ...     deviation_signs=[1, 0, -1],
+    ...     deviation_signs=[+1, 0, -1],
     ... )
     >>> gamma_set.origin
     array([0, 0, 0])
@@ -1658,8 +1688,8 @@ class CardinalitySet(UncertaintySet):
     @property
     def positive_deviation(self):
         """
-        (N,) numpy.ndarray : Maximal absolute coordinate deviations
-        from the origin.
+        (N,) numpy.ndarray : Upper bounds for absolute values of
+        the individual coordinate deviations from the origin.
         """
         return self._positive_deviation
 
@@ -1713,11 +1743,11 @@ class CardinalitySet(UncertaintySet):
     @property
     def deviation_signs(self):
         """
-        (N,) numpy.ndarray of CardinalityDeviationSign : For each
-        dimension of the cardinality set, the corresponding
-        entry indicates whether only positive, only negative,
-        or both positive and negative deviations from the origin
-        are allowed.
+        (N,) numpy.ndarray of int : Indicators for allowed signs
+        (i.e., directions) of individual coordinate deviations
+        from the origin.
+        Each entry should be numerically equal to a member of
+        :class:`CardinalityDeviationSign`.
         """
         return self._deviation_signs
 
