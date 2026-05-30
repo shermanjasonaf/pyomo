@@ -1619,23 +1619,23 @@ class CardinalitySet(UncertaintySet):
 
     Examples
     --------
-    A 3D cardinality-constrained set:
+    A 4D cardinality-constrained set:
 
     >>> from pyomo.contrib.pyros import CardinalitySet
     >>> gamma_set = CardinalitySet(
-    ...     origin=[0, 0, 0],
-    ...     positive_deviation=[1.0, 2.0, 1.5],
+    ...     origin=[0, 0, 0, 0],
+    ...     positive_deviation=[1.0, 2.0, 1.5, 0.0],
     ...     gamma=1,
-    ...     deviation_signs=[+1, 0, -1],
+    ...     deviation_signs=[+1, 0, -1, 0],
     ... )
     >>> gamma_set.origin
-    array([0, 0, 0])
+    array([0, 0, 0, 0])
     >>> gamma_set.positive_deviation
-    array([1. , 2. , 1.5])
+    array([1. , 2. , 1.5, 0. ])
     >>> gamma_set.gamma
     1
     >>> gamma_set.deviation_signs
-    array([ 1,  0, -1])
+    array([ 1,  0, -1,  0])
     """
 
     _PARAMETER_BOUNDS_EXACT = True
