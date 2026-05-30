@@ -1745,8 +1745,7 @@ class CardinalitySet(UncertaintySet):
     def deviation_signs(self):
         """
         (N,) numpy.ndarray of int : Indicators for allowed signs
-        of individual coordinate deviations
-        from the origin.
+        of individual coordinate deviations from the origin.
         Each entry should be numerically equal to a member of
         :class:`CardinalityDeviationSign`.
         """
