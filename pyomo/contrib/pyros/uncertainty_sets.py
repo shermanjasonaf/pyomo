@@ -1552,8 +1552,8 @@ class CardinalitySet(UncertaintySet):
         may realize their maximal deviations from the origin
         simultaneously.
     deviation_signs : (N,) array_like, optional
-        Indicators for allowed signs (i.e., directions)
-        of individual coordinate deviations from the origin.
+        Indicators for allowed signs of individual coordinate deviations
+        from the origin.
         Each entry should be numerically equal to a member of
         :class:`CardinalityDeviationSign`.
         By default, this argument is set to
@@ -1744,7 +1744,7 @@ class CardinalitySet(UncertaintySet):
     def deviation_signs(self):
         """
         (N,) numpy.ndarray of int : Indicators for allowed signs
-        (i.e., directions) of individual coordinate deviations
+        of individual coordinate deviations
         from the origin.
         Each entry should be numerically equal to a member of
         :class:`CardinalityDeviationSign`.
