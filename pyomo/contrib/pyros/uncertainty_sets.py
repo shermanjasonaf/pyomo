@@ -1474,17 +1474,17 @@ class CardinalityDeviationSign(IntEnum):
     of a :class:`~CardinalitySet` are allowable.
     """
 
-    PLUS_ONLY = 1
+    POSITIVE_ONLY = 1
     """Only positive deviations are allowed."""
 
-    MINUS_ONLY = -1
+    NEGATIVE_ONLY = -1
     """Only negative deviations are allowed."""
 
     BOTH = 0
     """Both positive and negative deviations are allowed."""
 
     @staticmethod
-    def is_positive_deviation_allowed(val):
+    def _is_positive_deviation_allowed(val):
         """
         Invoke :func:`numpy.isin` to determine whether
         an object (or each entry of an array-like) is in the
@@ -1504,13 +1504,13 @@ class CardinalityDeviationSign(IntEnum):
             shape as that derived from `val` is returned.
         """
         pos_dev_signs = [
-            CardinalityDeviationSign.PLUS_ONLY,
+            CardinalityDeviationSign.POSITIVE_ONLY,
             CardinalityDeviationSign.BOTH,
         ]
         return np.isin(val, pos_dev_signs)
 
     @staticmethod
-    def is_negative_deviation_allowed(val):
+    def _is_negative_deviation_allowed(val):
         """
         Invoke :func:`numpy.isin` to determine whether
         an object (or each entry of an array-like) is in the
@@ -1530,7 +1530,7 @@ class CardinalityDeviationSign(IntEnum):
             shape as that derived from `val` is returned.
         """
         neg_dev_signs = [
-            CardinalityDeviationSign.MINUS_ONLY,
+            CardinalityDeviationSign.NEGATIVE_ONLY,
             CardinalityDeviationSign.BOTH,
         ]
         return np.isin(val, neg_dev_signs)
@@ -1558,7 +1558,7 @@ class CardinalitySet(UncertaintySet):
         :class:`CardinalityDeviationSign`.
         By default, this argument is set to
         an array with all entries equal to
-        :attr:`CardinalityDeviationSign.PLUS_ONLY`.
+        :attr:`CardinalityDeviationSign.POSITIVE_ONLY`.
 
     Notes
     -----
@@ -1645,7 +1645,7 @@ class CardinalitySet(UncertaintySet):
         self.positive_deviation = positive_deviation
         self.gamma = gamma
         if deviation_signs is None:
-            deviation_signs = [CardinalityDeviationSign.PLUS_ONLY] * self.dim
+            deviation_signs = [CardinalityDeviationSign.POSITIVE_ONLY] * self.dim
         self.deviation_signs = deviation_signs
 
     @property
@@ -1799,8 +1799,8 @@ class CardinalitySet(UncertaintySet):
             (lower, upper) bound pairs.
         """
         dev_enum = CardinalityDeviationSign
-        is_neg_dev_feas = dev_enum.is_negative_deviation_allowed(self.deviation_signs)
-        is_pos_dev_feas = dev_enum.is_positive_deviation_allowed(self.deviation_signs)
+        is_neg_dev_feas = dev_enum._is_negative_deviation_allowed(self.deviation_signs)
+        is_pos_dev_feas = dev_enum._is_positive_deviation_allowed(self.deviation_signs)
         lower_bounds = self.origin - (
             min(self.gamma, 1) * is_neg_dev_feas * self.positive_deviation
         )
@@ -1837,10 +1837,10 @@ class CardinalitySet(UncertaintySet):
 
             # set auxiliary variable bounds
             # based on allowed deviation sign
-            if dev_type == CardinalityDeviationSign.PLUS_ONLY:
+            if dev_type == CardinalityDeviationSign.POSITIVE_ONLY:
                 pos_aux.bounds = (0, 1)
                 neg_aux.bounds = (0, 0)
-            elif dev_type == CardinalityDeviationSign.MINUS_ONLY:
+            elif dev_type == CardinalityDeviationSign.NEGATIVE_ONLY:
                 pos_aux.bounds = (0, 0)
                 neg_aux.bounds = (0, 1)
             elif dev_type == CardinalityDeviationSign.BOTH:
@@ -1885,7 +1885,7 @@ class CardinalitySet(UncertaintySet):
                 normalized_dev = (point_arr[idx] - orig_val) / max_abs_dev
 
             dev_sign = self.deviation_signs[idx]
-            if dev_sign == CardinalityDeviationSign.PLUS_ONLY:
+            if dev_sign == CardinalityDeviationSign.POSITIVE_ONLY:
                 pos_aux_vals[idx] = normalized_dev
             elif dev_sign == CardinalityDeviationSign.BOTH:
                 # select only the positive or negative aux value to
@@ -1893,7 +1893,7 @@ class CardinalitySet(UncertaintySet):
                 # deviation
                 pos_aux_vals[idx] = (normalized_dev > 0) * normalized_dev
                 neg_aux_vals[idx] = (normalized_dev < 0) * (-normalized_dev)
-            elif dev_sign == CardinalityDeviationSign.MINUS_ONLY:
+            elif dev_sign == CardinalityDeviationSign.NEGATIVE_ONLY:
                 neg_aux_vals[idx] = -normalized_dev
             else:
                 raise ValueError(f"Deviation sign {dev_sign} not supported.")
@@ -1917,10 +1917,10 @@ class CardinalitySet(UncertaintySet):
         tol = POINT_IN_UNCERTAINTY_SET_TOL
         aux_space_pt = self.compute_auxiliary_uncertain_param_vals(point)
         deviations = self.positive_deviation * (aux_space_pt[::2] - aux_space_pt[1::2])
-        pos_not_allowed = ~CardinalityDeviationSign.is_positive_deviation_allowed(
+        pos_not_allowed = ~CardinalityDeviationSign._is_positive_deviation_allowed(
             self.deviation_signs
         )
-        neg_not_allowed = ~CardinalityDeviationSign.is_negative_deviation_allowed(
+        neg_not_allowed = ~CardinalityDeviationSign._is_negative_deviation_allowed(
             self.deviation_signs
         )
         return (
