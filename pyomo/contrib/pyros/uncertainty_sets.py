@@ -1548,9 +1548,10 @@ class CardinalitySet(UncertaintySet):
         Upper bounds for absolute values of the individual coordinate
         deviations from the origin.
     gamma : numeric type
-        Upper bound for the number of uncertain parameters which
-        may realize their maximal deviations from the origin
-        simultaneously.
+        Upper bound for the number of coordinates that can
+        simultaneously realize their maximal deviations from
+        the origin. Must be a numerical value ranging from 0
+        to the set dimension `N`.
     deviation_signs : (N,) array_like, optional
         Indicators for allowed signs of individual coordinate deviations
         from the origin.
@@ -1719,10 +1720,10 @@ class CardinalitySet(UncertaintySet):
     @property
     def gamma(self):
         """
-        numeric type : Upper bound for the number of uncertain
-        parameters that may maximally deviate from their respective
-        origin values simultaneously. Must be a numerical value ranging
-        from 0 to the set dimension `N`.
+        numeric type : Upper bound for the number of coordinates that
+        that can simultaneously realize their maximal deviations from
+        the origin. Must be a numerical value ranging from 0
+        to the set dimension `N`.
 
         Note that, mathematically, setting `gamma` to 0 reduces the set
         to a singleton containing the point represented by
