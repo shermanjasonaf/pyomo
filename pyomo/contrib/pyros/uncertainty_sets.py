@@ -1658,8 +1658,8 @@ class CardinalitySet(UncertaintySet):
     @property
     def origin(self):
         """
-        (N,) numpy.ndarray : Origin of the cardinality set
-        (e.g. nominal parameter values).
+        (N,) numpy.ndarray : Origin of the cardinality-constrained set
+        (e.g., nominal parameter values).
         """
         return self._origin
 
@@ -1710,7 +1710,7 @@ class CardinalitySet(UncertaintySet):
             if val_arr.size != self.dim:
                 raise ValueError(
                     "Attempting to set attribute 'positive_deviation' of "
-                    f"cardinality set of dimension {self.dim} "
+                    f"{CardinalitySet.__name__} of dimension {self.dim} "
                     f"to value of dimension {val_arr.size}"
                 )
 
@@ -1767,7 +1767,7 @@ class CardinalitySet(UncertaintySet):
             if val_arr.size != self.dim:
                 raise ValueError(
                     "Attempting to set attribute 'deviation_signs' for "
-                    f"cardinality set of dimension {self.dim} "
+                    f"{CardinalitySet.__name__} of dimension {self.dim} "
                     f"to value of dimension {val_arr.size}"
                 )
 
@@ -1776,21 +1776,21 @@ class CardinalitySet(UncertaintySet):
     @property
     def dim(self):
         """
-        int : Dimension `N` of the cardinality set.
+        int : Dimension `N` of the cardinality-constrained set.
         """
         return len(self.origin)
 
     @property
     def geometry(self):
         """
-        Geometry : Geometry of the cardinality set.
+        Geometry : Geometry of the cardinality-constrained set.
         """
         return Geometry.LINEAR
 
     @property
     def parameter_bounds(self):
         """
-        Bounds in each dimension of the cardinality set.
+        Bounds in each dimension of the cardinality-constrained set.
 
         Returns
         -------
@@ -1902,7 +1902,8 @@ class CardinalitySet(UncertaintySet):
 
     def point_in_set(self, point):
         """
-        Determine whether a given point lies in the cardinality set.
+        Determine whether a given point lies in the
+        cardinality-constrained set.
 
         Parameters
         ----------
@@ -1987,7 +1988,7 @@ class CardinalitySet(UncertaintySet):
         # check gamma between 0 and n
         if gamma < 0 or gamma > self.dim:
             raise ValueError(
-                "Cardinality set attribute "
+                f"{CardinalitySet.__name__} attribute "
                 f"'gamma' must be a real number between 0 and dimension "
                 f"{self.dim} "
                 f"(provided value {gamma})"

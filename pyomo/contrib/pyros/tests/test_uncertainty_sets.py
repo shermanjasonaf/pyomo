@@ -1503,7 +1503,7 @@ class TestIntersectionSet(unittest.TestCase):
         self.assertEqual(aux_vars[0].bounds, (-1, 1))
         self.assertEqual(aux_vars[1].bounds, (-1, 1))
 
-        # cardinality set constraints
+        # cardinality constraints
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[5].expr,
@@ -1608,7 +1608,7 @@ class TestIntersectionSet(unittest.TestCase):
 
         # box vertex
         self.assertFalse(i_set.point_in_set([0.5, 0.5]))
-        # cardinality set origin and vertex of the box
+        # cardinality-constrained set origin and vertex of the box
         # are outside the ellipse
         self.assertFalse(i_set.point_in_set([-0.5, -0.5]))
 
@@ -1860,7 +1860,7 @@ class TestCardinalitySet(unittest.TestCase):
         Test ValueError raised when attempting to alter the
         set dimension (i.e. number of entries of `origin`).
         """
-        # construct a valid cardinality set
+        # construct a valid cardinality-constrained set
         cset = CardinalitySet(origin=[0, 0], positive_deviation=[1, 1], gamma=2)
 
         exc_str = r"Attempting to set.*dimension 2 to value of dimension 3"
@@ -2022,7 +2022,7 @@ class TestCardinalitySet(unittest.TestCase):
         """
         CONFIG = Bunch()
 
-        # construct a valid cardinality set
+        # construct a valid cardinality-constrained set
         cardinality_set = CardinalitySet(
             origin=[0.0, 0.0], positive_deviation=[1.0, 1.0], gamma=2
         )
@@ -2036,7 +2036,7 @@ class TestCardinalitySet(unittest.TestCase):
         """
         CONFIG = Bunch()
 
-        # construct a valid cardinality set
+        # construct a valid cardinality-constrained set
         cardinality_set = CardinalitySet(
             origin=[0.0, 0.0], positive_deviation=[1.0, 1.0], gamma=2
         )
@@ -2062,7 +2062,7 @@ class TestCardinalitySet(unittest.TestCase):
         """
         CONFIG = Bunch()
 
-        # construct a valid cardinality set
+        # construct a valid cardinality-constrained set
         cardinality_set = CardinalitySet(
             origin=[0.0, 0.0], positive_deviation=[1.0, 1.0], gamma=2
         )
@@ -2079,7 +2079,7 @@ class TestCardinalitySet(unittest.TestCase):
         """
         CONFIG = Bunch()
 
-        # construct a valid cardinality set
+        # construct a valid cardinality-constrained set
         cardinality_set = CardinalitySet(
             origin=[0.0, 0.0], positive_deviation=[1.0, 1.0], gamma=2
         )
@@ -2104,7 +2104,7 @@ class TestCardinalitySet(unittest.TestCase):
     def test_validate_deviation_signs(self):
         CONFIG = Bunch()
 
-        # construct a valid cardinality set
+        # construct a valid cardinality-constrained set
         cardinality_set = CardinalitySet(
             origin=[0.0, 0.0, 0.0],
             positive_deviation=[1.0, 1.0, 1.0],
@@ -2125,7 +2125,8 @@ class TestCardinalitySet(unittest.TestCase):
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_bounded_and_nonempty(self):
         """
-        Test `is_bounded` and `is_nonempty` for a valid cardinality set.
+        Test `is_bounded` and `is_nonempty` for a valid
+        cardinality-constrained set.
         """
         cardinality_set = CardinalitySet(
             origin=[0, 0], positive_deviation=[1, 1], gamma=2
@@ -3351,7 +3352,7 @@ class TestCartesianProductSet(unittest.TestCase):
         )
         self.assertEqual(aux_vars[0].bounds, (-1, 1))
 
-        # cardinality set constraints
+        # cardinality constraints
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[4].expr,

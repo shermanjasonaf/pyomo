@@ -292,7 +292,7 @@ class TestPyROSSolveCardinalitySet(unittest.TestCase):
         )
         self.assertEqual(res.iterations, 2)
         # worst-case objective is just maximum sum of uncertain
-        # parameters (per cardinality set constraints)
+        # parameters (per cardinality constraints)
         self.assertAlmostEqual(res.final_objective_value, 3)
         self.assertEqual(
             res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
@@ -311,7 +311,8 @@ class TestPyROSSolveCardinalitySet(unittest.TestCase):
             solve_master_globally=True,
         )
         self.assertEqual(res2.iterations, 2)
-        # worst-case objective changes due to change of cardinality set
+        # worst-case objective changes due to
+        # change of allowed deviation signs
         self.assertAlmostEqual(res2.final_objective_value, 1.5)
         self.assertEqual(
             res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
