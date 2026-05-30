@@ -264,8 +264,8 @@ def build_leyffer_two_cons_two_params():
 
 class TestPyROSSolveCardinalitySet(unittest.TestCase):
     """
-    Test PyROS successfully solves model with cardinality uncertainty
-    set.
+    Test PyROS successfully solves model with cardinality-constrained
+    uncertainty set.
     """
 
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
