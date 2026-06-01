@@ -1825,12 +1825,13 @@ class CardinalitySet(UncertaintySet):
             zip(
                 self.origin,
                 self.positive_deviation,
-                itertools.batched(aux_var_list, n=2),
                 self.deviation_signs,
                 param_var_data_list,
+                aux_var_list[: self.dim],
+                aux_var_list[self.dim :],
             )
         )
-        for idx, (orig_val, pos_dev, aux_pair, dev_type, param_var) in card_enum:
+        for idx, (orig_val, pos_dev, dev_type, param_var, *aux_pair) in card_enum:
             pos_aux, neg_aux = aux_pair
             # deviation constraint for the main parameter
             conlist.add(orig_val + pos_dev * (pos_aux - neg_aux) == param_var)
@@ -1872,7 +1873,7 @@ class CardinalitySet(UncertaintySet):
         point_arr = np.array(point)
         max_abs_dev = self.positive_deviation
         aux_vals = np.zeros(2 * self.dim)
-        pos_aux_vals, neg_aux_vals = aux_vals[::2], aux_vals[1::2]
+        pos_aux_vals, neg_aux_vals = aux_vals[: self.dim], aux_vals[self.dim :]
         point_in_set_tol = POINT_IN_UNCERTAINTY_SET_TOL
 
         for idx, orig_val in enumerate(self.origin):
@@ -1917,7 +1918,9 @@ class CardinalitySet(UncertaintySet):
         """
         tol = POINT_IN_UNCERTAINTY_SET_TOL
         aux_space_pt = self.compute_auxiliary_uncertain_param_vals(point)
-        deviations = self.positive_deviation * (aux_space_pt[::2] - aux_space_pt[1::2])
+        deviations = self.positive_deviation * (
+            aux_space_pt[: self.dim] - aux_space_pt[self.dim :]
+        )
         pos_not_allowed = ~CardinalityDeviationSign._is_positive_deviation_allowed(
             self.deviation_signs
         )
@@ -1929,8 +1932,8 @@ class CardinalitySet(UncertaintySet):
             and aux_space_pt.sum() <= self.gamma + tol
             and np.all(-tol <= aux_space_pt)
             and np.all(aux_space_pt <= 1 + tol)
-            and np.all(aux_space_pt[::2][pos_not_allowed] <= tol)
-            and np.all(aux_space_pt[1::2][neg_not_allowed] <= tol)
+            and np.all(aux_space_pt[: self.dim][pos_not_allowed] <= tol)
+            and np.all(aux_space_pt[self.dim :][neg_not_allowed] <= tol)
         )
 
     def validate(self, config):

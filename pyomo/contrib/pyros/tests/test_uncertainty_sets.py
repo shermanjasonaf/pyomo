@@ -1507,19 +1507,19 @@ class TestIntersectionSet(unittest.TestCase):
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[5].expr,
-            -0.5 + 2 * (aux_vars[2] - aux_vars[3]) == m.v1,
+            -0.5 + 2 * (aux_vars[2] - aux_vars[4]) == m.v1,
         )
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[6].expr,
-            -0.5 + 2 * (aux_vars[4] - aux_vars[5]) == m.v2,
+            -0.5 + 2 * (aux_vars[3] - aux_vars[5]) == m.v2,
         )
         assertExpressionsEqual(
             self, uq.uncertainty_cons[7].expr, sum(aux_vars[2:6]) <= 2
         )
         self.assertEqual(aux_vars[2].bounds, (0, 1))
-        self.assertEqual(aux_vars[3].bounds, (0, 0))
-        self.assertEqual(aux_vars[4].bounds, (0, 1))
+        self.assertEqual(aux_vars[3].bounds, (0, 1))
+        self.assertEqual(aux_vars[4].bounds, (0, 0))
         self.assertEqual(aux_vars[5].bounds, (0, 0))
 
         # axis-aligned ellipsoid constraint
@@ -1759,12 +1759,12 @@ class TestIntersectionSet(unittest.TestCase):
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[3].expr,
-            0.0 + 0.8 * (aux_vars[2] - aux_vars[3]) == param_vars[0],
+            0.0 + 0.8 * (aux_vars[2] - aux_vars[4]) == param_vars[0],
         )
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[4].expr,
-            0.0 + 0.8 * (aux_vars[4] - aux_vars[5]) == param_vars[1],
+            0.0 + 0.8 * (aux_vars[3] - aux_vars[5]) == param_vars[1],
         )
         assertExpressionsEqual(
             self, uq.uncertainty_cons[5].expr, sum(aux_vars[2:6]) <= 1
@@ -1891,24 +1891,24 @@ class TestCardinalitySet(unittest.TestCase):
         auxvars = uq.auxiliary_vars
 
         assertExpressionsEqual(
-            self, hadamard_cons[0].expr, -0.5 + 2.5 * (auxvars[0] - auxvars[1]) == var1
+            self, hadamard_cons[0].expr, -0.5 + 2.5 * (auxvars[0] - auxvars[3]) == var1
         )
         assertExpressionsEqual(
-            self, hadamard_cons[1].expr, 1.0 + 3.0 * (auxvars[2] - auxvars[3]) == var2
+            self, hadamard_cons[1].expr, 1.0 + 3.0 * (auxvars[1] - auxvars[4]) == var2
         )
         assertExpressionsEqual(
-            self, hadamard_cons[2].expr, 2.0 + 0.0 * (auxvars[4] - auxvars[5]) == var3
+            self, hadamard_cons[2].expr, 2.0 + 0.0 * (auxvars[2] - auxvars[5]) == var3
         )
         assertExpressionsEqual(self, gamma_con.expr, sum(auxvars) <= 1.5)
 
         # only positive deviation allowed
         self.assertEqual(auxvars[0].bounds, (0, 1))
-        self.assertEqual(auxvars[1].bounds, (0, 0))
+        self.assertEqual(auxvars[3].bounds, (0, 0))
         # both positive and negative deviations allowed
-        self.assertEqual(auxvars[2].bounds, (0, 1))
-        self.assertEqual(auxvars[3].bounds, (0, 1))
+        self.assertEqual(auxvars[1].bounds, (0, 1))
+        self.assertEqual(auxvars[4].bounds, (0, 1))
         # only negative deviation allowed
-        self.assertEqual(auxvars[4].bounds, (0, 0))
+        self.assertEqual(auxvars[2].bounds, (0, 0))
         self.assertEqual(auxvars[5].bounds, (0, 1))
 
         cset.deviation_signs = [1, 0, 2]
@@ -3356,20 +3356,20 @@ class TestCartesianProductSet(unittest.TestCase):
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[4].expr,
-            -0.5 + 2 * (aux_vars[1] - aux_vars[2]) == m.v[3],
+            -0.5 + 2 * (aux_vars[1] - aux_vars[3]) == m.v[3],
         )
         assertExpressionsEqual(
             self,
             uq.uncertainty_cons[5].expr,
-            -0.5 + 2 * (aux_vars[3] - aux_vars[4]) == m.v[4],
+            -0.5 + 2 * (aux_vars[2] - aux_vars[4]) == m.v[4],
         )
         assertExpressionsEqual(
             self, uq.uncertainty_cons[6].expr, sum(aux_vars[1:5]) <= 2
         )
         self.assertEqual(aux_vars[1].bounds, (0, 1))
-        self.assertEqual(aux_vars[2].bounds, (0, 0))
-        self.assertEqual(aux_vars[1].bounds, (0, 1))
-        self.assertEqual(aux_vars[2].bounds, (0, 0))
+        self.assertEqual(aux_vars[2].bounds, (0, 1))
+        self.assertEqual(aux_vars[3].bounds, (0, 0))
+        self.assertEqual(aux_vars[4].bounds, (0, 0))
 
         # axis-aligned ellipsoid constraint
         assertExpressionsEqual(
@@ -3718,58 +3718,58 @@ class TestCartesianProductSet(unittest.TestCase):
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0, 1] + [-0.5, -0.5] + [0, 0, 0]
             ),
-            [0, 0, 0, 0, 0],
+            [0] + [0, 0, 0, 0],
         )
         # deviations from factor model origin
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0.75, 4] + [-0.5, -0.5] + [0, 0, 0]
             ),
-            [0.75, 0, 0, 0, 0],
+            [0.75] + [0, 0, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [-0.75, -2] + [-0.5, -0.5] + [0, 0, 0]
             ),
-            [-0.75, 0, 0, 0, 0],
+            [-0.75] + [0, 0, 0, 0],
         )
         # deviations from cardinality origin
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0, 1] + [1.5, -0.5] + [0, 0, 0]
             ),
-            [0, 1, 0, 0, 0],
+            [0] + [1, 0, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0, 1] + [-0.5, 1.5] + [0, 0, 0]
             ),
-            [0, 0, 0, 1, 0],
+            [0] + [0, 1, 0, 0],
         )
         # deviations from cardinality and factor model origins
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0.75, 4] + [-0.5, 1.5] + [0, 0, 0]
             ),
-            [0.75, 0, 0, 1, 0],
+            [0.75] + [0, 1, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [-0.75, -2] + [-0.5, 1.5] + [0, 0, 0]
             ),
-            [-0.75, 0, 0, 1, 0],
+            [-0.75] + [0, 1, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [0.75, 4] + [1.5, -0.5] + [0, 0, 0]
             ),
-            [0.75, 1, 0, 0, 0],
+            [0.75] + [1, 0, 0, 0],
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(
                 [0.5] + [-0.75, -2] + [1.5, -0.5] + [0, 0, 0]
             ),
-            [-0.75, 1, 0, 0, 0],
+            [-0.75] + [1, 0, 0, 0],
         )
 
 
