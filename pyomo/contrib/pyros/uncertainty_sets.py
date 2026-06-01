@@ -24,7 +24,7 @@ import itertools
 from numbers import Integral
 from collections import namedtuple
 from collections.abc import Iterable, MutableSequence, Sequence
-from enum import Enum, IntEnum
+from enum import Enum
 
 from pyomo.common.dependencies import numpy as np, scipy as sp
 from pyomo.common.modeling import unique_component_name
@@ -39,7 +39,6 @@ from pyomo.core.base import (
     NonNegativeReals,
 )
 from pyomo.core.expr import mutable_expression, native_numeric_types, value
-from pyomo.common.numeric_types import native_integer_types
 from pyomo.core.util import quicksum, dot_product
 from pyomo.opt.results import check_optimal_termination
 from pyomo.contrib.pyros.util import (
