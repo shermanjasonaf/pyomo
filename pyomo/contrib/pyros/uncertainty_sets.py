@@ -1467,75 +1467,6 @@ class BoxSet(UncertaintySet):
                 raise ValueError(f"Lower bound {lb} exceeds upper bound {ub}")
 
 
-class CardinalityDeviationSign(IntEnum):
-    """
-    Indicator for whether only positive, only negative,
-    or both positive and negative deviations from the origin
-    of a :class:`~CardinalitySet` are allowable.
-    """
-
-    POSITIVE_ONLY = 1
-    """Only positive deviations are allowed."""
-
-    NEGATIVE_ONLY = -1
-    """Only negative deviations are allowed."""
-
-    BOTH = 0
-    """Both positive and negative deviations are allowed."""
-
-    @staticmethod
-    def _is_positive_deviation_allowed(val):
-        """
-        Invoke :func:`numpy.isin` to determine whether
-        an object (or each entry of an array-like) is in the
-        set of members signifying that positive deviations
-        from the origin of a :class:`CardinalitySet` are allowed.
-
-        Parameters
-        ----------
-        val : object
-            Object to check.
-
-        Returns
-        -------
-        numpy.ndarray of bool
-            If `val` is not an array-like object, then a 0D
-            array is returned. Otherwise, an array with the same
-            shape as that derived from `val` is returned.
-        """
-        pos_dev_signs = [
-            CardinalityDeviationSign.POSITIVE_ONLY,
-            CardinalityDeviationSign.BOTH,
-        ]
-        return np.isin(val, pos_dev_signs)
-
-    @staticmethod
-    def _is_negative_deviation_allowed(val):
-        """
-        Invoke :func:`numpy.isin` to determine whether
-        an object (or each entry of an array-like) is in the
-        set of members signifying that positive deviations
-        from the origin of a :class:`CardinalitySet` are allowed.
-
-        Parameters
-        ----------
-        val : object
-            Object to check.
-
-        Returns
-        -------
-        numpy.ndarray of bool
-            If `val` is not an array-like object, then a 0D
-            array is returned. Otherwise, an array with the same
-            shape as that derived from `val` is returned.
-        """
-        neg_dev_signs = [
-            CardinalityDeviationSign.NEGATIVE_ONLY,
-            CardinalityDeviationSign.BOTH,
-        ]
-        return np.isin(val, neg_dev_signs)
-
-
 class CardinalitySet(UncertaintySet):
     """
     A cardinality-constrained (i.e., "gamma") set.
@@ -1545,21 +1476,18 @@ class CardinalitySet(UncertaintySet):
     origin : (N,) array_like
         Origin of the set (e.g., nominal uncertain parameter values).
     positive_deviation : (N,) array_like
-        Upper bounds for absolute values of the individual coordinate
+        Upper bounds for absolute values of the positive coordinate
         deviations from the origin.
     gamma : numeric type
         Upper bound for the number of coordinates that can
         simultaneously realize their maximal deviations from
         the origin. Must be a numerical value ranging from 0
         to the set dimension `N`.
-    deviation_signs : (N,) array_like, optional
-        Indicators for allowed signs of individual coordinate deviations
-        from the origin.
-        Each entry should be numerically equal to a member of
-        :class:`CardinalityDeviationSign`.
-        By default, this argument is set to
-        an array with all entries equal to
-        :attr:`CardinalityDeviationSign.POSITIVE_ONLY`.
+    negative_deviation : (N,) array_like, optional
+        Upper bounds for absolute values of the negative coordinate
+        deviations from the origin.
+        If `None` is passed, then this argument is set to
+        an (`N`,) shaped array of zeros.
 
     Notes
     -----
@@ -1571,38 +1499,35 @@ class CardinalitySet(UncertaintySet):
              \\,\\exists\\, \\xi^+, \\xi^- \\in [0, 1]^n \\,:\\,
              \\left[
                  \\begin{array}{l}
-                    q = q^0 + \\hat{q} \\circ (\\xi^+ - \\xi^-) \\\\
+                    q = q^0 + \\hat{q}^+ \\circ \\xi^+ - \\hat{q}^-\\xi^- \\\\
                     \\displaystyle \\sum_{i=1}^n (\\xi_i^+ + \\xi_i^-)
-                        \\leq \\Gamma \\\\
-                    \\xi_i^+ = 0 \\quad \\forall\\,i : \\Delta_i = -1 \\\\
-                    \\xi_i^- = 0 \\quad \\forall\\,i : \\Delta_i = +1 \\\\
+                        \\leq \\Gamma
                  \\end{array}
              \\right]
         \\right\\}
 
     in which
     :math:`q^\\text{0} \\in \\mathbb{R}^n` refers to ``origin``,
-    the quantity :math:`\\hat{q} \\in \\mathbb{R}_{+}^n`
+    the quantity :math:`\\hat{q}^+ \\in \\mathbb{R}_{+}^n`
     refers to ``positive_deviation``,
-    the quantity :math:`\\Gamma \\in [0, n]` refers to ``gamma``,
+    the quantity :math:`\\hat{q}^- \\in \\mathbb{R}_{+}^n`
+    refers to ``negative_deviation``,
     and
-    :math:`\\Delta \\in \\{-1, 0, +1\\}^n` refers to ``deviation_signs``.
-    The operator ":math:`\\circ`" denotes the element-wise product.
+    :math:`\\Gamma \\in [0, n]` refers to ``gamma``.
 
     .. note::
 
-       If :math:`\\Delta_i = 0` for
-       :math:`i = 1, 2, \\dots, n`,
+       If :math:`\\hat{q}^+ = \\hat{q}^-`,
        then this set is mathematically equal to
 
        .. math::
 
            \\left\\{ q \\in \\mathbb{R}^n\\,\\middle|
-                \\,\\exists\\, \\xi \\in [-1, 1]^n \\,:\\,
+                \\,\\exists\\, \\delta \\in [-1, 1]^n \\,:\\,
                 \\left[
                     \\begin{array}{l}
-                       q = q^0 + \\hat{q} \\circ \\xi \\\\
-                       \\displaystyle \\sum_{i=1}^n |\\xi_i|
+                       q = q^0 + \\hat{q}^+ \\circ \\delta \\\\
+                       \\displaystyle \\sum_{i=1}^n |\\delta_i|
                            \\leq \\Gamma
                     \\end{array}
                 \\right]
@@ -1626,7 +1551,7 @@ class CardinalitySet(UncertaintySet):
     ...     origin=[0, 0, 0, 0],
     ...     positive_deviation=[1.0, 2.0, 1.5, 0.0],
     ...     gamma=1,
-    ...     deviation_signs=[+1, 0, -1, 0],
+    ...     negative_deviation=[0.0, 2.0, 0.0, 5.0],
     ... )
     >>> gamma_set.origin
     array([0, 0, 0, 0])
@@ -1634,20 +1559,20 @@ class CardinalitySet(UncertaintySet):
     array([1. , 2. , 1.5, 0. ])
     >>> gamma_set.gamma
     1
-    >>> gamma_set.deviation_signs
-    array([ 1,  0, -1,  0])
+    >>> gamma_set.negative_deviation
+    array([0., 2., 0., 5.])
     """
 
     _PARAMETER_BOUNDS_EXACT = True
 
-    def __init__(self, origin, positive_deviation, gamma, deviation_signs=None):
+    def __init__(self, origin, positive_deviation, gamma, negative_deviation=None):
         """Initialize self (see class docstring)."""
         self.origin = origin
         self.positive_deviation = positive_deviation
         self.gamma = gamma
-        if deviation_signs is None:
-            deviation_signs = [CardinalityDeviationSign.POSITIVE_ONLY] * self.dim
-        self.deviation_signs = deviation_signs
+        if negative_deviation is None:
+            negative_deviation = np.zeros(self.dim)
+        self.negative_deviation = negative_deviation
 
     @property
     def type(self):
@@ -1690,7 +1615,7 @@ class CardinalitySet(UncertaintySet):
     def positive_deviation(self):
         """
         (N,) numpy.ndarray : Upper bounds for absolute values of
-        the individual coordinate deviations from the origin.
+        the positive coordinate deviations from the origin.
         """
         return self._positive_deviation
 
@@ -1718,10 +1643,41 @@ class CardinalitySet(UncertaintySet):
         self._positive_deviation = val_arr
 
     @property
+    def negative_deviation(self):
+        """
+        (N,) numpy.ndarray : Upper bounds for absolute values of
+        the negative coordinate deviations from the origin.
+        """
+        return self._negative_deviation
+
+    @negative_deviation.setter
+    def negative_deviation(self, val):
+        validate_array(
+            arr=val,
+            arr_name="negative_deviation",
+            dim=1,
+            valid_types=native_numeric_types,
+            valid_type_desc="a valid numeric type",
+        )
+
+        val_arr = np.array(val)
+
+        # dimension of the set is immutable
+        if hasattr(self, "_origin"):
+            if val_arr.size != self.dim:
+                raise ValueError(
+                    "Attempting to set attribute 'negative_deviation' of "
+                    f"{CardinalitySet.__name__} of dimension {self.dim} "
+                    f"to value of dimension {val_arr.size}"
+                )
+
+        self._negative_deviation = val_arr
+
+    @property
     def gamma(self):
         """
         numeric type : Upper bound for the number of coordinates that
-        that can simultaneously realize their maximal deviations from
+        can simultaneously realize their maximal deviations from
         the origin. Must be a numerical value ranging from 0
         to the set dimension `N`.
 
@@ -1740,38 +1696,6 @@ class CardinalitySet(UncertaintySet):
         )
 
         self._gamma = val
-
-    @property
-    def deviation_signs(self):
-        """
-        (N,) numpy.ndarray of int : Indicators for allowed signs
-        of individual coordinate deviations from the origin.
-        Each entry should be numerically equal to a member of
-        :class:`CardinalityDeviationSign`.
-        """
-        return self._deviation_signs
-
-    @deviation_signs.setter
-    def deviation_signs(self, val):
-        validate_array(
-            arr=val,
-            arr_name="deviation_signs",
-            dim=1,
-            valid_types=native_integer_types,
-            valid_type_desc="a valid integer type",
-        )
-        val_arr = np.array(val)
-
-        # dimension of the set is immutable
-        if hasattr(self, "_origin"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'deviation_signs' for "
-                    f"{CardinalitySet.__name__} of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
-
-        self._deviation_signs = val_arr
 
     @property
     def dim(self):
@@ -1798,15 +1722,8 @@ class CardinalitySet(UncertaintySet):
             List, length `N`, of coordinate value
             (lower, upper) bound pairs.
         """
-        dev_enum = CardinalityDeviationSign
-        is_neg_dev_feas = dev_enum._is_negative_deviation_allowed(self.deviation_signs)
-        is_pos_dev_feas = dev_enum._is_positive_deviation_allowed(self.deviation_signs)
-        lower_bounds = self.origin - (
-            min(self.gamma, 1) * is_neg_dev_feas * self.positive_deviation
-        )
-        upper_bounds = self.origin + (
-            min(self.gamma, 1) * is_pos_dev_feas * self.positive_deviation
-        )
+        lower_bounds = self.origin - min(self.gamma, 1) * self.negative_deviation
+        upper_bounds = self.origin + min(self.gamma, 1) * self.positive_deviation
         return [(lb, ub) for lb, ub in zip(lower_bounds, upper_bounds)]
 
     @copy_docstring(UncertaintySet.set_as_constraint)
@@ -1825,30 +1742,20 @@ class CardinalitySet(UncertaintySet):
             zip(
                 self.origin,
                 self.positive_deviation,
-                self.deviation_signs,
+                self.negative_deviation,
                 param_var_data_list,
                 aux_var_list[: self.dim],
                 aux_var_list[self.dim :],
             )
         )
-        for idx, (orig_val, pos_dev, dev_type, param_var, *aux_pair) in card_enum:
+        for idx, (orig_val, pos_dev, neg_dev, param_var, *aux_pair) in card_enum:
             pos_aux, neg_aux = aux_pair
             # deviation constraint for the main parameter
-            conlist.add(orig_val + pos_dev * (pos_aux - neg_aux) == param_var)
+            conlist.add(orig_val + pos_dev * pos_aux - neg_dev * neg_aux == param_var)
 
             # set auxiliary variable bounds
-            # based on allowed deviation sign
-            if dev_type == CardinalityDeviationSign.POSITIVE_ONLY:
-                pos_aux.bounds = (0, 1)
-                neg_aux.bounds = (0, 0)
-            elif dev_type == CardinalityDeviationSign.NEGATIVE_ONLY:
-                pos_aux.bounds = (0, 0)
-                neg_aux.bounds = (0, 1)
-            elif dev_type == CardinalityDeviationSign.BOTH:
-                pos_aux.bounds = (0, 1)
-                neg_aux.bounds = (0, 1)
-            else:
-                raise ValueError(f"Deviation sign {dev_type!r} not supported.")
+            pos_aux.bounds = (0, 1)
+            neg_aux.bounds = (0, 1)
 
         conlist.add(quicksum(aux_var_list) <= self.gamma)
 
@@ -1871,33 +1778,25 @@ class CardinalitySet(UncertaintySet):
             required_shape_qual="to match the set dimension",
         )
         point_arr = np.array(point)
-        max_abs_dev = self.positive_deviation
         aux_vals = np.zeros(2 * self.dim)
         pos_aux_vals, neg_aux_vals = aux_vals[: self.dim], aux_vals[self.dim :]
         point_in_set_tol = POINT_IN_UNCERTAINTY_SET_TOL
 
         for idx, orig_val in enumerate(self.origin):
-            max_abs_dev = self.positive_deviation[idx]
-            if max_abs_dev == 0:
-                normalized_dev = (
-                    0 if abs(point_arr[idx] - orig_val) <= point_in_set_tol else np.nan
-                )
-            else:
-                normalized_dev = (point_arr[idx] - orig_val) / max_abs_dev
+            net_deviation = point_arr[idx] - orig_val
 
-            dev_sign = self.deviation_signs[idx]
-            if dev_sign == CardinalityDeviationSign.POSITIVE_ONLY:
-                pos_aux_vals[idx] = normalized_dev
-            elif dev_sign == CardinalityDeviationSign.BOTH:
-                # select only the positive or negative aux value to
-                # be nonzero, based on the sign of the normalized
-                # deviation
-                pos_aux_vals[idx] = (normalized_dev > 0) * normalized_dev
-                neg_aux_vals[idx] = (normalized_dev < 0) * (-normalized_dev)
-            elif dev_sign == CardinalityDeviationSign.NEGATIVE_ONLY:
-                neg_aux_vals[idx] = -normalized_dev
+            # only the positive or the negative auxiliary variable
+            # is set to a nonzero value; the variable that gets set
+            # depends on the sign of the net deviation
+            max_abs_dev, aux_arr = (
+                (self.positive_deviation[idx], pos_aux_vals)
+                if net_deviation >= 0
+                else (self.negative_deviation[idx], neg_aux_vals)
+            )
+            if max_abs_dev == 0:
+                aux_arr[idx] = 0 if abs(net_deviation) <= point_in_set_tol else np.nan
             else:
-                raise ValueError(f"Deviation sign {dev_sign} not supported.")
+                aux_arr[idx] = abs(net_deviation) / max_abs_dev
 
         return aux_vals
 
@@ -1918,22 +1817,15 @@ class CardinalitySet(UncertaintySet):
         """
         tol = POINT_IN_UNCERTAINTY_SET_TOL
         aux_space_pt = self.compute_auxiliary_uncertain_param_vals(point)
-        deviations = self.positive_deviation * (
-            aux_space_pt[: self.dim] - aux_space_pt[self.dim :]
-        )
-        pos_not_allowed = ~CardinalityDeviationSign._is_positive_deviation_allowed(
-            self.deviation_signs
-        )
-        neg_not_allowed = ~CardinalityDeviationSign._is_negative_deviation_allowed(
-            self.deviation_signs
+        deviations = (
+            self.positive_deviation * aux_space_pt[: self.dim]
+            - self.negative_deviation * aux_space_pt[self.dim :]
         )
         return (
             np.all(np.abs(point - (self.origin + deviations))) <= tol
             and aux_space_pt.sum() <= self.gamma + tol
             and np.all(-tol <= aux_space_pt)
             and np.all(aux_space_pt <= 1 + tol)
-            and np.all(aux_space_pt[: self.dim][pos_not_allowed] <= tol)
-            and np.all(aux_space_pt[self.dim :][neg_not_allowed] <= tol)
         )
 
     def validate(self, config):
@@ -1948,63 +1840,54 @@ class CardinalitySet(UncertaintySet):
             ``self.positive_deviation`` has negative values,
             or ``self.gamma`` is out of range).
         """
-        orig_val = self.origin
-        pos_dev = self.positive_deviation
-        dev_signs = self.deviation_signs
-        gamma = self.gamma
-
         # check origin, positive deviation, and gamma are valid
         # this includes a finiteness check
         validate_array(
-            arr=orig_val,
+            arr=self.origin,
             arr_name="origin",
             dim=1,
             valid_types=native_numeric_types,
             valid_type_desc="a valid numeric type",
         )
         validate_array(
-            arr=pos_dev,
+            arr=self.positive_deviation,
+            arr_name="positive_deviation",
+            dim=1,
+            valid_types=native_numeric_types,
+            valid_type_desc="a valid numeric type",
+        )
+        validate_array(
+            arr=self.negative_deviation,
             arr_name="positive_deviation",
             dim=1,
             valid_types=native_numeric_types,
             valid_type_desc="a valid numeric type",
         )
         validate_arg_type(
-            "gamma", gamma, native_numeric_types, "a valid numeric type", False
-        )
-        validate_array(
-            arr=dev_signs,
-            arr_name="deviation_signs",
-            dim=1,
-            valid_types=native_integer_types,
-            valid_type_desc="a valid integer type",
+            arg_name="gamma",
+            arg_val=self.gamma,
+            valid_types=native_numeric_types,
+            valid_type_desc="a valid numeric type",
+            is_entry_of_arg=False,
         )
 
-        # check deviation is positive
-        for dev_val in pos_dev:
-            if dev_val < 0:
-                raise ValueError(
-                    f"Entry {dev_val} of attribute 'positive_deviation' "
-                    f"is negative value"
-                )
+        # check deviations are positive
+        for dev_pair in zip(self.positive_deviation, self.negative_deviation):
+            for dev_name, dev in zip(("positive", "negative"), dev_pair):
+                if dev < 0:
+                    raise ValueError(
+                        f"Entry {dev} of attribute '{dev_name}_deviation' "
+                        f"is negative value"
+                    )
 
         # check gamma between 0 and n
-        if gamma < 0 or gamma > self.dim:
+        if self.gamma < 0 or self.gamma > self.dim:
             raise ValueError(
                 f"{CardinalitySet.__name__} attribute "
                 f"'gamma' must be a real number between 0 and dimension "
                 f"{self.dim} "
-                f"(provided value {gamma})"
+                f"(provided value {self.gamma})"
             )
-
-        # check deviation signs are valid
-        for dev_sign in dev_signs:
-            if dev_sign not in CardinalityDeviationSign:
-                raise ValueError(
-                    f"Entry {dev_sign} of attribute 'deviation_signs' "
-                    "is not equal to any of the members of "
-                    f"{CardinalityDeviationSign.__name__}"
-                )
 
 
 class PolyhedralSet(UncertaintySet):

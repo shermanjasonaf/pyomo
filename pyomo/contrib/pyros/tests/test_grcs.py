@@ -271,13 +271,13 @@ class TestPyROSSolveCardinalitySet(unittest.TestCase):
     @unittest.skipUnless(ipopt_available, "IPOPT is not available.")
     def test_cardinality_set_solve(self):
         m = ConcreteModel()
-        m.q = Param(range(4), initialize=0, mutable=True)
+        m.q = Param(range(4), initialize=1, mutable=True)
         m.x = Var(initialize=0, bounds=(0, None))
         m.obj = Objective(expr=m.x)
-        m.ineq_con = Constraint(expr=m.x >= sum(m.q.values()))
+        m.ineq_con = Constraint(expr=m.x >= m.q[0] + m.q[1] - m.q[2] - m.q[3])
 
         cset = CardinalitySet(
-            origin=[0] * 4, positive_deviation=[1, 0, 2, 0.5], gamma=2
+            origin=[1] * 4, positive_deviation=[1, 0, 2, 0.5], gamma=2
         )
         res = SolverFactory("pyros").solve(
             model=m,
@@ -293,12 +293,12 @@ class TestPyROSSolveCardinalitySet(unittest.TestCase):
         self.assertEqual(res.iterations, 2)
         # worst-case objective is just maximum sum of uncertain
         # parameters (per cardinality constraints)
-        self.assertAlmostEqual(res.final_objective_value, 3)
+        self.assertAlmostEqual(res.final_objective_value, 1)
         self.assertEqual(
             res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
         )
 
-        cset.deviation_signs = [0, 0, -1, 1]
+        cset.negative_deviation = [0, 4.5, 0.5, 3]
         res2 = SolverFactory("pyros").solve(
             model=m,
             first_stage_variables=m.x,
@@ -312,8 +312,8 @@ class TestPyROSSolveCardinalitySet(unittest.TestCase):
         )
         self.assertEqual(res2.iterations, 2)
         # worst-case objective changes due to
-        # change of allowed deviation signs
-        self.assertAlmostEqual(res2.final_objective_value, 1.5)
+        # change of maximum negative deviations
+        self.assertAlmostEqual(res2.final_objective_value, 4)
         self.assertEqual(
             res.pyros_termination_condition, pyrosTerminationCondition.robust_optimal
         )
