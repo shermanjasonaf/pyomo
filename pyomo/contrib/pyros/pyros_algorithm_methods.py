@@ -88,8 +88,13 @@ def get_variable_value_data(working_blk, dr_var_to_monomial_map):
     second_stage_data = ComponentMap(
         (var, var.value) for var in ep.second_stage_variables
     )
+    from pyomo.core.util import prod
     dr_term_data = ComponentMap(
-        (dr_var, value(monomial))
+        (
+            dr_var,
+            value(dr_var) * max(1, abs(value(prod(monomial.args[:-1]))))
+            if monomial.is_expression_type() else value(monomial)
+        )
         for dr_var, monomial in get_dr_var_to_monomial_map(working_blk).items()
     )
 
