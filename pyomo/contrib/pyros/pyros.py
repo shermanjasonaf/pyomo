@@ -97,7 +97,7 @@ class PyROS(object):
     """
 
     CONFIG = pyros_config()
-    _LOG_LINE_LENGTH = 78
+    _LOG_LINE_LENGTH = 91
     _DEFAULT_CONFIG_USER_OPTIONS = [
         "first_stage_variables",
         "second_stage_variables",
@@ -505,8 +505,8 @@ class PyROS(object):
         # log termination-related messages
         config.progress_logger.info(return_soln.pyros_termination_condition.message)
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
-        config.progress_logger.debug(f"Timing breakdown:\n\n{model_data.timing}")
-        config.progress_logger.debug("-" * self._LOG_LINE_LENGTH)
+        config.progress_logger.info(f"Timing breakdown:\n\n{model_data.timing}")
+        config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
         config.progress_logger.info(return_soln)
         config.progress_logger.info("-" * self._LOG_LINE_LENGTH)
         config.progress_logger.info("All done. Exiting PyROS.")

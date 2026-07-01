@@ -3446,7 +3446,7 @@ class IterationLogRecord:
         to solve at least one separation problem, False otherwise.
     """
 
-    _LINE_LENGTH = 78
+    _LINE_LENGTH = 91
     _ATTR_FORMAT_LENGTHS = {
         "iteration": 5,
         "objective": 13,
@@ -3510,7 +3510,7 @@ class IterationLogRecord:
             "objective",
             "first_stage_var_shift",
             "second_stage_var_shift",
-            # "dr_var_shift",
+            "dr_var_shift",
             "num_violated_cons",
             "max_violation",
             "elapsed_time",
@@ -3573,7 +3573,7 @@ class IterationLogRecord:
         return "".join(
             f"{header_names_dict[attr]:<{fmt_lengths_dict[attr]}s}"
             for attr in fmt_lengths_dict
-            if attr != "dr_var_shift"
+            # if attr != "dr_var_shift"
         )
 
     @staticmethod
