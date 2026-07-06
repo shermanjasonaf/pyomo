@@ -197,7 +197,7 @@ def ROSolver_iterative_solve(model_data):
             )
 
         polishing_successful = True
-        polish_master_solution = (
+        polish_master_solution = False and (
             config.decision_rule_order != 0
             and nominal_master_blk.first_stage.decision_rule_vars
             and k != 0
