@@ -358,9 +358,20 @@ def construct_dr_polishing_problem(master_data):
     ]
     fixed_nonadjustable_vars = ComponentSet(nondr_nonadjustable_vars + fixed_dr_vars)
     for blk in polishing_model.scenarios.values():
+        # fix the adjustable variables
+        blk_adjustable_vars = ComponentSet(
+            blk.effective_var_partitioning.second_stage_variables
+            + blk.effective_var_partitioning.state_variables
+        )
+        for var in blk_adjustable_vars:
+            var.fix()
+
+        # deactivate all constraints that do not depend on unfixed
+        # DR variables
+        fixed_vars = fixed_nonadjustable_vars | blk_adjustable_vars
         for con in blk.component_data_objects(Constraint, active=True):
             vars_in_con = ComponentSet(identify_variables(con.body))
-            if not (vars_in_con - fixed_nonadjustable_vars):
+            if not (vars_in_con - fixed_vars):
                 con.deactivate()
 
     # we will add the polishing objective later
