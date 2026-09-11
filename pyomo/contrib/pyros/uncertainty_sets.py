@@ -3809,10 +3809,12 @@ class IntersectionSet(UncertaintySet):
 
     Parameters
     ----------
-    **unc_sets : dict
-        PyROS `UncertaintySet` objects of which to construct
-        an intersection. At least two uncertainty sets must
-        be provided. All sets must be of the same dimension.
+    *args
+        The operand uncertainty sets, i.e., the
+        `UncertaintySet` objects to be intersected.
+    **kwargs
+        Included to support deprecated prior APIs.
+        If `args` has at least one entry, then `kwargs` is ignored.
 
     Notes
     -----
@@ -3824,7 +3826,7 @@ class IntersectionSet(UncertaintySet):
             \\cap \\mathcal{Q}_m
 
     in which :math:`\\mathcal{Q}_i \\subset \\mathbb{R}^n`
-    refers to the uncertainty set ``list(unc_sets.values())[i - 1]``
+    refers to the uncertainty set ``args[i - 1]``
     for :math:`i = 1, 2, \\dots, m`.
 
     Examples
@@ -3839,17 +3841,27 @@ class IntersectionSet(UncertaintySet):
     ...     center=[0, 0],
     ...     half_lengths=[2, 2],
     ... )
-    >>> # to construct intersection, pass sets as keyword arguments.
-    >>> # keywords are arbitrary
-    >>> intersection = IntersectionSet(set1=square, set2=disk)
+    >>> intersection = IntersectionSet(square, disk)
     >>> intersection.all_sets  # doctest: +ELLIPSIS
     UncertaintySetList([...])
 
     """
 
-    def __init__(self, **unc_sets):
+    def __init__(self, *args, **kwargs):
         """Initialize self (see class docstring)."""
-        self.all_sets = unc_sets
+        if args:
+            self.all_sets = args
+        else:
+            deprecation_warning(
+                (
+                    f"Specifying {type(self).__name__} operand uncertainty "
+                    "sets through arbitrary keyword arguments is deprecated. "
+                    f"In subsequent usage of {type(self).__name__}, "
+                    "pass the operand uncertainty sets positionally."
+                ),
+                version="6.10.2.dev0",
+            )
+            self.all_sets = kwargs.values()
 
     @property
     def type(self):
@@ -3872,22 +3884,16 @@ class IntersectionSet(UncertaintySet):
 
     @all_sets.setter
     def all_sets(self, val):
-        if isinstance(val, dict):
-            the_sets = val.values()
-        else:
-            the_sets = list(val)
-
         # type validation, ensure all entries have same dimension
-        all_sets = UncertaintySetList(the_sets, name="all_sets", min_length=2)
+        all_sets = UncertaintySetList(val, name="all_sets", min_length=2)
 
         # set dimension is immutable
-        if hasattr(self, "_all_sets"):
-            if all_sets.dim != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'all_sets' of an "
-                    f"IntersectionSet of dimension {self.dim} to a sequence "
-                    f"of sets of dimension {all_sets[0].dim}"
-                )
+        if hasattr(self, "_all_sets") and all_sets.dim != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'all_sets' of an "
+                f"IntersectionSet of dimension {self.dim} to a sequence "
+                f"of sets of dimension {all_sets[0].dim}"
+            )
 
         self._all_sets = all_sets
 
