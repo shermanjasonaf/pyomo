@@ -125,6 +125,9 @@ class TestBoxSet(unittest.TestCase):
             new_bounds, bset.bounds, err_msg="BoxSet bounds not as expected"
         )
 
+        with self.assertRaises(NotImplementedError):
+            _ = bset.scenarios
+
     def test_error_on_box_set_dim_change(self):
         """
         BoxSet dimension is considered immutable.

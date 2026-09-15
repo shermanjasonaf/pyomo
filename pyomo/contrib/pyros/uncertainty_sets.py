@@ -1078,6 +1078,17 @@ class UncertaintySet(metaclass=abc.ABCMeta):
             param_bounds = [param_bounds[idx] for idx in index]
         return [_values_close(lb, ub) for lb, ub in param_bounds]
 
+    @property
+    def scenarios(self):
+        """
+        list[tuple[numbers.Real, ...]] : If the uncertainty
+        set is of geometry equal to
+        :attr:`Geometry.DISCRETE_SCENARIOS`,
+        then this method should return the points
+        comprising the uncertainty set.
+        """
+        raise NotImplementedError
+
 
 class UncertaintySetList(MutableSequence):
     """
