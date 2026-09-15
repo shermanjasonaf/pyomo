@@ -4008,35 +4008,6 @@ class IntersectionSet(UncertaintySet):
         """
         return all(a_set.point_in_set(point=point) for a_set in self.all_sets)
 
-    # === Define pairwise intersection function
-    @staticmethod
-    def intersect(Q1, Q2):
-        """
-        Obtain the intersection of two uncertainty sets,
-        accounting for the case where either of the two sets
-        is discrete.
-
-        Parameters
-        ----------
-        Q1, Q2 : UncertaintySet
-            Operand uncertainty set.
-
-        Returns
-        -------
-        DiscreteScenarioSet or IntersectionSet
-            Intersection of the sets. A `DiscreteScenarioSet` is
-            returned if both operand sets are `DiscreteScenarioSet`
-            instances; otherwise, an `IntersectionSet` is returned.
-        """
-        for set1, set2 in zip((Q1, Q2), (Q2, Q1)):
-            if isinstance(set1, DiscreteScenarioSet):
-                return DiscreteScenarioSet(
-                    scenarios=[pt for pt in set1.scenarios if set2.point_in_set(pt)]
-                )
-
-        # === This case is if both sets are continuous
-        return IntersectionSet(set1=Q1, set2=Q2)
-
     @copy_docstring(UncertaintySet.set_as_constraint)
     def set_as_constraint(self, uncertain_params=None, block=None):
         block, param_var_data_list, *_ = (
