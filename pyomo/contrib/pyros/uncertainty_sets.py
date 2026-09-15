@@ -4072,6 +4072,25 @@ class IntersectionSet(UncertaintySet):
         )
         return np.array(list(aux_param_vals_iter))
 
+    def is_nonempty(self, config):
+        """
+        Return True if `self` is known to be nonempty,
+        False if `self` is known to be empty.
+
+        Parameters
+        ----------
+        config : ConfigDict
+            PyROS solver configuration.
+
+        Returns
+        -------
+        bool
+        """
+        if self.geometry == Geometry.DISCRETE_SCENARIOS:
+            return len(self.scenarios) > 0
+
+        return super().is_nonempty(config)
+
     def validate(self, config):
         """
         Check IntersectionSet validity.

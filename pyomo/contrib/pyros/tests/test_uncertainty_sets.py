@@ -1761,18 +1761,32 @@ class TestIntersectionSet(unittest.TestCase):
         intersection_set = IntersectionSet(bset, aset)
         bounded_and_nonempty_check(self, intersection_set)
 
+        dset = DiscreteScenarioSet(
+            scenarios=[(0, 0, 0), (0, 0, 1), (-1, 0, 0), (2, 2, 0), (5, 3, 1)]
+        )
+        disc_intersection_set = IntersectionSet(bset, aset, dset)
+        bounded_and_nonempty_check(self, disc_intersection_set)
+
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_is_nonempty(self):
         CONFIG = Bunch(global_solver=SolverFactory("baron"))
         # nonempty (singleton)
         bset1 = BoxSet(bounds=[[1, 2], [1, 2]])
         bset2 = BoxSet(bounds=[[2, 3], [2, 3]])
-        iset = IntersectionSet(box_set1=bset1, box_set2=bset2)
+        iset = IntersectionSet(bset1, bset2)
 
         # empty: even though the operands are nonempty,
         #        they do not intersect
         bset2.bounds = [[-2, -1], [-2, -1]]
         self.assertFalse(iset.is_nonempty(config=CONFIG))
+
+        # nonempty discrete set
+        iset_disc = IntersectionSet(bset1, DiscreteScenarioSet([(1, 1), (4, 5)]))
+        self.assertTrue(iset_disc.is_nonempty(config=CONFIG))
+
+        # empty discrete set
+        iset_disc = IntersectionSet(bset1, DiscreteScenarioSet([(-1, -1), (4, 5)]))
+        self.assertFalse(iset_disc.is_nonempty(config=CONFIG))
 
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_is_coordinate_fixed(self):
