@@ -540,13 +540,11 @@ class TestPyROSSolveCartesianProductSet(unittest.TestCase):
         """
         m = self.build_model()
         cpset = CartesianProductSet(
-            [
-                BoxSet([[0, 1]]),
-                FactorModelSet(
-                    origin=[0, 0], number_of_factors=1, beta=1, psi_mat=[[1], [3]]
-                ),
-                CardinalitySet(origin=[0], gamma=1, positive_deviation=[0.5]),
-            ]
+            BoxSet([[0, 1]]),
+            FactorModelSet(
+                origin=[0, 0], number_of_factors=1, beta=1, psi_mat=[[1], [3]]
+            ),
+            CardinalitySet(origin=[0], gamma=1, positive_deviation=[0.5]),
         )
         results = SolverFactory("pyros").solve(
             model=m,
@@ -583,7 +581,7 @@ class TestPyROSSolveCartesianProductSet(unittest.TestCase):
         """
         m = self.build_model()
         cpset = CartesianProductSet(
-            [BoxSet([[0, 1]]), DiscreteScenarioSet([(0, 1, 3), (0, 0, 0)])]
+            BoxSet([[0, 1]]), DiscreteScenarioSet([(0, 1, 3), (0, 0, 0)])
         )
         # exception raised during set validation due to involvement
         # of discrete uncertainty in the cartesian product
@@ -5544,7 +5542,7 @@ class TestPyROSCacheUncertaintySetBounds(unittest.TestCase):
             rhs_vec=[1] * 6,
         )
         # inclusion of PolyhedralSet means bounds caching takes place
-        cpset = CartesianProductSet([BoxSet([[0, 1]]), poly_set])
+        cpset = CartesianProductSet(BoxSet([[0, 1]]), poly_set)
         res1 = SolverFactory("pyros").solve(
             model=m,
             first_stage_variables=m.x,

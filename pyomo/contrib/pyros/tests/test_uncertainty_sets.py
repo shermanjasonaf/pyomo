@@ -3478,39 +3478,113 @@ class TestCartesianProductSet(unittest.TestCase):
         bset = BoxSet(bounds=[[-1, 1], [-1, 1]])
         aset = AxisAlignedEllipsoidalSet([0, 0, 0, 0], [1, 1, 1, 1])
 
-        cpset = CartesianProductSet([bset, aset])
-        self.assertIs(
-            bset,
-            cpset._all_sets[0],
-            msg=(
-                "CartesianProductSet 'all_sets' attribute does not "
-                "contain expected BoxSet"
+        cpset = CartesianProductSet(bset, aset)
+        self.assertEqual(len(cpset._all_sets), 2)
+        self.assertIs(cpset._all_sets[0], bset)
+        self.assertIs(cpset._all_sets[1], aset)
+        self.assertIs(cpset.geometry, Geometry.CONVEX_NONLINEAR)
+        self.assertEqual(cpset.type, "cartesian_product")
+        self.assertEqual(cpset.dim, 6)
+
+        # check old API: single positional argument
+        with LoggingIntercept(level=logging.WARNING) as LOG:
+            cpset = CartesianProductSet([bset, aset])
+        self.assertRegex(
+            LOG.getvalue(),
+            re.compile(
+                r"DEPRECATED.*Specifying.*single positional/keyword.*positionally",
+                re.DOTALL,
             ),
         )
-        self.assertIs(
-            aset,
-            cpset._all_sets[1],
-            msg=(
-                "CartesianProductSet 'all_sets' attribute does not "
-                "contain expected AxisAlignedEllipsoidalSet"
+        self.assertEqual(len(cpset._all_sets), 2)
+        self.assertIs(cpset._all_sets[0], bset)
+        self.assertIs(cpset._all_sets[1], aset)
+        self.assertIs(cpset.geometry, Geometry.CONVEX_NONLINEAR)
+        self.assertEqual(cpset.type, "cartesian_product")
+        self.assertEqual(cpset.dim, 6)
+
+        # check old API: single keyword argument
+        with LoggingIntercept(level=logging.WARNING) as LOG:
+            cpset = CartesianProductSet(all_sets=[bset, aset])
+        self.assertRegex(
+            LOG.getvalue(),
+            re.compile(
+                r"DEPRECATED.*Specifying.*single positional/keyword.*positionally",
+                re.DOTALL,
             ),
         )
-        # check defined attributes/methods inherited from base class
+        self.assertEqual(len(cpset._all_sets), 2)
+        self.assertIs(cpset._all_sets[0], bset)
+        self.assertIs(cpset._all_sets[1], aset)
+        self.assertIs(cpset.geometry, Geometry.CONVEX_NONLINEAR)
+        self.assertEqual(cpset.type, "cartesian_product")
+        self.assertEqual(cpset.dim, 6)
+
+        # ignore keyword arguments if a positional one was passed
+        cpset = CartesianProductSet(bset, aset, example=1)
+        self.assertEqual(len(cpset._all_sets), 2)
+        self.assertIs(cpset._all_sets[0], bset)
+        self.assertIs(cpset._all_sets[1], aset)
         self.assertIs(cpset.geometry, Geometry.CONVEX_NONLINEAR)
         self.assertEqual(cpset.type, "cartesian_product")
         self.assertEqual(cpset.dim, 6)
 
         exc_str = (
-            r"CartesianProductSet has an entry.*1 that is not of type UncertaintySet"
+            r"CartesianProductSet.*received an operand 1.*not of type UncertaintySet"
         )
         with self.assertRaisesRegex(TypeError, exc_str):
-            CartesianProductSet([BoxSet([[0, 1]]), 1])
+            CartesianProductSet(BoxSet([[0, 1]]), 1)
 
-        # iterable should be a sequence, and the constructor performs
-        # the iterable type check before doing anything else
-        iter_exc_str = r"`all_sets`.*Sequence.*but is of type set"
-        with self.assertRaisesRegex(TypeError, iter_exc_str):
-            CartesianProductSet({BoxSet([[0, 1]]), 1})
+        # old API: single Sequence-like positional argument;
+        #          all entries of the sequence should be of type
+        #          UncertaintySet
+        exc_str = (
+            r"CartesianProductSet.*received an operand 1.*not of type UncertaintySet"
+        )
+        with (
+            LoggingIntercept(level=logging.WARNING) as LOG,
+            self.assertRaisesRegex(TypeError, exc_str),
+        ):
+            CartesianProductSet([BoxSet([[0, 1]]), 1])
+        self.assertRegex(
+            LOG.getvalue(),
+            re.compile(
+                r"DEPRECATED.*Specifying.*single positional/keyword.*positionally",
+                re.DOTALL,
+            ),
+        )
+
+        # old API: single keyword argument; should be a Sequence
+        with (
+            LoggingIntercept(level=logging.WARNING) as LOG,
+            self.assertRaisesRegex(
+                TypeError, r"`all_sets`.*Sequence.*but is of type set"
+            ),
+        ):
+            CartesianProductSet(all_sets={BoxSet([[0, 1]]), 1})
+        self.assertRegex(
+            LOG.getvalue(),
+            re.compile(
+                r"DEPRECATED.*Specifying.*single positional/keyword.*positionally",
+                re.DOTALL,
+            ),
+        )
+
+        # old API: `all_sets` is the only acceptable keyword
+        with (
+            LoggingIntercept(level=logging.WARNING) as LOG,
+            self.assertRaisesRegex(
+                TypeError, r"got an unexpected keyword argument 'other'"
+            ),
+        ):
+            CartesianProductSet(all_sets=[BoxSet([[0, 1]]), 1], other=1)
+
+        # at least one argument required
+        with (
+            LoggingIntercept(level=logging.WARNING) as LOG,
+            self.assertRaisesRegex(TypeError, r"No arguments were passed.*constructor"),
+        ):
+            CartesianProductSet()
 
     def test_set_as_constraint(self):
         """
@@ -3520,14 +3594,12 @@ class TestCartesianProductSet(unittest.TestCase):
         m = ConcreteModel()
         m.v = Var(range(8), initialize=0)
         cpset = CartesianProductSet(
-            [
-                BoxSet([(-0.5, 0.5)]),
-                FactorModelSet(
-                    origin=[0, 1], number_of_factors=1, beta=0.75, psi_mat=[[1], [3]]
-                ),
-                CardinalitySet([-0.5, -0.5], 2, [2, 2]),
-                AxisAlignedEllipsoidalSet([0, 0, 0], [0.25, 0.25, 0.25]),
-            ]
+            BoxSet([(-0.5, 0.5)]),
+            FactorModelSet(
+                origin=[0, 1], number_of_factors=1, beta=0.75, psi_mat=[[1], [3]]
+            ),
+            CardinalitySet([-0.5, -0.5], 2, [2, 2]),
+            AxisAlignedEllipsoidalSet([0, 0, 0], [0.25, 0.25, 0.25]),
         )
 
         uq = cpset.set_as_constraint(uncertain_params=m.v, block=m)
@@ -3597,7 +3669,7 @@ class TestCartesianProductSet(unittest.TestCase):
         m.v1 = Var(initialize=0)
         m.v2 = Var(initialize=0)
         cpset = CartesianProductSet(
-            [BoxSet(bounds=[[1, 2], [3, 4]]), AxisAlignedEllipsoidalSet([0, 1], [5, 5])]
+            BoxSet(bounds=[[1, 2], [3, 4]]), AxisAlignedEllipsoidalSet([0, 1], [5, 5])
         )
         with self.assertRaisesRegex(ValueError, ".*dimension"):
             cpset.set_as_constraint(uncertain_params=[m.v1, m.v2], block=m)
@@ -3610,7 +3682,7 @@ class TestCartesianProductSet(unittest.TestCase):
         m = ConcreteModel()
         m.p1 = Param([0, 1], initialize=0, mutable=True)
         cpset = CartesianProductSet(
-            [BoxSet(bounds=[[1, 2], [3, 4]]), AxisAlignedEllipsoidalSet([0, 1], [5, 5])]
+            BoxSet(bounds=[[1, 2], [3, 4]]), AxisAlignedEllipsoidalSet([0, 1], [5, 5])
         )
         with self.assertRaisesRegex(TypeError, ".*valid component type"):
             cpset.set_as_constraint(uncertain_params=[m.p1[0], m.p1[1]], block=m)
@@ -3625,17 +3697,12 @@ class TestCartesianProductSet(unittest.TestCase):
         computations give expected results.
         """
         cpset = CartesianProductSet(
-            [
-                BoxSet([(-0.5, 0.5)]),
-                FactorModelSet(
-                    origin=[0, 0],
-                    number_of_factors=2,
-                    beta=0.75,
-                    psi_mat=[[1, 1], [1, 2]],
-                ),
-                CardinalitySet([-0.5, -0.5], 2, [2, 2]),
-                AxisAlignedEllipsoidalSet([0, 0, 1], [0.25, 0.8, 0.25]),
-            ]
+            BoxSet([(-0.5, 0.5)]),
+            FactorModelSet(
+                origin=[0, 0], number_of_factors=2, beta=0.75, psi_mat=[[1, 1], [1, 2]]
+            ),
+            CardinalitySet([-0.5, -0.5], 2, [2, 2]),
+            AxisAlignedEllipsoidalSet([0, 0, 1], [0.25, 0.8, 0.25]),
         )
 
         computed_bounds = cpset._compute_exact_parameter_bounds(SolverFactory("baron"))
@@ -3700,11 +3767,9 @@ class TestCartesianProductSet(unittest.TestCase):
         as expected.
         """
         cpset = CartesianProductSet(
-            [
-                BoxSet([(-0.5, 0.5)]),
-                CardinalitySet([-0.5, -0.5], 2, [2, 2]),
-                AxisAlignedEllipsoidalSet([0, 0, 1], [0.25, 0.8, 0.25]),
-            ]
+            BoxSet([(-0.5, 0.5)]),
+            CardinalitySet([-0.5, -0.5], 2, [2, 2]),
+            AxisAlignedEllipsoidalSet([0, 0, 1], [0.25, 0.8, 0.25]),
         )
         self.assertTrue(cpset._PARAMETER_BOUNDS_EXACT)
         np.testing.assert_allclose(
@@ -3733,13 +3798,10 @@ class TestCartesianProductSet(unittest.TestCase):
         # polyhedral set doesn't provide parameter bounds,
         # so neither should cartesian product
         cpset3 = CartesianProductSet(
-            [
-                BoxSet([(0, 1)]),
-                IntersectionSet(
-                    BoxSet([[-1, 1], [-1, 1]]),
-                    AxisAlignedEllipsoidalSet([0, 0], [1, 1]),
-                ),
-            ]
+            BoxSet([(0, 1)]),
+            IntersectionSet(
+                BoxSet([[-1, 1], [-1, 1]]), AxisAlignedEllipsoidalSet([0, 0], [1, 1])
+            ),
         )
         self.assertFalse(cpset3.parameter_bounds)
         self.assertFalse(cpset3._PARAMETER_BOUNDS_EXACT)
@@ -3749,7 +3811,7 @@ class TestCartesianProductSet(unittest.TestCase):
         Test Cartesian product set membership check.
         """
         cpset = CartesianProductSet(
-            [BoxSet([(-0.5, 0.5)]), AxisAlignedEllipsoidalSet([0, 0], [0.25, 0.25])]
+            BoxSet([(-0.5, 0.5)]), AxisAlignedEllipsoidalSet([0, 0], [0.25, 0.25])
         )
 
         # in both sets
@@ -3791,11 +3853,9 @@ class TestCartesianProductSet(unittest.TestCase):
         m = ConcreteModel()
         m.uncertain_param_vars = Var(range(6), initialize=0)
         cpset = CartesianProductSet(
-            [
-                BoxSet([(-0.5, 0.5)]),
-                CardinalitySet([-0.5, -0.5], 2, [2, 2]),
-                AxisAlignedEllipsoidalSet([0, 0, 1], [0.25, 0.8, 0.25]),
-            ]
+            BoxSet([(-0.5, 0.5)]),
+            CardinalitySet([-0.5, -0.5], 2, [2, 2]),
+            AxisAlignedEllipsoidalSet([0, 0, 1], [0.25, 0.8, 0.25]),
         )
         cpset._add_bounds_on_uncertain_parameters(
             uncertain_param_vars=m.uncertain_param_vars
@@ -3828,39 +3888,37 @@ class TestCartesianProductSet(unittest.TestCase):
         # works if all sets are valid and none are discrete
         bset = BoxSet(bounds=[[-1, 1]])
         aset = AxisAlignedEllipsoidalSet([0, 0, 0], [1, 1, 1])
-        CartesianProductSet([bset, aset]).validate(CONFIG)
+        CartesianProductSet(bset, aset).validate(CONFIG)
 
         # works if otherwise valid and nominal values provided
         CONFIG.nominal_uncertain_param_vals = [0, 0.5, 0.5, 0.5]
-        CartesianProductSet([bset, aset]).validate(CONFIG)
+        CartesianProductSet(bset, aset).validate(CONFIG)
         # check that state of CONFIG is unchanged
         self.assertEqual(CONFIG.nominal_uncertain_param_vals, [0, 0.5, 0.5, 0.5])
 
         # allow repeated sets (set powers)
         CONFIG.nominal_uncertain_param_vals = None
-        CartesianProductSet([bset, bset]).validate(CONFIG)
+        CartesianProductSet(bset, bset).validate(CONFIG)
 
         # fails if a discrete set is involved in the product
         disc_exc_str = r"CartesianProductSet.*entry.*with a discrete geometry"
         with self.assertRaisesRegex(ValueError, disc_exc_str):
-            CartesianProductSet([bset, DiscreteScenarioSet([(0,), (1,)])]).validate(
+            CartesianProductSet(bset, DiscreteScenarioSet([(0,), (1,)])).validate(
                 CONFIG
             )
         with self.assertRaisesRegex(ValueError, disc_exc_str):
             CartesianProductSet(
-                [
-                    bset,
-                    IntersectionSet(
-                        DiscreteScenarioSet([(0, 0), (0, 1)]), BoxSet([[0, 1]] * 2)
-                    ),
-                ]
+                bset,
+                IntersectionSet(
+                    DiscreteScenarioSet([(0, 0), (0, 1)]), BoxSet([[0, 1]] * 2)
+                ),
             ).validate(CONFIG)
 
         # fails if at least one set is invalid
         exc_str = "Lower bound.*exceeds upper bound"
         with self.assertRaisesRegex(ValueError, exc_str):
             # second box set invalid due to failed bounds
-            CartesianProductSet([bset, BoxSet([[1, 0], [0, 0]])]).validate(CONFIG)
+            CartesianProductSet(bset, BoxSet([[1, 0], [0, 0]])).validate(CONFIG)
 
     @unittest.skipUnless(baron_available, "BARON not available")
     def test_is_coordinate_fixed(self):
@@ -3871,7 +3929,7 @@ class TestCartesianProductSet(unittest.TestCase):
         bset = BoxSet([[0, 0], [-1, 1]])
         aset = AxisAlignedEllipsoidalSet([0, 0], [1, 0])
         self.assertEqual(
-            CartesianProductSet([bset, aset])._is_coordinate_fixed(
+            CartesianProductSet(bset, aset)._is_coordinate_fixed(
                 # don't need a global solver, since exact bounds
                 # are given by the `parameter_bounds` method
                 config=Bunch()
@@ -3881,7 +3939,7 @@ class TestCartesianProductSet(unittest.TestCase):
 
         iset = IntersectionSet(aset, BoxSet([(0, 1), (0, 1)]))
         self.assertEqual(
-            CartesianProductSet([bset, iset])._is_coordinate_fixed(
+            CartesianProductSet(bset, iset)._is_coordinate_fixed(
                 # need global solver to compute intersection set bounds
                 config=Bunch(global_solver=SolverFactory("baron"))
             ),
@@ -3898,7 +3956,7 @@ class TestCartesianProductSet(unittest.TestCase):
         # the return value should just be an empty 1D array
         self.assertEqual(
             CartesianProductSet(
-                [BoxSet([[0, 1]]), AxisAlignedEllipsoidalSet([0, 0], [1, 1])]
+                BoxSet([[0, 1]]), AxisAlignedEllipsoidalSet([0, 0], [1, 1])
             )
             .compute_auxiliary_uncertain_param_vals([0, 0, 0])
             .shape,
@@ -3909,14 +3967,12 @@ class TestCartesianProductSet(unittest.TestCase):
         # should just reduce to concatenation of individual
         # set calculations
         cpset = CartesianProductSet(
-            [
-                BoxSet([(-0.5, 0.5)]),
-                FactorModelSet(
-                    origin=[0, 1], number_of_factors=1, beta=0.75, psi_mat=[[1], [4]]
-                ),
-                CardinalitySet([-0.5, -0.5], 1, [2, 2], [1.5, 0]),
-                AxisAlignedEllipsoidalSet([0, 0, 0], [0.25, 0.25, 0.25]),
-            ]
+            BoxSet([(-0.5, 0.5)]),
+            FactorModelSet(
+                origin=[0, 1], number_of_factors=1, beta=0.75, psi_mat=[[1], [4]]
+            ),
+            CardinalitySet([-0.5, -0.5], 1, [2, 2], [1.5, 0]),
+            AxisAlignedEllipsoidalSet([0, 0, 0], [0.25, 0.25, 0.25]),
         )
         np.testing.assert_allclose(
             cpset.compute_auxiliary_uncertain_param_vals(

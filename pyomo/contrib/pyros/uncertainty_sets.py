@@ -4093,22 +4093,29 @@ class CartesianProductSet(UncertaintySet):
 
     Parameters
     ----------
-    all_sets : Sequence[UncertaintySet]
-        Uncertainty sets of which the product is to be taken.
+    *args
+        Operand `UncertaintySet` objects representing the
+        uncertainty sets of which the product is to be taken.
+    **kwargs
+        Included to support specification of the operand
+        `UncertaintySet` objects using deprecated prior APIs.
+        Note that `kwargs` is ignored if `args` has at least one entry.
 
     Raises
     ------
     TypeError
-        If any entry of ``all_sets`` is not of type `UncertaintySet`.
+        If any of the specified operands is not of type `UncertaintySet`,
+        or if no operands were specified.
 
     Notes
     -----
     Given uncertainty sets
-    :math:`\\mathcal{Q}_1 \\in \\mathbb{R}^{n_1}`,
-    :math:`\\mathcal{Q}_2 \\in \\mathbb{R}^{n_2}`,
+    :math:`\\mathcal{Q}_1 \\subset \\mathbb{R}^{n_1}`,
+    :math:`\\mathcal{Q}_2 \\subset \\mathbb{R}^{n_2}`,
     :math:`\\dots`,
-    :math:`\\mathcal{Q}_m \\in \\mathbb{R}^{n_m}`,
-    collectively represented by the argument ``all_sets``,
+    :math:`\\mathcal{Q}_m \\subset \\mathbb{R}^{n_m}`,
+    collectively represented by the operand uncertainty sets
+    passed through ``args`` or ``kwargs``,
     the :math:`(n_1 + n_2 + \\dots + n_m)`-dimensional
     Cartesian product set is defined by
 
@@ -4129,25 +4136,67 @@ class CartesianProductSet(UncertaintySet):
     ...     center=[0, 0],
     ...     half_lengths=[2, 2],
     ... )
-    >>> cartesian_product = CartesianProductSet([interval, disk])
+    >>> cartesian_product = CartesianProductSet(interval, disk)
     """
 
-    def __init__(self, all_sets):
+    def __init__(self, *args, **kwargs):
         """Initialize self (see class docstring)."""
-        if not isinstance(all_sets, Sequence):
+
+        # deprecation warning settings for old API
+        deprecation_msg = (
+            f"Specifying {type(self).__name__} operand uncertainty "
+            "sets through a single positional/keyword argument `all_sets` "
+            "is deprecated. "
+            f"In subsequent usage of {type(self).__name__}, "
+            "pass each operand uncertainty set positionally; "
+            f"see the {type(self).__name__} documentation."
+        )
+        deprecation_version = "6.10.2.dev0"
+
+        # resolve arguments
+        if args:
+            if len(args) == 1 and isinstance(args[0], Sequence):
+                # support old API: allow single positional argument
+                #                  of type `Sequence`
+                deprecation_warning(msg=deprecation_msg, version=deprecation_version)
+                all_sets = args[0]
+            else:
+                # current API
+                all_sets = args
+        elif kwargs:
+            # support old API: allow single keyword argument `all_sets`
+            #                  of type `Sequence`
+            deprecation_warning(msg=deprecation_msg, version=deprecation_version)
+            all_sets_kwarg = kwargs.pop("all_sets", None)
+            if kwargs:
+                raise TypeError(
+                    f"{type(self).__name__} constructor got an unexpected "
+                    f"keyword argument {next(iter(kwargs))!r}. "
+                    f"Ensure that all arguments to {type(self).__name__} "
+                    "constructor are positional and of type "
+                    f"{UncertaintySet.__name__}."
+                )
+            if not isinstance(all_sets_kwarg, Sequence):
+                raise TypeError(
+                    f"Argument `all_sets` should be a {Sequence.__name__}-type "
+                    f"iterable, but is of type {type(all_sets_kwarg).__name__}."
+                )
+            all_sets = tuple(all_sets_kwarg)
+        else:
             raise TypeError(
-                f"Argument `all_sets` should be a {Sequence.__name__}-type "
-                f"iterable, but is of type {type(all_sets).__name__}."
+                f"No arguments were passed to the {type(self).__name__} "
+                "constructor. Ensure that one or more positional arguments "
+                f"of type {type(UncertaintySet).__name__} is passed to the "
+                "constructor."
             )
-        all_sets = tuple(all_sets)
+
+        # validate the operands
         for val in all_sets:
             if not isinstance(val, UncertaintySet):
                 raise TypeError(
-                    f"{type(self).__name__} has an entry of value {val!r} "
-                    "that is not of type "
-                    f"{UncertaintySet.__name__}. "
-                    "Ensure that all entries are of type "
-                    f"{UncertaintySet.__name__}."
+                    f"{type(self).__name__} constructor received an operand "
+                    f"{val!r} that is not of type {UncertaintySet.__name__}. "
+                    f"Ensure that all entries are of type {UncertaintySet.__name__}."
                 )
 
         # protect this attribute to make the Cartesian product set,
