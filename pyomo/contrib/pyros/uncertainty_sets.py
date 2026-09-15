@@ -3797,30 +3797,34 @@ class DiscreteScenarioSet(UncertaintySet):
 
 class IntersectionSet(UncertaintySet):
     """
-    An intersection of two or more uncertainty sets, each of which
-    is represented by an `UncertaintySet` object.
+    An intersection of two or more uncertainty sets.
 
     Parameters
     ----------
     *args
-        The operand uncertainty sets, i.e., the
-        `UncertaintySet` objects to be intersected.
+        The operand :class:`~UncertaintySet` objects representing the
+        uncertainty sets to be intersected.
     **kwargs
-        Included to support deprecated prior APIs.
-        If `args` has at least one entry, then `kwargs` is ignored.
+        Included to support specification of the operand
+        :class:`~UncertaintySet` objects using deprecated prior APIs.
+        Note that ``kwargs`` is ignored
+        if ``args`` has at least one entry.
 
     Notes
     -----
-    The :math:`n`-dimensional intersection set is defined by
+    Given uncertainty sets
+    :math:`\\mathcal{Q}_1,`
+    :math:`\\mathcal{Q}_2,`
+    :math:`\\dots,`
+    :math:`\\mathcal{Q}_m \\subset \\mathbb{R}^{n}`,
+    collectively represented by the operand uncertainty sets
+    passed through ``args`` or ``kwargs``,
+    the :math:`n`-dimensional intersection set is defined by
 
     .. math::
 
         \\mathcal{Q}_1 \\cap \\mathcal{Q}_2 \\cap \\cdots
-            \\cap \\mathcal{Q}_m
-
-    in which :math:`\\mathcal{Q}_i \\subset \\mathbb{R}^n`
-    refers to the uncertainty set ``args[i - 1]``
-    for :math:`i = 1, 2, \\dots, m`.
+            \\cap \\mathcal{Q}_m.
 
     Examples
     --------
@@ -4085,7 +4089,7 @@ class IntersectionSet(UncertaintySet):
 
 class CartesianProductSet(UncertaintySet):
     """
-    A Cartesian product of uncertainty sets.
+    A Cartesian product of one or more uncertainty sets.
 
     The order and identities of the uncertainty sets
     involved in the Cartesian product are immutable,
@@ -4094,25 +4098,26 @@ class CartesianProductSet(UncertaintySet):
     Parameters
     ----------
     *args
-        Operand `UncertaintySet` objects representing the
+        The operand :class:`~UncertaintySet` objects representing the
         uncertainty sets of which the product is to be taken.
     **kwargs
         Included to support specification of the operand
-        `UncertaintySet` objects using deprecated prior APIs.
-        Note that `kwargs` is ignored if `args` has at least one entry.
+        :class:`~UncertaintySet` objects using deprecated prior APIs.
+        Note that ``kwargs`` is ignored
+        if ``args`` has at least one entry.
 
     Raises
     ------
     TypeError
-        If any of the specified operands is not of type `UncertaintySet`,
-        or if no operands were specified.
+        If any of the specified operands is not of type
+        :class:`~UncertaintySet`, or if no operands were specified.
 
     Notes
     -----
     Given uncertainty sets
-    :math:`\\mathcal{Q}_1 \\subset \\mathbb{R}^{n_1}`,
-    :math:`\\mathcal{Q}_2 \\subset \\mathbb{R}^{n_2}`,
-    :math:`\\dots`,
+    :math:`\\mathcal{Q}_1 \\subset \\mathbb{R}^{n_1},`
+    :math:`\\mathcal{Q}_2 \\subset \\mathbb{R}^{n_2},`
+    :math:`\\dots,`
     :math:`\\mathcal{Q}_m \\subset \\mathbb{R}^{n_m}`,
     collectively represented by the operand uncertainty sets
     passed through ``args`` or ``kwargs``,
