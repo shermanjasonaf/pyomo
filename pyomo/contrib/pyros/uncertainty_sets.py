@@ -3917,8 +3917,18 @@ class IntersectionSet(UncertaintySet):
         Otherwise, a ValueError is raised.
         """
         if self.geometry == Geometry.DISCRETE_SCENARIOS:
-            discrete_intersection = functools.reduce(self.intersect, self.all_sets)
-            return discrete_intersection.scenarios
+            all_discrete_sets = filter(
+                lambda uset: uset.geometry == Geometry.DISCRETE_SCENARIOS, self.all_sets
+            )
+            smallest_discrete_set = min(
+                all_discrete_sets, key=lambda dset: len(dset.scenarios)
+            )
+            return list(
+                filter(
+                    lambda pt: all(uset.point_in_set(pt) for uset in self.all_sets),
+                    smallest_discrete_set.scenarios,
+                )
+            )
 
         raise ValueError(
             "Uncertainty set represented by `self` is not reducible "
@@ -3954,8 +3964,7 @@ class IntersectionSet(UncertaintySet):
             solver.
         """
         if self._PARAMETER_BOUNDS_EXACT:
-            discrete_intersection = functools.reduce(self.intersect, self.all_sets)
-            return discrete_intersection.parameter_bounds
+            return DiscreteScenarioSet(self.scenarios).parameter_bounds
 
         return []
 
@@ -4019,7 +4028,7 @@ class IntersectionSet(UncertaintySet):
 
     @copy_docstring(UncertaintySet.set_as_constraint)
     def set_as_constraint(self, uncertain_params=None, block=None):
-        block, param_var_data_list, uncertainty_conlist, aux_var_list = (
+        block, param_var_data_list, *_ = (
             _setup_standard_uncertainty_set_constraint_block(
                 block=block,
                 uncertain_param_vars=uncertain_params,
@@ -4030,8 +4039,7 @@ class IntersectionSet(UncertaintySet):
 
         # handle special case where the intersection is a discrete set
         if self.geometry == Geometry.DISCRETE_SCENARIOS:
-            discrete_intersection = functools.reduce(self.intersect, self.all_sets)
-            return discrete_intersection.set_as_constraint(
+            return DiscreteScenarioSet(self.scenarios).set_as_constraint(
                 uncertain_params=uncertain_params, block=block
             )
 

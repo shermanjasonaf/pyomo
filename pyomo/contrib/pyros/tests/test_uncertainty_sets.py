@@ -1879,16 +1879,17 @@ class TestIntersectionSet(unittest.TestCase):
             FactorModelSet(
                 origin=[1.5, 1.5], psi_mat=0.5 * np.eye(2), number_of_factors=2, beta=1
             ),
+            DiscreteScenarioSet([(1.5, 1.5), (2, 1.5), (2, 2), (3, 3)]),
         )
 
         # test behavior resembles that of discrete set
         self.assertIs(iset.geometry, Geometry.DISCRETE_SCENARIOS)
-        np.testing.assert_allclose(iset.scenarios, [[1.5, 1.5], [1.5, 2], [2, 1.5]])
+        np.testing.assert_allclose(iset.scenarios, [[1.5, 1.5], [2, 1.5]])
 
         # set membership checks
         self.assertTrue(iset.point_in_set([1.5, 1.5]))
-        self.assertTrue(iset.point_in_set([1.5, 2]))
         self.assertTrue(iset.point_in_set([2, 1.5]))
+        self.assertFalse(iset.point_in_set([1.5, 2]))
         self.assertFalse(iset.point_in_set([1, 1]))
         self.assertFalse(iset.point_in_set([1, 1.5]))
         self.assertFalse(iset.point_in_set([1, 2]))
@@ -1896,7 +1897,7 @@ class TestIntersectionSet(unittest.TestCase):
         self.assertFalse(iset.point_in_set([2, 2]))
 
         # test bounds
-        np.testing.assert_allclose(iset.parameter_bounds, [[1.5, 2], [1.5, 2]])
+        np.testing.assert_allclose(iset.parameter_bounds, [[1.5, 2], [1.5, 1.5]])
 
         # auxiliary param calculation:
         # since there is a factor model set, should return values
