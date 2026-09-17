@@ -1618,13 +1618,12 @@ class CardinalitySet(UncertaintySet):
 
         # dimension of the set is immutable
         val_arr = np.array(val)
-        if hasattr(self, "_origin"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'origin' of cardinality "
-                    f"set of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_origin") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'origin' of cardinality "
+                f"set of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._origin = val_arr
 
@@ -1649,13 +1648,12 @@ class CardinalitySet(UncertaintySet):
         val_arr = np.array(val)
 
         # dimension of the set is immutable
-        if hasattr(self, "_origin"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'positive_deviation' of "
-                    f"{type(self).__name__} of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_origin") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'positive_deviation' of "
+                f"{type(self).__name__} of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._positive_deviation = val_arr
 
@@ -1680,13 +1678,12 @@ class CardinalitySet(UncertaintySet):
         val_arr = np.array(val)
 
         # dimension of the set is immutable
-        if hasattr(self, "_origin"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'negative_deviation' of "
-                    f"{type(self).__name__} of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_origin") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'negative_deviation' of "
+                f"{type(self).__name__} of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._negative_deviation = val_arr
 
@@ -2000,23 +1997,21 @@ class PolyhedralSet(UncertaintySet):
         lhs_coeffs_arr = np.array(val)
 
         # check no change in set dimension
-        if hasattr(self, "_coefficients_mat"):
-            if lhs_coeffs_arr.shape[1] != self.dim:
-                raise ValueError(
-                    f"Polyhedral set attribute 'coefficients_mat' must have "
-                    f"{self.dim} columns to match set dimension "
-                    f"(provided matrix with {lhs_coeffs_arr.shape[1]} columns)"
-                )
+        if hasattr(self, "_coefficients_mat") and lhs_coeffs_arr.shape[1] != self.dim:
+            raise ValueError(
+                f"Polyhedral set attribute 'coefficients_mat' must have "
+                f"{self.dim} columns to match set dimension "
+                f"(provided matrix with {lhs_coeffs_arr.shape[1]} columns)"
+            )
 
         # check shape match with rhs vector
-        if hasattr(self, "_rhs_vec"):
-            if lhs_coeffs_arr.shape[0] != self.rhs_vec.size:
-                raise ValueError(
-                    "PolyhedralSet attribute 'coefficients_mat' "
-                    f"must have {self.rhs_vec.size} rows "
-                    f"to match shape of attribute 'rhs_vec' "
-                    f"(provided {lhs_coeffs_arr.shape[0]} rows)"
-                )
+        if hasattr(self, "_rhs_vec") and lhs_coeffs_arr.shape[0] != self.rhs_vec.size:
+            raise ValueError(
+                "PolyhedralSet attribute 'coefficients_mat' "
+                f"must have {self.rhs_vec.size} rows "
+                f"to match shape of attribute 'rhs_vec' "
+                f"(provided {lhs_coeffs_arr.shape[0]} rows)"
+            )
         self._coefficients_mat = lhs_coeffs_arr
 
     @property
@@ -2042,14 +2037,16 @@ class PolyhedralSet(UncertaintySet):
 
         # ensure shape of coefficients matrix
         # and rhs vec match
-        if hasattr(self, "_coefficients_mat"):
-            if len(val) != self.coefficients_mat.shape[0]:
-                raise ValueError(
-                    "PolyhedralSet attribute 'rhs_vec' "
-                    f"must have {self.coefficients_mat.shape[0]} entries "
-                    f"to match shape of attribute 'coefficients_mat' "
-                    f"(provided {rhs_vec_arr.size} entries)"
-                )
+        if (
+            hasattr(self, "_coefficients_mat")
+            and len(val) != self.coefficients_mat.shape[0]
+        ):
+            raise ValueError(
+                "PolyhedralSet attribute 'rhs_vec' "
+                f"must have {self.coefficients_mat.shape[0]} entries "
+                f"to match shape of attribute 'coefficients_mat' "
+                f"(provided {rhs_vec_arr.size} entries)"
+            )
 
         self._rhs_vec = rhs_vec_arr
 
@@ -2293,24 +2290,28 @@ class BudgetSet(UncertaintySet):
         lhs_coeffs_arr = np.array(val)
 
         # check dimension match
-        if hasattr(self, "_budget_membership_mat"):
-            if lhs_coeffs_arr.shape[1] != self.dim:
-                raise ValueError(
-                    f"BudgetSet attribute 'budget_membership_mat' "
-                    "must have "
-                    f"{self.dim} columns to match set dimension "
-                    f"(provided matrix with {lhs_coeffs_arr.shape[1]} columns)"
-                )
+        if (
+            hasattr(self, "_budget_membership_mat")
+            and lhs_coeffs_arr.shape[1] != self.dim
+        ):
+            raise ValueError(
+                f"BudgetSet attribute 'budget_membership_mat' "
+                "must have "
+                f"{self.dim} columns to match set dimension "
+                f"(provided matrix with {lhs_coeffs_arr.shape[1]} columns)"
+            )
 
         # check shape match with rhs vector
-        if hasattr(self, "_budget_rhs_vec"):
-            if lhs_coeffs_arr.shape[0] != self.budget_rhs_vec.size:
-                raise ValueError(
-                    "BudgetSet attribute 'budget_membership_mat' "
-                    f"must have {self.budget_rhs_vec.size} rows "
-                    f"to match shape of attribute 'budget_rhs_vec' "
-                    f"(provided {lhs_coeffs_arr.shape[0]} rows)"
-                )
+        if (
+            hasattr(self, "_budget_rhs_vec")
+            and lhs_coeffs_arr.shape[0] != self.budget_rhs_vec.size
+        ):
+            raise ValueError(
+                "BudgetSet attribute 'budget_membership_mat' "
+                f"must have {self.budget_rhs_vec.size} rows "
+                f"to match shape of attribute 'budget_rhs_vec' "
+                f"(provided {lhs_coeffs_arr.shape[0]} rows)"
+            )
         # matrix is valid; update
         self._budget_membership_mat = lhs_coeffs_arr
 
@@ -2337,14 +2338,16 @@ class BudgetSet(UncertaintySet):
 
         # ensure shape of coefficients matrix
         # and rhs vec match
-        if hasattr(self, "_budget_membership_mat"):
-            if len(val) != self.budget_membership_mat.shape[0]:
-                raise ValueError(
-                    "Budget set attribute 'budget_rhs_vec' "
-                    f"must have {self.budget_membership_mat.shape[0]} entries "
-                    f"to match shape of attribute 'budget_membership_mat' "
-                    f"(provided {rhs_vec_arr.size} entries)"
-                )
+        if (
+            hasattr(self, "_budget_membership_mat")
+            and len(val) != self.budget_membership_mat.shape[0]
+        ):
+            raise ValueError(
+                "Budget set attribute 'budget_rhs_vec' "
+                f"must have {self.budget_membership_mat.shape[0]} entries "
+                f"to match shape of attribute 'budget_membership_mat' "
+                f"(provided {rhs_vec_arr.size} entries)"
+            )
 
         self._budget_rhs_vec = rhs_vec_arr
 
@@ -2621,13 +2624,12 @@ class FactorModelSet(UncertaintySet):
 
         # dimension of the set is immutable
         val_arr = np.array(val)
-        if hasattr(self, "_origin"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'origin' of factor model "
-                    f"set of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_origin") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'origin' of factor model "
+                f"set of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._origin = val_arr
 
@@ -3015,13 +3017,12 @@ class AxisAlignedEllipsoidalSet(UncertaintySet):
         val_arr = np.array(val)
 
         # dimension of the set is immutable
-        if hasattr(self, "_center"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'center' of "
-                    f"AxisAlignedEllipsoidalSet of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_center") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'center' of "
+                f"AxisAlignedEllipsoidalSet of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._center = val_arr
 
@@ -3046,13 +3047,12 @@ class AxisAlignedEllipsoidalSet(UncertaintySet):
         val_arr = np.array(val)
 
         # dimension of the set is immutable
-        if hasattr(self, "_center"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'half_lengths' of "
-                    f"AxisAlignedEllipsoidalSet of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_center") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'half_lengths' of "
+                f"AxisAlignedEllipsoidalSet of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._half_lengths = val_arr
 
@@ -3662,14 +3662,13 @@ class DiscreteScenarioSet(UncertaintySet):
         )
 
         scenario_arr = np.array(val)
-        if hasattr(self, "_scenarios"):
-            if scenario_arr.shape[1] != self.dim:
-                raise ValueError(
-                    f"DiscreteScenarioSet attribute 'scenarios' must have "
-                    f"{self.dim} columns to match set dimension "
-                    f"(provided array-like with {scenario_arr.shape[1]} "
-                    "columns)"
-                )
+        if hasattr(self, "_scenarios") and scenario_arr.shape[1] != self.dim:
+            raise ValueError(
+                f"DiscreteScenarioSet attribute 'scenarios' must have "
+                f"{self.dim} columns to match set dimension "
+                f"(provided array-like with {scenario_arr.shape[1]} "
+                "columns)"
+            )
 
         self._scenarios = [tuple(s) for s in val]
 
