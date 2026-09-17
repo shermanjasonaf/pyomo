@@ -3332,30 +3332,38 @@ class EllipsoidalSet(UncertaintySet):
     @staticmethod
     def _verify_positive_definite(matrix):
         """
-        Verify that a given symmetric square matrix is positive
-        definite. An exception is raised if the square matrix
-        is not positive definite.
+        Verify that a given square matrix (2D array) is
+        symmetric positive definite, or raise an exception otherwise.
 
         Parameters
         ----------
         matrix : (N, N) array_like
-            Candidate matrix.
+            The matrix of interest.
 
         Raises
         ------
         ValueError
-            If matrix is not symmetric, not positive definite,
-            or the square roots of the diagonal entries are
-            not accessible.
+            If matrix is not symmetric.
         LinAlgError
-            If matrix is not invertible.
+            If Cholesky factorization of the matrix fails
+            (i.e., the matrix is not positive definite).
         """
         matrix = np.array(matrix)
 
-        if not np.allclose(matrix, matrix.T):
+        # symmetry check, using a tolerance that is
+        # conservative, type-aware, and scale-aware
+        symmetry_atol = None
+        if not np.issubdtype(matrix.dtype, np.integer):
+            symmetry_atol = (
+                np.finfo(matrix.dtype).eps
+                * matrix.shape[0]
+                * np.linalg.norm(matrix, ord=np.inf)
+            )
+        if not sp.linalg.issymmetric(matrix, atol=symmetry_atol):
             raise ValueError("Shape matrix must be symmetric.")
 
-        # attempt Cholesky factorization;
+        # attempt Cholesky factorization
+        # to check that matrix is positive definite;
         # LinAlgError raised if the matrix is not positive definite
         sp.linalg.cho_factor(matrix, lower=True)
 
@@ -3548,7 +3556,7 @@ class EllipsoidalSet(UncertaintySet):
         ValueError
             If any uncertainty set attributes are not valid.
             (e.g., numeric values are infinite,
-            ``self.shape_matrix`` is not positive semidefinite,
+            ``self.shape_matrix`` is not symmetric positive definite,
             or ``self.scale`` is negative).
         """
         ctr = self.center
@@ -3577,7 +3585,7 @@ class EllipsoidalSet(UncertaintySet):
             "scale", scale, native_numeric_types, "a valid numeric type", False
         )
 
-        # check shape matrix is positive semidefinite
+        # check shape matrix is symmetric positive definite
         self._verify_positive_definite(shape_mat_arr)
 
         # ensure scale is non-negative
