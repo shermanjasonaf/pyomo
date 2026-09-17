@@ -3538,8 +3538,21 @@ class EllipsoidalSet(UncertaintySet):
             required_shape=None,
         )
         validate_arg_type(
-            "scale", scale, native_numeric_types, "a valid numeric type", False
+            arg_name="scale",
+            arg_val=scale,
+            valid_types=native_numeric_types,
+            valid_type_desc="a valid numeric type",
+            is_entry_of_arg=False,
+            check_numeric_type_finite=True,
         )
+
+        # ensure scale is non-negative so that the set is nonempty
+        if scale < 0:
+            raise ValueError(
+                f"{type(self).__name__} attribute "
+                f"'scale' must be a non-negative real "
+                f"(provided value {scale})"
+            )
 
         # shape matrix symmetry check, using a tolerance that is
         # conservative, type-aware, and scale-aware
@@ -3558,14 +3571,6 @@ class EllipsoidalSet(UncertaintySet):
         # this also verifies that the diagonal entries are positive,
         # so their square roots can be calculated later where needed.
         sp.linalg.cho_factor(shape_mat_arr, lower=True)
-
-        # ensure scale is non-negative
-        if scale < 0:
-            raise ValueError(
-                f"{type(self).__name__} attribute "
-                f"'scale' must be a non-negative real "
-                f"(provided value {scale})"
-            )
 
 
 class DiscreteScenarioSet(UncertaintySet):
