@@ -18,40 +18,40 @@ literature.
 
 import abc
 import contextlib
-import math
-import functools
 import itertools
-from numbers import Integral
+import math
 from collections import namedtuple
 from collections.abc import Iterable, MutableSequence, Sequence
 from enum import Enum
+from numbers import Integral
 
-from pyomo.common.dependencies import numpy as np, scipy as sp
+from pyomo.common.dependencies import numpy as np
+from pyomo.common.dependencies import scipy as sp
 from pyomo.common.deprecation import deprecation_warning
+from pyomo.common.errors import InfeasibleConstraintException
 from pyomo.common.modeling import unique_component_name
-from pyomo.core.base import (
-    Block,
-    ConstraintList,
-    ConcreteModel,
-    maximize,
-    minimize,
-    Var,
-    VarData,
-    NonNegativeReals,
-)
-from pyomo.core.expr import mutable_expression, native_numeric_types, value
-from pyomo.core.util import quicksum, dot_product
-from pyomo.opt import TerminationCondition
-from pyomo.opt.results import check_optimal_termination
+from pyomo.contrib.fbbt.fbbt import fbbt
 from pyomo.contrib.pyros.util import (
-    copy_docstring,
-    PARAM_IS_CERTAIN_REL_TOL,
     PARAM_IS_CERTAIN_ABS_TOL,
+    PARAM_IS_CERTAIN_REL_TOL,
     POINT_IN_UNCERTAINTY_SET_TOL,
+    copy_docstring,
     standardize_component_data,
 )
-from pyomo.contrib.fbbt.fbbt import fbbt
-from pyomo.common.errors import InfeasibleConstraintException
+from pyomo.core.base import (
+    Block,
+    ConcreteModel,
+    ConstraintList,
+    NonNegativeReals,
+    Var,
+    VarData,
+    maximize,
+    minimize,
+)
+from pyomo.core.expr import mutable_expression, native_numeric_types, value
+from pyomo.core.util import dot_product, quicksum
+from pyomo.opt import TerminationCondition
+from pyomo.opt.results import check_optimal_termination
 
 
 def standardize_uncertain_param_vars(obj, dim):
