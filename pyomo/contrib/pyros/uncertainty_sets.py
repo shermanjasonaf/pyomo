@@ -3081,13 +3081,10 @@ class AxisAlignedEllipsoidalSet(UncertaintySet):
             List, length `N`, of coordinate value
             (lower, upper) bound pairs.
         """
-        nom_value = self.center
-        half_length = self.half_lengths
-        parameter_bounds = [
-            (nom_value[i] - half_length[i], nom_value[i] + half_length[i])
-            for i in range(len(nom_value))
+        center, half_lengths = self.center, self.half_lengths
+        return [
+            (lb, ub) for lb, ub in zip(center - half_lengths, center + half_lengths)
         ]
-        return parameter_bounds
 
     @copy_docstring(UncertaintySet.set_as_constraint)
     def set_as_constraint(self, uncertain_params=None, block=None):
