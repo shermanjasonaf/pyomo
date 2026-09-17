@@ -1106,13 +1106,13 @@ class UncertaintySetList(MutableSequence):
         provided, then the minimum required length is set to 0.
     """
 
-    def __init__(self, uncertainty_sets=[], name=None, min_length=None):
+    def __init__(self, uncertainty_sets=None, name=None, min_length=None):
         """Initialize self (see class docstring)."""
         self._name = name
         self._min_length = 0 if min_length is None else min_length
 
         # check minimum length requirement satisfied
-        initlist = list(uncertainty_sets)
+        initlist = [] if uncertainty_sets is None else list(uncertainty_sets)
         if len(initlist) < self._min_length:
             raise ValueError(
                 f"Attempting to initialize uncertainty set list "
@@ -1138,7 +1138,7 @@ class UncertaintySetList(MutableSequence):
 
     def __repr__(self):
         """Return repr(self)."""
-        return f"{self.__class__.__name__}({repr(self._list)})"
+        return f"{self.__class__.__name__}({self._list!r})"
 
     def __getitem__(self, idx):
         """Return self[idx]."""
