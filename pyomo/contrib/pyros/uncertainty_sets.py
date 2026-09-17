@@ -3101,7 +3101,7 @@ class AxisAlignedEllipsoidalSet(UncertaintySet):
         )
 
         # now construct the constraints
-        diffs_squared = list()
+        diffs_squared = []
         zip_all = zip(param_var_data_list, self.center, self.half_lengths)
         for param, ctr, half_len in zip_all:
             if half_len > 0:
@@ -4333,7 +4333,7 @@ class CartesianProductSet(UncertaintySet):
 
     @copy_docstring(UncertaintySet.set_as_constraint)
     def set_as_constraint(self, uncertain_params=None, block=None):
-        block, param_var_data_list, uncertainty_conlist, aux_var_list = (
+        block, param_var_data_list, *_ = (
             _setup_standard_uncertainty_set_constraint_block(
                 block=block,
                 uncertain_param_vars=uncertain_params,
