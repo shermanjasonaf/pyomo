@@ -3329,53 +3329,6 @@ class EllipsoidalSet(UncertaintySet):
 
         self._center = val_arr
 
-    @staticmethod
-    def _verify_positive_definite(matrix):
-        """
-        Verify that a given square matrix (2D array) is
-        symmetric positive definite, or raise an exception otherwise.
-
-        Parameters
-        ----------
-        matrix : (N, N) array_like
-            The matrix of interest.
-
-        Raises
-        ------
-        ValueError
-            If matrix is not symmetric.
-        LinAlgError
-            If Cholesky factorization of the matrix fails
-            (i.e., the matrix is not positive definite).
-        """
-        matrix = np.array(matrix)
-
-        # symmetry check, using a tolerance that is
-        # conservative, type-aware, and scale-aware
-        symmetry_atol = None
-        if not np.issubdtype(matrix.dtype, np.integer):
-            symmetry_atol = (
-                np.finfo(matrix.dtype).eps
-                * matrix.shape[0]
-                * np.linalg.norm(matrix, ord=np.inf)
-            )
-        if not sp.linalg.issymmetric(matrix, atol=symmetry_atol):
-            raise ValueError("Shape matrix must be symmetric.")
-
-        # attempt Cholesky factorization
-        # to check that matrix is positive definite;
-        # LinAlgError raised if the matrix is not positive definite
-        sp.linalg.cho_factor(matrix, lower=True)
-
-        # note: we also want the diagonal entries of the matrix
-        #       to be positive.
-        #       if the matrix is positive definite,
-        #       then this is theoretically guaranteed.
-        #       also, if the above Cholesky factorization is successful,
-        #       then this is numerically guaranteed.
-        #       so we refrain from explicitly checking
-        #       the diagonal entries here
-
     @property
     def shape_matrix(self):
         """
@@ -3556,8 +3509,11 @@ class EllipsoidalSet(UncertaintySet):
         ValueError
             If any uncertainty set attributes are not valid.
             (e.g., numeric values are infinite,
-            ``self.shape_matrix`` is not symmetric positive definite,
+            ``self.shape_matrix`` is not symmetric,
             or ``self.scale`` is negative).
+        numpy.linalg.LinAlgError
+            If Cholesky factorization for ``self.shape_matrix`` fails
+            (i.e.,``self.shape_matrix`` is not positive definite).
         """
         ctr = self.center
         shape_mat_arr = self.shape_matrix
@@ -3585,8 +3541,23 @@ class EllipsoidalSet(UncertaintySet):
             "scale", scale, native_numeric_types, "a valid numeric type", False
         )
 
-        # check shape matrix is symmetric positive definite
-        self._verify_positive_definite(shape_mat_arr)
+        # shape matrix symmetry check, using a tolerance that is
+        # conservative, type-aware, and scale-aware
+        symmetry_atol = None
+        if not np.issubdtype(shape_mat_arr.dtype, np.integer):
+            symmetry_atol = (
+                np.finfo(shape_mat_arr.dtype).eps
+                * shape_mat_arr.shape[0]
+                * np.linalg.norm(shape_mat_arr, ord=np.inf)
+            )
+        if not sp.linalg.issymmetric(shape_mat_arr, atol=symmetry_atol):
+            raise ValueError("Shape matrix must be symmetric.")
+
+        # attempt Cholesky factorization
+        # to check that shape matrix is positive definite.
+        # this also verifies that the diagonal entries are positive,
+        # so their square roots can be calculated later where needed.
+        sp.linalg.cho_factor(shape_mat_arr, lower=True)
 
         # ensure scale is non-negative
         if scale < 0:
