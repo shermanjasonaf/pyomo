@@ -2955,6 +2955,13 @@ class TestEllipsoidalSet(unittest.TestCase):
                 * (var2 - np.float64(1.5))
                 <= 2.5
             ),
+            # account for slight discrepancies
+            # (~order of magnitude above machine precision)
+            # between the quadratic coefficients tested here
+            # and the coefficients obtained from the
+            # Cholesky-based inversion of the shape matrix
+            # in the `set_as_constraint()` method
+            places=np.finfo(float).precision - 1,
         )
 
     def test_set_as_constraint_dim_mismatch(self):
@@ -3132,7 +3139,7 @@ class TestEllipsoidalSet(unittest.TestCase):
             ellipsoid_set.validate(config=CONFIG)
         with self.assertRaisesRegex(
             ValueError,
-            r"Non positive-definite.*",
+            r"2-th leading minor.*not positive definite.*",
             msg="Indefinite shape matrix test failed",
         ):
             ellipsoid_set = EllipsoidalSet(center, [[1, 0], [0, -2]], scale)

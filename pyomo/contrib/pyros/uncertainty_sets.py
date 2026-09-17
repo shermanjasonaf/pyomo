@@ -3320,13 +3320,12 @@ class EllipsoidalSet(UncertaintySet):
         val_arr = np.array(val)
 
         # dimension of the set is immutable
-        if hasattr(self, "_center"):
-            if val_arr.size != self.dim:
-                raise ValueError(
-                    "Attempting to set attribute 'center' of "
-                    f"{type(self).__name__} of dimension {self.dim} "
-                    f"to value of dimension {val_arr.size}"
-                )
+        if hasattr(self, "_center") and val_arr.size != self.dim:
+            raise ValueError(
+                "Attempting to set attribute 'center' of "
+                f"{type(self).__name__} of dimension {self.dim} "
+                f"to value of dimension {val_arr.size}"
+            )
 
         self._center = val_arr
 
@@ -3353,30 +3352,21 @@ class EllipsoidalSet(UncertaintySet):
         """
         matrix = np.array(matrix)
 
-        if not np.allclose(matrix, matrix.T, atol=1e-8):
+        if not np.allclose(matrix, matrix.T):
             raise ValueError("Shape matrix must be symmetric.")
 
-        # Numpy raises LinAlgError if not invertible
-        np.linalg.inv(matrix)
+        # attempt Cholesky factorization;
+        # LinAlgError raised if the matrix is not positive definite
+        sp.linalg.cho_factor(matrix, lower=True)
 
-        # check positive semi-definite.
-        # since also invertible, means positive definite
-        eigvals = np.linalg.eigvals(matrix)
-        if np.min(eigvals) < 0:
-            raise ValueError(
-                "Non positive-definite shape matrix "
-                f"(detected eigenvalues {eigvals})"
-            )
-
-        # check roots of diagonal entries accessible
-        # (should theoretically be true if positive definite)
-        for diag_entry in np.diagonal(matrix):
-            if np.isnan(np.power(diag_entry, 0.5)):
-                raise ValueError(
-                    "Cannot evaluate square root of the diagonal entry "
-                    f"{diag_entry} of argument `shape_matrix`. "
-                    "Check that this entry is nonnegative"
-                )
+        # note: we also want the diagonal entries of the matrix
+        #       to be positive.
+        #       if the matrix is positive definite,
+        #       then this is theoretically guaranteed.
+        #       also, if the above Cholesky factorization is successful,
+        #       then this is numerically guaranteed.
+        #       so we refrain from explicitly checking
+        #       the diagonal entries here
 
     @property
     def shape_matrix(self):
@@ -3400,14 +3390,13 @@ class EllipsoidalSet(UncertaintySet):
         shape_mat_arr = np.array(val)
 
         # check matrix shape matches set dimension
-        if hasattr(self, "_center"):
-            if not all(size == self.dim for size in shape_mat_arr.shape):
-                raise ValueError(
-                    f"{type(self).__name__} attribute 'shape_matrix' "
-                    f"must be a square matrix of size "
-                    f"{self.dim} to match set dimension "
-                    f"(provided matrix with shape {shape_mat_arr.shape})"
-                )
+        if hasattr(self, "_center") and shape_mat_arr.shape != (self.dim,) * 2:
+            raise ValueError(
+                f"{type(self).__name__} attribute 'shape_matrix' "
+                f"must be a square matrix of size "
+                f"{self.dim} to match set dimension "
+                f"(provided matrix with shape {shape_mat_arr.shape})"
+            )
 
         self._shape_matrix = shape_mat_arr
 
@@ -3425,7 +3414,6 @@ class EllipsoidalSet(UncertaintySet):
         validate_arg_type(
             "scale", val, native_numeric_types, "a valid numeric type", False
         )
-
         self._scale = val
         self._gaussian_conf_lvl = sp.stats.chi2.cdf(x=val, df=self.dim)
 
@@ -3485,17 +3473,11 @@ class EllipsoidalSet(UncertaintySet):
             List, length `N`, of coordinate value
             (lower, upper) bound pairs.
         """
-        scale = self.scale
-        nom_value = self.center
-        P = self.shape_matrix
-        parameter_bounds = [
-            (
-                nom_value[i] - np.power(P[i][i] * scale, 0.5),
-                nom_value[i] + np.power(P[i][i] * scale, 0.5),
-            )
-            for i in range(self.dim)
+        max_abs_deviations = np.sqrt(self.scale * np.diag(self.shape_matrix))
+        return [
+            (ctr - max_abs_dev, ctr + max_abs_dev)
+            for ctr, max_abs_dev in zip(self.center, max_abs_deviations)
         ]
-        return parameter_bounds
 
     @copy_docstring(UncertaintySet.point_in_set)
     def point_in_set(self, point):
@@ -3509,14 +3491,15 @@ class EllipsoidalSet(UncertaintySet):
             required_shape_qual="to match the set dimension",
         )
         off_center = point - self.center
-        normalized_pt_radius = np.sqrt(
-            off_center @ np.linalg.inv(self.shape_matrix) @ off_center
-        )
-        normalized_boundary_radius = np.sqrt(self.scale)
-        return (
-            normalized_pt_radius
-            <= normalized_boundary_radius + POINT_IN_UNCERTAINTY_SET_TOL
-        )
+
+        # compute `y = shape_matrix^-1 @ (point - center)` by
+        # solving linear system `(shape_matrix @ y = (point - center)`
+        # (i.e., avoid matrix inversion)
+        cho_factor, is_lower = sp.linalg.cho_factor(self.shape_matrix)
+        mat_inv_point = sp.linalg.cho_solve((cho_factor, is_lower), off_center)
+
+        # check `(point - center) @ y` does not exceed scale factor
+        return off_center @ mat_inv_point <= self.scale + POINT_IN_UNCERTAINTY_SET_TOL
 
     @copy_docstring(UncertaintySet.set_as_constraint)
     def set_as_constraint(self, uncertain_params=None, block=None):
@@ -3529,7 +3512,13 @@ class EllipsoidalSet(UncertaintySet):
             )
         )
 
-        inv_shape_mat = np.linalg.inv(self.shape_matrix)
+        # we need the inverse of the shape matrix.
+        # since the matrix should be positive definite,
+        # use Cholesky factorization for the inversion
+        inv_shape_mat = sp.linalg.inv(
+            self.shape_matrix, assume_a="pos", check_finite=False
+        )
+
         with mutable_expression() as expr:
             for (idx1, idx2), mat_entry in np.ndenumerate(inv_shape_mat):
                 expr += (
