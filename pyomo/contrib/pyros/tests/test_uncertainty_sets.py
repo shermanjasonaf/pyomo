@@ -1614,6 +1614,21 @@ class TestIntersectionSet(unittest.TestCase):
             m.v1**2 / np.float64(0.0625) + m.v2**2 / np.float64(0.0625) <= 1,
         )
 
+        # test discrete intersection
+        discrete_intersection = IntersectionSet(
+            BoxSet([(-0.5, 0.5), (-0.5, 0.5)]), DiscreteScenarioSet([(0, 0), (0, 0.5)])
+        )
+        m2 = ConcreteModel()
+        m2.v1 = Var(initialize=0)
+        m2.v2 = Var(initialize=0)
+        uq2 = discrete_intersection.set_as_constraint(
+            uncertain_params=[m2.v1, m2.v2], block=m2
+        )
+        self.assertIs(uq2.block, m2)
+        self.assertEqual(uq2.uncertain_param_vars, [m2.v1, m2.v2])
+        self.assertEqual(len(uq2.auxiliary_vars), 0)
+        self.assertEqual(len(uq2.uncertainty_cons), 0)
+
     def test_set_as_constraint_dim_mismatch(self):
         """
         Check exception raised if number of uncertain parameters

@@ -3982,6 +3982,12 @@ class IntersectionSet(UncertaintySet):
 
     @copy_docstring(UncertaintySet.set_as_constraint)
     def set_as_constraint(self, uncertain_params=None, block=None):
+        # handle special case where the intersection is a discrete set
+        if self.geometry == Geometry.DISCRETE_SCENARIOS:
+            return DiscreteScenarioSet(self.scenarios).set_as_constraint(
+                uncertain_params=uncertain_params, block=block
+            )
+
         block, param_var_data_list, *_ = (
             _setup_standard_uncertainty_set_constraint_block(
                 block=block,
@@ -3990,12 +3996,6 @@ class IntersectionSet(UncertaintySet):
                 num_auxiliary_vars=None,
             )
         )
-
-        # handle special case where the intersection is a discrete set
-        if self.geometry == Geometry.DISCRETE_SCENARIOS:
-            return DiscreteScenarioSet(self.scenarios).set_as_constraint(
-                uncertain_params=uncertain_params, block=block
-            )
 
         all_cons, all_aux_vars = [], []
         for idx, unc_set in enumerate(self.all_sets):
