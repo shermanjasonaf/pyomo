@@ -4044,25 +4044,16 @@ class IntersectionSet(UncertaintySet):
 
     def validate(self, config):
         """
-        Check IntersectionSet validity.
+        Validate the intersection set by validating each operand
+        set of the intersection.
 
-        This check is performed by validating each operand
-        set of the intersection and then validating the
-        intersection as a whole.
-
-        Raises
-        ------
-        ValueError
-            If finiteness or nonemptiness checks fail.
+        Parameters
+        ----------
+        config : ConfigDict
+            PyROS solver configuration.
         """
-        the_sets = self.all_sets
-
-        # validate each set
-        for a_set in the_sets:
+        for a_set in self.all_sets:
             a_set.validate(config)
-
-        # check boundedness and nonemptiness of intersected set
-        super().validate(config)
 
 
 class CartesianProductSet(UncertaintySet):
