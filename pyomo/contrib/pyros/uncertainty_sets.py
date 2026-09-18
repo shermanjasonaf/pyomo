@@ -465,9 +465,11 @@ def validate_array(
 
 class Geometry(Enum):
     """
-    Geometry classifications for PyROS uncertainty set objects.
+    Enum for classifying a PyROS uncertainty set according to the
+    structure of the constraints defining the set.
     """
 
+    # member values are arranged in increasing order of complexity
     LINEAR = 1
     CONVEX_NONLINEAR = 2
     GENERAL_NONLINEAR = 3
