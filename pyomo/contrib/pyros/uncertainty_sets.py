@@ -3474,7 +3474,7 @@ class EllipsoidalSet(UncertaintySet):
 
         # we need the inverse of the shape matrix.
         # since the matrix should be positive definite,
-        # use Cholesky factorization for the inversion
+        # prefer Cholesky factorization for the inversion
         inv_shape_mat = sp.linalg.inv(
             self.shape_matrix, assume_a="pos", check_finite=False
         )
@@ -3512,7 +3512,7 @@ class EllipsoidalSet(UncertaintySet):
             or ``self.scale`` is negative).
         numpy.linalg.LinAlgError
             If Cholesky factorization for ``self.shape_matrix`` fails
-            (i.e.,``self.shape_matrix`` is not positive definite).
+            (i.e., ``self.shape_matrix`` is not positive definite).
         """
         ctr = self.center
         shape_mat_arr = self.shape_matrix
@@ -3565,10 +3565,11 @@ class EllipsoidalSet(UncertaintySet):
         if not sp.linalg.issymmetric(shape_mat_arr, atol=symmetry_atol):
             raise ValueError("Shape matrix must be symmetric.")
 
-        # attempt Cholesky factorization
-        # to check that shape matrix is positive definite.
-        # this also verifies that the diagonal entries are positive,
-        # so their square roots can be calculated later where needed.
+        # attempt Cholesky factorization to check that
+        # the shape matrix is positive definite.
+        # incidentally, this also verifies that
+        # the diagonal entries are positive,
+        # so their square roots can be calculated later where needed
         sp.linalg.cho_factor(shape_mat_arr, lower=True)
 
 
