@@ -1754,6 +1754,15 @@ class TestIntersectionSet(unittest.TestCase):
         intersection_set = IntersectionSet(bset1, bset2)
         intersection_set.validate(config=CONFIG)
 
+        # intersection with a discrete operand.
+        # validation should resort to just checking the
+        # bounds of the resulting discrete set
+        discrete_intersection = IntersectionSet(
+            DiscreteScenarioSet([(0, 1), (1, 0), (1, 1)]),
+            AxisAlignedEllipsoidalSet(center=(0, 0), half_lengths=(1, 1)),
+        )
+        discrete_intersection.validate(config=Bunch())
+
     @unittest.skipUnless(baron_available, "BARON is not available")
     def test_bounded_and_nonempty(self):
         """
