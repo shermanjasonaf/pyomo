@@ -68,9 +68,9 @@ def add_uncertainty_set_constraints(separation_model, config):
     separation_model.uncertainty.auxiliary_var_list = aux_vars
     separation_model.uncertainty.uncertainty_cons_list = uncertainty_cons
 
-    config.uncertainty_set._add_bounds_on_uncertain_parameters(
-        uncertain_param_vars=param_var_list, global_solver=config.global_solver
-    )
+    # config.uncertainty_set._add_bounds_on_uncertain_parameters(
+    #     uncertain_param_vars=param_var_list, global_solver=config.global_solver
+    # )
     if aux_vars:
         aux_var_vals = config.uncertainty_set.compute_auxiliary_uncertain_param_vals(
             point=config.nominal_uncertain_param_vals, solver=config.global_solver
