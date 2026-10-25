@@ -637,7 +637,8 @@ def higher_order_decision_rule_efficiency(master_data):
     to be set depends on the iteration number;
     see ``get_master_dr_degree``.
     """
-    order_to_enforce = get_master_dr_degree(master_data)
+    # order_to_enforce = get_master_dr_degree(master_data)
+    order_to_enforce = master_data.config.decision_rule_order
     enforce_dr_degree(
         working_blk=master_data.master_model.scenarios[0, 0],
         config=master_data.config,
