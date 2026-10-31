@@ -11,6 +11,7 @@
 Functions for construction and solution of the PyROS master problem.
 """
 
+import numpy as np
 from pyomo.common.collections import ComponentMap, ComponentSet
 from pyomo.common.modeling import unique_component_name
 from pyomo.core import TransformationFactory
@@ -611,12 +612,43 @@ def get_master_dr_degree(master_data):
     if nom_scenario_blk.first_stage.dr_dependent_equality_cons:
         return master_data.config.decision_rule_order
 
-    if master_data.iteration == 0:
+    if not len(nom_scenario_blk.first_stage.decision_rule_vars):
         return 0
-    elif master_data.iteration <= len(nom_scenario_blk.effective_uncertain_params):
-        return min(1, master_data.config.decision_rule_order)
+
+    scenario_blks = master_data.master_model.scenarios
+    if len(scenario_blks) == 1:
+        return 0
+    # elif len(scenario_blks) <= len(nom_scenario_blk.effective_uncertain_params):
+    #     return min(1, master_data.config.decision_rule_order)
+    # else:
+    #     return min(2, master_data.config.decision_rule_order)
+    elif master_data.config.decision_rule_order == 1:
+        return 1
     else:
-        return min(2, master_data.config.decision_rule_order)
+        dr_eqn_coeffs_mat = np.empty((
+            len(scenario_blks),
+            len(nom_scenario_blk.first_stage.decision_rule_vars[0]),
+        ))
+        dr_eqn_term_powers = np.array([
+            nom_scenario_blk.dr_var_to_exponent_map[dr_var]
+            for dr_var in nom_scenario_blk.first_stage.decision_rule_vars[0].values()
+        ])
+        dr_eqn_coeffs_mat[:, 0] = 1
+        for blk_idx, blk in enumerate(master_data.master_model.scenarios.values()):
+            dr_expr = blk.second_stage.decision_rule_eqns[0].expr.args[0]
+            for term_expr in dr_expr.args[1:-1]:
+                param_factors, dr_var = term_expr.args[:-1], term_expr.args[-1]
+                dr_eqn_coeffs_mat[blk_idx, dr_var.index()] = value(prod(param_factors))
+
+        dr_ranks_by_degree = np.array([
+            np.linalg.matrix_rank(dr_eqn_coeffs_mat[:, dr_eqn_term_powers <= deg])
+            for deg in range(master_data.config.decision_rule_order + 1)
+        ])
+        # lowest degree for which there is no reduction in rank
+        # of the DR equations
+        return np.arange(
+            master_data.config.decision_rule_order + 1
+        )[dr_ranks_by_degree == dr_ranks_by_degree[-1]][0]
 
 
 def higher_order_decision_rule_efficiency(master_data):
@@ -928,6 +960,7 @@ class MasterProblemData:
         self.iteration = 0
         self.timing = model_data.timing
         self.config = model_data.config
+        self.enforced_dr_degree = 0
 
     def solve_master(self):
         """
