@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 # Unit Tests for expression generation
 #
@@ -317,14 +315,14 @@ class BaseNumeric(Base):
                     for i, arg in enumerate(args):
                         if mutable[i]:
                             arg.__class__ = classes[i]
-                            arg._args_ = orig_args_clone[i]._args_
+                            arg._args = orig_args_clone[i]._args
                             arg._nargs = orig_args_clone[i]._nargs
         except:
             self._print_error(test_num, orig_args_clone + [result], ans)
             for i, arg in enumerate(args):
                 if mutable[i]:
                     arg.__class__ = classes[i]
-                    arg._args_ = orig_args_clone[i]._args_
+                    arg._args = orig_args_clone[i]._args
                     arg._nargs = orig_args_clone[i]._nargs
             raise
 

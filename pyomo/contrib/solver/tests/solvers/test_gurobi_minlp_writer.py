@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import pyomo.common.unittest as unittest
 from pyomo.common.dependencies import attempt_import
@@ -17,7 +15,11 @@ from pyomo.contrib.solver.tests.solvers.gurobi_to_pyomo_expressions import (
     grb_nl_to_pyo_expr,
 )
 from pyomo.core.expr.compare import assertExpressionsEqual
-from pyomo.core.expr.numeric_expr import SumExpression, ProductExpression
+from pyomo.core.expr.numeric_expr import (
+    MonomialTermExpression,
+    ProductExpression,
+    SumExpression,
+)
 from pyomo.environ import (
     Binary,
     BooleanVar,
@@ -40,17 +42,19 @@ from pyomo.environ import (
 )
 from pyomo.gdp import Disjunction
 from pyomo.opt import WriterFactory
-from pyomo.contrib.solver.solvers.gurobi_direct_minlp import (
+from pyomo.contrib.solver.solvers.gurobi.gurobi_direct_minlp import (
     GurobiDirectMINLP,
     GurobiMINLPVisitor,
+    GRB,
+    gurobipy,
+    gurobipy_available,
 )
 from pyomo.contrib.solver.common.factory import SolverFactory
 from pyomo.contrib.solver.common.results import TerminationCondition
 from pyomo.contrib.solver.tests.solvers.test_gurobi_minlp_walker import CommonTest
 
-gurobipy, gurobipy_available = attempt_import('gurobipy', minimum_version='12.0.0')
-if gurobipy_available:
-    from gurobipy import GRB
+if gurobipy_available and not GurobiDirectMINLP().available():
+    gurobipy_available = False
 
 
 def make_model():
@@ -73,6 +77,7 @@ def make_model():
 
 
 @unittest.skipUnless(gurobipy_available, "Gurobipy 12 is not available")
+@unittest.pytest.mark.solver("gurobi_direct_minlp")
 class TestGurobiMINLPWriter(CommonTest):
     def test_small_model(self):
         grb_model = gurobipy.Model()
@@ -85,13 +90,13 @@ class TestGurobiMINLPWriter(CommonTest):
         ).write(m, symbolic_solver_labels=True)
 
         self.assertEqual(len(var_map), 7)
-        x1 = var_map[id(m.x1)]
-        x2 = var_map[id(m.x2)]
-        x3 = var_map[id(m.x3)]
-        y1 = var_map[id(m.y1)]
-        y2 = var_map[id(m.y2)]
-        y3 = var_map[id(m.y3)]
-        z1 = var_map[id(m.z1)]
+        x1 = var_map[m.x1]
+        x2 = var_map[m.x2]
+        x3 = var_map[m.x3]
+        y1 = var_map[m.y1]
+        y2 = var_map[m.y2]
+        y3 = var_map[m.y3]
+        z1 = var_map[m.z1]
 
         self.assertEqual(grb_model.numVars, 9)
         self.assertEqual(grb_model.numIntVars, 4)
@@ -197,7 +202,7 @@ class TestGurobiMINLPWriter(CommonTest):
         ).write(m, symbolic_solver_labels=True)
 
         self.assertEqual(len(var_map), 1)
-        x1 = var_map[id(m.x1)]
+        x1 = var_map[m.x1]
 
         self.assertEqual(grb_model.numVars, 1)
         self.assertEqual(grb_model.numIntVars, 0)
@@ -243,7 +248,7 @@ class TestGurobiMINLPWriter(CommonTest):
         ).write(m, symbolic_solver_labels=True)
 
         self.assertEqual(len(var_map), 1)
-        x1 = var_map[id(m.x1)]
+        x1 = var_map[m.x1]
 
         self.assertEqual(grb_model.numVars, 1)
         self.assertEqual(grb_model.numIntVars, 0)
@@ -287,8 +292,8 @@ class TestGurobiMINLPWriter(CommonTest):
         ).write(m, symbolic_solver_labels=True)
 
         self.assertEqual(len(var_map), 2)
-        x = var_map[id(m.x)]
-        y = var_map[id(m.y)]
+        x = var_map[m.x]
+        y = var_map[m.y]
 
         self.assertEqual(grb_model.numVars, 2)
         self.assertEqual(grb_model.numIntVars, 0)
@@ -350,8 +355,8 @@ class TestGurobiMINLPWriter(CommonTest):
         ).write(m, symbolic_solver_labels=True)
 
         self.assertEqual(len(var_map), 2)
-        x = var_map[id(m.x)]
-        y = var_map[id(m.y)]
+        x = var_map[m.x]
+        y = var_map[m.y]
         reverse_var_map = {grbv: pyov for pyov, grbv in var_map.items()}
 
         self.assertEqual(grb_model.numVars, 4)
@@ -452,9 +457,9 @@ class TestGurobiMINLPWriter(CommonTest):
         ).write(m, symbolic_solver_labels=True)
 
         self.assertEqual(len(var_map), 3)
-        x1 = var_map[id(m.x1)]
-        x2 = var_map[id(m.x2)]
-        x3 = var_map[id(m.x3)]
+        x1 = var_map[m.x1]
+        x2 = var_map[m.x2]
+        x3 = var_map[m.x3]
 
         self.assertEqual(grb_model.numVars, 4)
         self.assertEqual(grb_model.numIntVars, 0)
@@ -488,7 +493,9 @@ class TestGurobiMINLPWriter(CommonTest):
         assertExpressionsEqual(
             self,
             pyo_expr,
-            ProductExpression((ProductExpression((0.0, m.x1, m.x2, m.x3)),)),
+            ProductExpression(
+                (ProductExpression((MonomialTermExpression((0.0, m.x1)), m.x2)), m.x3)
+            ),
         )
 
         opt = SolverFactory('gurobi_direct_minlp')

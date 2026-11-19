@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 #
 # Example from Scipy odeint examples
@@ -30,19 +28,19 @@ def create_model():
 
     m.t = ContinuousSet(bounds=(0.0, 20.0))
 
-    def _b_default(m, t):
+    def _b_init(m, t):
         if t >= 15:
             return 0.025
         return 0.25
 
-    m.b = pyo.Param(m.t, initialize=0.25, default=_b_default)
+    m.b = pyo.Param(m.t, initialize=_b_init)
 
-    def _c_default(m, t):
+    def _c_init(m, t):
         if t >= 7:
             return 50
         return 5
 
-    m.c = pyo.Param(m.t, initialize=5.0, default=_c_default)
+    m.c = pyo.Param(m.t, initialize=_c_init)
 
     m.omega = pyo.Var(m.t)
     m.theta = pyo.Var(m.t)

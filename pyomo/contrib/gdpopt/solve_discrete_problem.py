@@ -1,14 +1,13 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 """Functions for solving the discrete problem."""
+
 from copy import deepcopy
 
 from pyomo.common.deprecation import deprecation_warning
@@ -76,7 +75,7 @@ def solve_MILP_discrete_problem(util_block, solver, config):
 
     with SuppressInfeasibleWarning():
         mip_args = dict(config.mip_solver_args)
-        if config.time_limit is not None:
+        if config.time_limit:
             elapsed = get_main_elapsed_time(timing)
             remaining = max(config.time_limit - elapsed, 1)
             if config.mip_solver == 'gams':

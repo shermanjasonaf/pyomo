@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import itertools
 import logging
@@ -16,9 +14,16 @@ import builtins
 from contextlib import nullcontext
 
 from pyomo.common.collections import MutableMapping
+from pyomo.common.dependencies import attempt_import
 from pyomo.common.errors import TemplateExpressionError
 from pyomo.common.gc_manager import PauseGC
-from pyomo.core.expr.base import ExpressionBase, ExpressionArgs_Mixin, NPV_Mixin
+from pyomo.core.expr.base import (
+    ExpressionBase,
+    ExpressionArgs_Mixin,
+    NPV_Mixin,
+    BinaryExpression_Mixin,
+    NaryExpression_Mixin,
+)
 from pyomo.core.expr.logical_expr import BooleanExpression
 from pyomo.core.expr.numeric_expr import (
     ARG_TYPE,
@@ -45,19 +50,74 @@ from pyomo.core.expr.visitor import (
     _ToStringVisitor,
 )
 
+# Deferred imports to break circular dependencies
+pyomo_core_base_set, _ = attempt_import('pyomo.core.base.set')
+pyomo_core_base_param, _ = attempt_import('pyomo.core.base.param')
+
 logger = logging.getLogger(__name__)
+
+
+def _validate_generator(generator):
+    # We are worried about users writing things like
+    #
+    #    sum(m.x[i, j] for i in [1, 2, 3] for j in m.J)
+    # or
+    #    sum(m.x[j] for i in [1, 2, 3] for j in m.J[i])
+    #
+    # If they do, we will not "see" the "i" as an IndexTemplate, so the
+    # expression would be reduced to
+    #
+    #    sum(m.x[1, j] for j in m.J)
+    # and
+    #    sum(m.x[j] for j in m.J[1])
+    #
+    # To guard against this, we will look into the generator code, and
+    # if there are any local variables declared that are not
+    # IndexTemplate objects (or tuples of them), then we will throw up
+    # our hands and expand the sum:
+    for lvar_name in generator.gi_frame.f_code.co_varnames:
+        if lvar_name == '.0':
+            # Skip the outer generator object
+            continue
+        lvar = generator.gi_frame.f_locals.get(lvar_name, None)
+        if lvar.__class__ is IndexTemplate:
+            continue
+        if lvar.__class__ is tuple and all(i.__class__ is IndexTemplate for i in lvar):
+            continue
+        return False
+    return True
+
+
+def _validate_map(generator):
+    # We would love to validate that the map is actually iterating over
+    # Pyomo Set objects (and yielding IndexTemplate objects), but there
+    # doesn't appear to be a way to interrogate the results of the list
+    # / generator that the map is iterating over.  So, we will just have
+    # to trust the user <shudder>.
+    #
+    # FIXME: rework IndexedComponent to return custom generators that
+    # wrap map so we can only accept them and not all maps?
+    return True
+
+
+# it is not clear what to import to get to the built-in "generator"
+# type.  We will just create a generator and query its __class__
+generator_validators = {
+    (_ for _ in ()).__class__: _validate_generator,
+    map: _validate_map,
+}
 
 
 class _NotSpecified:
     pass
 
 
-class GetItemExpression(ExpressionBase):
+class GetItemExpression(NaryExpression_Mixin, ExpressionBase):
     """
     Expression to call :func:`__getitem__` on the base object.
     """
 
-    __slots__ = ()
+    __slots__ = ('_args',)
     PRECEDENCE = 1
 
     def __new__(cls, args=()):
@@ -103,10 +163,7 @@ class GetItemExpression(ExpressionBase):
         return len(value(self))
 
     def getname(self, *args, **kwds):
-        return self._args_[0].getname(*args, **kwds)
-
-    def nargs(self):
-        return len(self._args_)
+        return self._args[0].getname(*args, **kwds)
 
     def _is_fixed(self, values):
         if not all(values[1:]):
@@ -129,9 +186,6 @@ class GetItemExpression(ExpressionBase):
 
 class Numeric_GetItemExpression(GetItemExpression, NumericExpression):
     __slots__ = ()
-
-    def nargs(self):
-        return len(self._args_)
 
     def _compute_polynomial_degree(self, result):
         if any(x != 0 for x in result[1:]):
@@ -162,7 +216,7 @@ class NPV_Boolean_GetItemExpression(NPV_Mixin, Boolean_GetItemExpression):
     __slots__ = ()
 
 
-class Structural_GetItemExpression(ExpressionArgs_Mixin, GetItemExpression):
+class Structural_GetItemExpression(GetItemExpression):
     __slots__ = ()
 
 
@@ -170,12 +224,12 @@ class NPV_Structural_GetItemExpression(NPV_Mixin, Structural_GetItemExpression):
     __slots__ = ()
 
 
-class GetAttrExpression(ExpressionBase):
+class GetAttrExpression(BinaryExpression_Mixin, ExpressionBase):
     """
     Expression to call :func:`__getattr__` on the base object.
     """
 
-    __slots__ = ()
+    __slots__ = ('_l_arg', '_r_arg')
     PRECEDENCE = 1
 
     def __new__(cls, args=()):
@@ -256,9 +310,6 @@ class GetAttrExpression(ExpressionBase):
     def getname(self, *args, **kwds):
         return 'getattr'
 
-    def nargs(self):
-        return 2
-
     def _apply_operation(self, result):
         obj, attr = result
         return getattr(obj, attr)
@@ -299,7 +350,7 @@ class NPV_Boolean_GetAttrExpression(NPV_Mixin, Boolean_GetAttrExpression):
     __slots__ = ()
 
 
-class Structural_GetAttrExpression(ExpressionArgs_Mixin, GetAttrExpression):
+class Structural_GetAttrExpression(GetAttrExpression):
     __slots__ = ()
 
 
@@ -307,20 +358,17 @@ class NPV_Structural_GetAttrExpression(NPV_Mixin, Structural_GetAttrExpression):
     __slots__ = ()
 
 
-class CallExpression(NumericExpression):
+class CallExpression(NaryExpression_Mixin, NumericExpression):
     """
     Expression to call :func:`__call__` on the base object.
     """
 
-    __slots__ = ('_kwds',)
+    __slots__ = ('_args', '_kwds')
     PRECEDENCE = None
 
     def __init__(self, args, kwargs):
-        self._args_ = tuple(args) + tuple(kwargs.values())
+        self._args = tuple(args) + tuple(kwargs.values())
         self._kwds = tuple(kwargs.keys())
-
-    def nargs(self):
-        return len(self._args_)
 
     def __getattr__(self, attr):
         if attr.startswith('__') and attr.endswith('__'):
@@ -343,11 +391,11 @@ class CallExpression(NumericExpression):
         return None
 
     def _apply_operation(self, result):
-        na = len(self._args_) - len(self._kwds)
+        na = self.nargs() - len(self._kwds)
         return result[0](*result[1:na], **dict(zip(self._kwds, result[na:])))
 
     def _to_string(self, values, verbose, smap):
-        na = len(self._args_) - len(self._kwds)
+        na = self.nargs() - len(self._kwds)
         args = ', '.join(values[1:na])
         if self._kwds:
             if na > 1:
@@ -403,7 +451,7 @@ class _TemplateSumExpression_argList:
             self._set_iter_vals(self._iter[i])
         else:
             self._set_iter_vals(self._iter[i])
-        return self._tse._local_args_[0]
+        return self._tse._local_args[0]
 
     def __enter__(self):
         self._lock = self
@@ -445,12 +493,12 @@ class TemplateSumExpression(NumericExpression):
     Expression to represent an unexpanded sum over one or more sets.
     """
 
-    __slots__ = ('_iters', '_local_args_')
+    __slots__ = ('_iters', '_local_args')
     PRECEDENCE = 1
 
     def __init__(self, args, _iters):
         assert len(args) == 1
-        self._args_ = args
+        self._local_args = args
         self._iters = _iters
 
     def nargs(self):
@@ -465,16 +513,8 @@ class TemplateSumExpression(NumericExpression):
     def args(self):
         return _TemplateSumExpression_argList(self)
 
-    @property
-    def _args_(self):
-        return _TemplateSumExpression_argList(self)
-
-    @_args_.setter
-    def _args_(self, args):
-        self._local_args_ = args
-
     def template_args(self):
-        ans = list(self._local_args_)
+        ans = list(self._local_args)
         for itergroup in self._iters:
             ans.append(itergroup[0]._set)
         return tuple(ans)
@@ -491,7 +531,7 @@ class TemplateSumExpression(NumericExpression):
     def is_potentially_variable(self):
         if any(
             arg.is_potentially_variable()
-            for arg in self._local_args_
+            for arg in self._local_args
             if arg.__class__ not in nonpyomo_leaf_types
         ):
             return True
@@ -510,8 +550,8 @@ class TemplateSumExpression(NumericExpression):
 
     def to_string(self, verbose=None, smap=None):
         ans = ''
-        assert len(self._local_args_) == 1
-        val = expression_to_string(self._local_args_[0], verbose=verbose, smap=smap)
+        assert len(self._local_args) == 1
+        val = expression_to_string(self._local_args[0], verbose=verbose, smap=smap)
         if val[0] == '(' and val[-1] == ')' and _balanced_parens(val[1:-1]):
             val = val[1:-1]
         iterStrGenerator = (
@@ -764,8 +804,6 @@ def _reduce_template_to_component(expr):
     GetAttrExpression, and TemplateSumExpression expression nodes.
 
     """
-    import pyomo.core.base.set
-
     # wildcards holds lists of
     #   [iterator, source, value, orig_value, object0, ...]
     # 'iterator' iterates over 'source' to provide 'value's for each of
@@ -798,14 +836,12 @@ def _reduce_template_to_component(expr):
                     ans = child._resolve_template(())
                 return False, ans
             if child.is_variable_type():
-                from pyomo.core.base.set import RangeSet
-
                 if child.domain.isdiscrete():
                     domain = child.domain
                     bounds = child.bounds
                     if bounds != (None, None):
                         try:
-                            bounds = pyomo.core.base.set.RangeSet(*bounds, 0)
+                            bounds = pyomo_core_base_set.RangeSet(*bounds, 0)
                             domain = domain & bounds
                         except:
                             pass
@@ -975,14 +1011,12 @@ def substitute_getitem_with_param(expr, _map):
     new Param.  For example, this method will create expressions
     suitable for passing to DAE integrators
     """
-    import pyomo.core.base.param
-
     if type(expr) is IndexTemplate:
         return expr
 
     _id = _GetItemIndexer(expr)
     if _id not in _map:
-        _map[_id] = pyomo.core.base.param.Param(mutable=True)
+        _map[_id] = pyomo_core_base_param.Param(mutable=True)
         _map[_id].construct()
         _map[_id]._name = "%s[%s]" % (_id.base.name, ','.join(str(x) for x in _id.args))
     return _map[_id]
@@ -1032,7 +1066,10 @@ class _set_iterator_template_generator:
         else:
             d = _set.dimen
         grp = context.next_group()
-        if d is None or type(d) is not int:
+        if type(d) is not int:
+            # This covers None (jagged set) and UnknownSetDimen.  In
+            # both cases, we will not attempt to unpack the Set and just
+            # assume a single index template.
             idx = (IndexTemplate(_set, None, context.next_id(), grp),)
         else:
             idx = tuple(
@@ -1080,10 +1117,25 @@ class _template_iter_context:
         return self._group
 
     def sum_template(self, generator):
-        init_cache = len(self.cache)
+        try:
+            validator = generator_validators[generator.__class__]
+        except KeyError:
+            # We will only templatize sums over maps and generators.
+            # Expand everything else:
+            return _TemplateIterManager.builtin_sum(generator)
+        niters = -len(self.cache)
         expr = next(generator)
-        final_cache = len(self.cache)
-        return TemplateSumExpression((expr,), self.npop_cache(final_cache - init_cache))
+        niters += len(self.cache)
+        if niters:
+            iters = self.npop_cache(niters)
+        else:
+            # This didn't generate any new IndexTemplate objects; expand it:
+            return _TemplateIterManager.builtin_sum(generator, start=expr)
+        if not validator(generator):
+            # See the validator implementations above for situations where
+            # we will not attempt to generate SumTemplate objects
+            return _TemplateIterManager.builtin_sum(generator, start=expr)
+        return TemplateSumExpression((expr,), iters)
 
 
 class _template_iter_manager:
@@ -1165,15 +1217,13 @@ _TemplateIterManager = _template_iter_manager()
 
 
 def templatize_rule(block, rule, index_set):
-    import pyomo.core.base.set
-
     context = _template_iter_context()
     internal_error = None
     try:
         # Override Set iteration to return IndexTemplates
         with _TemplateIterManager.init(
             context,
-            pyomo.core.base.set._FiniteSetMixin,
+            pyomo_core_base_set._FiniteSetMixin,
             GetItemExpression,
             GetAttrExpression,
         ):
@@ -1205,7 +1255,11 @@ def templatize_rule(block, rule, index_set):
             if internal_error is not None:
                 logger.error(
                     "The following exception was raised when "
-                    "templatizing the rule '%s':\n\t%s" % (rule.name, internal_error[1])
+                    "templatizing the rule '%s':\n\t%s"
+                    % (
+                        getattr(rule, '_fcn', rule.__class__).__name__,
+                        internal_error[1],
+                    )
                 )
             raise TemplateExpressionError(
                 None,

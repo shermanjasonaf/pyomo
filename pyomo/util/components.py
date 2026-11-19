@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from pyomo.core.base.reference import Reference
 from pyomo.common.collections import ComponentMap
@@ -35,7 +33,7 @@ def rename_components(model, component_list, prefix):
     >>> c_list = list(model.component_objects(ctype=pyo.Var, descend_into=True))
     >>> new = rename_components(model, component_list=c_list, prefix='special_')
     >>> str(new)
-    "ComponentMap({'special_x (key=...)': 'x', 'special_y (key=...)': 'y'})"
+    'ComponentMap(special_x: x, special_y: y)'
 
     Returns
     -------
@@ -48,7 +46,8 @@ def rename_components(model, component_list, prefix):
       generator since this can lead to an infinite loop
 
     """
-    # Need to collect any Reference first so that we can record the old mapping of data objects before renaming
+    # Need to collect any Reference first so that we can record the old
+    # mapping of data objects before renaming
     refs = {}
     for c in component_list:
         if c.is_reference():

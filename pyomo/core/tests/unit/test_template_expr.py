@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 
 import pyomo.common.unittest as unittest
@@ -654,10 +652,10 @@ class TestTemplatizeRule(unittest.TestCase):
         f = e.set_value(5)
         self.assertIs(f.__class__, CallExpression)
         self.assertEqual(f._kwds, ())
-        self.assertEqual(len(f._args_), 2)
-        self.assertIs(f._args_[0].__class__, EXPR.Structural_GetAttrExpression)
-        self.assertIs(f._args_[0]._args_[0], e)
-        self.assertEqual(f._args_[1], 5)
+        self.assertEqual(len(f._args), 2)
+        self.assertIs(f.args[0].__class__, EXPR.Structural_GetAttrExpression)
+        self.assertIs(f.args[0].args[0], e)
+        self.assertEqual(f.args[1], 5)
 
         self.assertEqual(value(m.b[2].x), 2)
         f()
@@ -666,11 +664,11 @@ class TestTemplatizeRule(unittest.TestCase):
         f = e.set_value('a', skip_validation=True)
         self.assertIs(f.__class__, CallExpression)
         self.assertEqual(f._kwds, ('skip_validation',))
-        self.assertEqual(len(f._args_), 3)
-        self.assertIs(f._args_[0].__class__, EXPR.Structural_GetAttrExpression)
-        self.assertIs(f._args_[0]._args_[0], e)
-        self.assertEqual(f._args_[1], 'a')
-        self.assertEqual(f._args_[2], True)
+        self.assertEqual(len(f.args), 3)
+        self.assertIs(f.args[0].__class__, EXPR.Structural_GetAttrExpression)
+        self.assertIs(f.args[0].args[0], e)
+        self.assertEqual(f.args[1], 'a')
+        self.assertEqual(f.args[2], True)
 
         f()
         self.assertEqual(value(m.b[2].x), 'a')

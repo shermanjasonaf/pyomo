@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from os.path import join
 
@@ -34,9 +32,13 @@ from pyomo.environ import (
 from pyomo.gdp import Disjunct, Disjunction
 
 exdir = join(PYOMO_ROOT_DIR, 'examples', 'gdp')
+from pyomo.common.envvar import is_pypy
 
 
 @unittest.skipUnless(z3_available, "Z3 SAT solver is not available.")
+@unittest.skipIf(
+    is_pypy, "satsolver tests stall on pypy; these will no longer be tested."
+)
 class SatSolverTests(unittest.TestCase):
     def test_simple_sat_model(self):
         m = ConcreteModel()

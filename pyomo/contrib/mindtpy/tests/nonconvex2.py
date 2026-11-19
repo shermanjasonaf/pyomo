@@ -1,26 +1,30 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # -*- coding: utf-8 -*-
-"""Problem B in paper 'Outer approximation algorithms for separable nonconvex mixed-integer nonlinear programs'
+"""Nonconvex MINLP test model based on problem B from a benchmark study.
 
-Ref:
-Kesavan P, Allgor R J, Gatzke E P, et al. Outer approximation algorithms for separable nonconvex mixed-integer nonlinear programs[J]. Mathematical Programming, 2004, 100(3): 517-535.
+The expected optimal solution value is -0.94347.
 
-Problem type:   nonconvex MINLP
-        size:   8  binary variable
-                3  continuous variables
-                7  constraints
+References
+----------
+Kesavan, P., Allgor, R. J., Gatzke, E. P., et al. (2004). Outer approximation
+algorithms for separable nonconvex mixed-integer nonlinear programs.
+Mathematical Programming, 100(3), 517-535.
+
+    Problem type:    nonconvex MINLP
+        size:    8  binary variables
+             3  continuous variables
+             7  constraints
 
 """
+
 from pyomo.environ import (
     ConcreteModel,
     Constraint,
@@ -35,8 +39,18 @@ from pyomo.common.collections import ComponentMap
 
 
 class Nonconvex2(ConcreteModel):
+    """Nonconvex MINLP benchmark problem B for MindtPy tests."""
+
     def __init__(self, *args, **kwargs):
-        """Create the problem."""
+        """Create the problem.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to ``ConcreteModel``.
+        **kwargs
+            Keyword arguments forwarded to ``ConcreteModel``.
+        """
         kwargs.setdefault('name', 'Nonconvex2')
         super(Nonconvex2, self).__init__(*args, **kwargs)
         m = self

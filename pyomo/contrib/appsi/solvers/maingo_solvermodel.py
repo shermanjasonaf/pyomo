@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import math
 
@@ -26,7 +24,6 @@ from pyomo.core.expr.numvalue import (
 )
 from pyomo.core.kernel.objective import minimize, maximize
 from pyomo.repn.util import valid_expr_ctypes_minlp
-
 
 maingopy, maingopy_available = attempt_import("maingopy")
 
@@ -79,7 +76,7 @@ class ToMAiNGOVisitor(EXPR.ExpressionValueVisitor):
     def visit(self, node, values):
         """Visit nodes that have been expanded"""
         for i, val in enumerate(values):
-            arg = node._args_[i]
+            arg = node.arg(i)
 
             if arg is None:
                 values[i] = "Undefined"
@@ -97,7 +94,7 @@ class ToMAiNGOVisitor(EXPR.ExpressionValueVisitor):
                     elif node.PRECEDENCE == arg.PRECEDENCE:
                         if i == 0:
                             parens = node.ASSOCIATIVITY != LEFT_TO_RIGHT
-                        elif i == len(node._args_) - 1:
+                        elif i == node.nargs() - 1:
                             parens = node.ASSOCIATIVITY != RIGHT_TO_LEFT
                         else:
                             parens = True

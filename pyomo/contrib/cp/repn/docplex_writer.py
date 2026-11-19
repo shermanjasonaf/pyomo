@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from pyomo.common.dependencies import attempt_import
 
@@ -97,35 +95,6 @@ from pyomo.network import Port
 ###
 
 
-def _finalize_docplex(module, available):
-    if not available:
-        return
-    _deferred_element_getattr_dispatcher['start_time'] = module.start_of
-    _deferred_element_getattr_dispatcher['end_time'] = module.end_of
-    _deferred_element_getattr_dispatcher['length'] = module.length_of
-    _deferred_element_getattr_dispatcher['is_present'] = module.presence_of
-
-    # Scheduling dispatchers
-    _before_dispatchers[_START_TIME, _START_TIME] = module.start_before_start
-    _before_dispatchers[_START_TIME, _END_TIME] = module.start_before_end
-    _before_dispatchers[_END_TIME, _START_TIME] = module.end_before_start
-    _before_dispatchers[_END_TIME, _END_TIME] = module.end_before_end
-
-    _at_dispatchers[_START_TIME, _START_TIME] = module.start_at_start
-    _at_dispatchers[_START_TIME, _END_TIME] = module.start_at_end
-    _at_dispatchers[_END_TIME, _START_TIME] = module.end_at_start
-    _at_dispatchers[_END_TIME, _END_TIME] = module.end_at_end
-
-    _time_point_dispatchers[_START_TIME] = module.start_of
-    _time_point_dispatchers[_END_TIME] = module.end_of
-
-
-cp, docplex_available = attempt_import('docplex.cp.model', callback=_finalize_docplex)
-cp_solver, docplex_available = attempt_import('docplex.cp.solver')
-
-logger = logging.getLogger('pyomo.contrib.cp')
-
-
 # These are things that don't need special handling:
 class _GENERAL:
     pass
@@ -187,6 +156,44 @@ class _XOR:
 
 class _EQUIVALENT_TO:
     pass
+
+
+# These will get populated when cp is finally imported, but we define them here
+# in case it is already imported
+_deferred_element_getattr_dispatcher = {}
+_before_dispatchers = {}
+_at_dispatchers = {}
+_time_point_dispatchers = {_GENERAL: lambda x: x, _ELEMENT_CONSTRAINT: lambda x: x}
+
+
+def _finalize_docplex(module, available):
+    if not available:
+        return
+    _deferred_element_getattr_dispatcher['start_time'] = module.start_of
+    _deferred_element_getattr_dispatcher['end_time'] = module.end_of
+    _deferred_element_getattr_dispatcher['length'] = module.length_of
+    _deferred_element_getattr_dispatcher['is_present'] = module.presence_of
+
+    # Scheduling dispatchers
+    _before_dispatchers[_START_TIME, _START_TIME] = module.start_before_start
+    _before_dispatchers[_START_TIME, _END_TIME] = module.start_before_end
+    _before_dispatchers[_END_TIME, _START_TIME] = module.end_before_start
+    _before_dispatchers[_END_TIME, _END_TIME] = module.end_before_end
+
+    _at_dispatchers[_START_TIME, _START_TIME] = module.start_at_start
+    _at_dispatchers[_START_TIME, _END_TIME] = module.start_at_end
+    _at_dispatchers[_END_TIME, _START_TIME] = module.end_at_start
+    _at_dispatchers[_END_TIME, _END_TIME] = module.end_at_end
+
+    _time_point_dispatchers[_START_TIME] = module.start_of
+    _time_point_dispatchers[_END_TIME] = module.end_of
+
+
+cp, _cp_model = attempt_import('docplex.cp.model', callback=_finalize_docplex)
+cp_solver, _cp_solver = attempt_import('docplex.cp.solver')
+docplex_available = _cp_model & _cp_solver
+
+logger = logging.getLogger('pyomo.contrib.cp')
 
 
 def _check_var_domain(visitor, node, var):
@@ -321,8 +328,6 @@ _element_constraint_attr_dispatcher = {
     'xor': _XOR,
     'equivalent_to': _EQUIVALENT_TO,
 }
-# This will get populated when cp is finally imported
-_deferred_element_getattr_dispatcher = {}
 
 
 def _handle_getattr(visitor, node, obj, attr):
@@ -691,11 +696,11 @@ def _get_bool_valued_expr(arg):
         # We're using a start-before-start or its ilk in a boolean-valued
         # context. docplex doesn't believe these things are boolean-valued, so
         # we have to convert to the inequality version:
-        (lhs, rhs) = arg[2]
+        lhs, rhs = arg[2]
         return _handle_inequality_node(None, None, lhs, rhs)[1]
     elif arg[0] is _AT:
         # Same as above, but now we need an equality node
-        (lhs, rhs) = arg[2]
+        lhs, rhs = arg[2]
         return _handle_equality_node(None, None, lhs, rhs)[1]
     else:
         raise DeveloperError(
@@ -910,11 +915,6 @@ def _handle_call(visitor, node, *args):
 ##
 # Scheduling
 ##
-
-# This will get populated when cp is finally imported
-_before_dispatchers = {}
-_at_dispatchers = {}
-_time_point_dispatchers = {_GENERAL: lambda x: x, _ELEMENT_CONSTRAINT: lambda x: x}
 
 _non_precedence_types = {_GENERAL, _ELEMENT_CONSTRAINT}
 
@@ -1307,7 +1307,7 @@ class CPOptimizerSolver:
         pass
 
     def available(self, exception_flag=True):
-        return Executable('cpoptimizer').available() and docplex_available
+        return Executable('cpoptimizer') and bool(docplex_available)
 
     def license_is_valid(self):
         if CPOptimizerSolver._unrestricted_license is None:
@@ -1409,7 +1409,7 @@ class CPOptimizerSolver:
                         # The interval_var is absent
                         py_var.is_present.set_value(False)
                     else:
-                        (start, end, size) = sol
+                        start, end, size = sol
                         py_var.is_present.set_value(True)
                         py_var.start_time.set_value(start, skip_validation=True)
                         py_var.end_time.set_value(end, skip_validation=True)

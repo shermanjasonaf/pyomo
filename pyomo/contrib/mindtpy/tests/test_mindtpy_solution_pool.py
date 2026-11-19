@@ -1,31 +1,28 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """Tests for solution pool in the MindtPy solver."""
 
 from pyomo.core.expr.calculus.diff_with_sympy import differentiate_available
 import pyomo.common.unittest as unittest
 from pyomo.contrib.mindtpy.tests.eight_process_problem import EightProcessFlowsheet
-from pyomo.contrib.mindtpy.tests.MINLP2_simple import SimpleMINLP as SimpleMINLP2
+from pyomo.contrib.mindtpy.tests.minlp2_simple import Minlp2Simple
 from pyomo.contrib.mindtpy.tests.constraint_qualification_example import (
     ConstraintQualificationExample,
 )
 from pyomo.environ import SolverFactory, value, maximize
 from pyomo.opt import TerminationCondition
 
-
 model_list = [
     EightProcessFlowsheet(convex=True),
     ConstraintQualificationExample(),
-    SimpleMINLP2(),
+    Minlp2Simple(),
 ]
 
 
@@ -50,9 +47,18 @@ gurobi_persistent_available = SolverFactory('gurobi_persistent').available(
     not differentiate_available, 'Symbolic differentiation is not available'
 )
 class TestMindtPy(unittest.TestCase):
-    """Tests for the MindtPy solver plugin."""
+    """Tests for the MindtPy solver."""
 
     def check_optimal_solution(self, model, places=1):
+        """Assert that variable values match the model's known optimum.
+
+        Parameters
+        ----------
+        model : Block
+            Model containing ``optimal_solution`` values for comparison.
+        places : int, optional
+            Decimal places used by ``assertAlmostEqual``.
+        """
         for var in model.optimal_solution:
             self.assertAlmostEqual(
                 var.value, model.optimal_solution[var], places=places

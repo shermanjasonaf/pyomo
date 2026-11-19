@@ -1,23 +1,21 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from __future__ import annotations
+import collections
 import sys
-import types
 import logging
 from typing import Union, Type
 from weakref import ref as weakref_ref
 
 from pyomo.common.autoslots import AutoSlots
-from pyomo.common.deprecation import deprecation_warning, RenamedClass
+from pyomo.common.deprecation import deprecated, deprecation_warning, RenamedClass
 from pyomo.common.log import is_debug_set
 from pyomo.common.modeling import NOTSET
 from pyomo.common.numeric_types import native_types, value as expr_value
@@ -26,6 +24,7 @@ from pyomo.common.timing import ConstructionTimer
 from pyomo.core.expr.expr_common import _type_check_exception_arg
 from pyomo.core.expr.numvalue import NumericValue
 from pyomo.core.base.component import ComponentData, ModelComponentFactory
+from pyomo.core.base.enums import SortComponents
 from pyomo.core.base.global_set import UnindexedComponent_index
 from pyomo.core.base.indexed_component import (
     IndexedComponent,
@@ -33,7 +32,7 @@ from pyomo.core.base.indexed_component import (
     IndexedComponent_NDArrayMixin,
 )
 from pyomo.core.base.initializer import Initializer, PartialInitializer
-from pyomo.core.base.misc import apply_indexed_rule, apply_parameterized_indexed_rule
+from pyomo.core.base.misc import apply_parameterized_indexed_rule
 from pyomo.core.base.set import Reals, _AnySet, SetInitializer
 from pyomo.core.base.units_container import units
 from pyomo.core.expr import GetItemExpression
@@ -42,7 +41,7 @@ logger = logging.getLogger('pyomo.core')
 
 
 def _placeholder_rule(*args, **kwargs):
-    pass
+    "Flag function used in Param initialization.  This should never be called."
 
 
 def _raise_modifying_immutable_error(obj, index):
@@ -121,6 +120,18 @@ class _ImplicitAny(_AnySet):
     @_parent.setter
     def _parent(self, val):
         pass
+
+
+class _SparseParamValues(collections.defaultdict):
+    def __init__(self, values, param, fcn):
+        super().__init__(None, values)
+        self._param = param
+        self._fcn = fcn
+
+    def __missing__(self, idx):
+        if idx in self._param._index_set:
+            return self._fcn(self._param, idx)
+        raise KeyError(idx)
 
 
 class ParamData(ComponentData, NumericValue):
@@ -310,15 +321,15 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         pass
 
     @overload
-    def __new__(
-        cls: Type[Param], *args, **kwds
-    ) -> Union[ScalarParam, IndexedParam]: ...
-
-    @overload
     def __new__(cls: Type[ScalarParam], *args, **kwds) -> ScalarParam: ...
 
     @overload
     def __new__(cls: Type[IndexedParam], *args, **kwds) -> IndexedParam: ...
+
+    @overload
+    def __new__(
+        cls: Type[Param], *args, **kwds
+    ) -> Union[ScalarParam, IndexedParam]: ...
 
     def __new__(cls, *args, **kwds):
         if cls != Param:
@@ -350,7 +361,9 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         _domain_rule = self._pop_from_kwargs('Param', kwd, ('domain', 'within'))
         self._validate = kwd.pop('validate', None)
         self._mutable = kwd.pop('mutable', None)
-        self._default_val = kwd.pop('default', Param.NoValue)
+        self._default = Initializer(
+            kwd.pop('default', Param.NoValue), arg_not_specified=Param.NoValue
+        )
         self._dense_initialize = kwd.pop('initialize_as_dense', False)
         self._units = kwd.pop('units', None)
 
@@ -401,7 +414,7 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         component.  If a default value is specified, then the
         length equals the number of items in the component index.
         """
-        if self._default_val is Param.NoValue:
+        if self._default is None or not self._index_set.isfinite():
             return len(self._data)
         return len(self._index_set)
 
@@ -410,7 +423,7 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         Return true if the index is in the dictionary.  If the default value
         is specified, then all members of the component index are valid.
         """
-        if self._default_val is Param.NoValue:
+        if self._default is None:
             return idx in self._data
         return idx in self._index_set
 
@@ -424,7 +437,7 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         return self._mutable
 
     def get_units(self):
-        """Return the units for this ParamData"""
+        """Return the units for this Param"""
         return self._units
 
     #
@@ -432,29 +445,69 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
     # only loop over the defined data.
     #
 
-    def sparse_keys(self):
+    def sparse_keys(self, sort=SortComponents.UNSORTED):
         """Return a list of keys in the defined parameters"""
-        return list(self._data.keys())
+        try:
+            # Temporarily remove the default value so that len(self) ==
+            # len(self._dict).  This will cause the base class
+            # implementation of keys() to only return values from
+            # self._data:
+            tmp = self._default
+            self._default = None
+            return self.keys(sort)
+        finally:
+            self._default = tmp
 
-    def sparse_values(self):
+    def sparse_values(self, sort=SortComponents.UNSORTED):
         """Return a list of the defined param data objects"""
-        return list(self._data.values())
+        # Implementing things this way for consistency with items() (and
+        # so that any changes in the base class implementation are
+        # picked up here, too):
+        try:
+            tmp = self._default
+            self._default = None
+            return self.values(sort)
+        finally:
+            self._default = tmp
 
-    def sparse_items(self):
+    def sparse_items(self, sort=SortComponents.UNSORTED):
         """Return a list (index,data) tuples for defined parameters"""
-        return list(self._data.items())
+        # The base class implements special handling for references.
+        # Instead of reimplementing that here, we will follow the
+        # pattern used for sparse_keys (and get len() to "lie")
+        try:
+            tmp = self._default
+            self._default = None
+            return self.items(sort)
+        finally:
+            self._default = tmp
 
+    @deprecated(
+        "The sparse_iterkeys method is deprecated.  Use sparse_keys()",
+        # This should have been deprecated when we dropped Python 2.7
+        version='6.10.0',
+    )
     def sparse_iterkeys(self):
         """Return an iterator for the keys in the defined parameters"""
-        return self._data.keys()
+        return self.sparse_keys()
 
+    @deprecated(
+        "The sparse_itervalues method is deprecated.  Use sparse_values()",
+        # This should have been deprecated when we dropped Python 2.7
+        version='6.10.0',
+    )
     def sparse_itervalues(self):
         """Return an iterator for the defined param data objects"""
-        return self._data.values()
+        return self.sparse_values()
 
+    @deprecated(
+        "The sparse_iteritems method is deprecated.  Use sparse_items()",
+        # This should have been deprecated when we dropped Python 2.7
+        version='6.10.0',
+    )
     def sparse_iteritems(self):
         """Return an iterator of (index,data) tuples for defined parameters"""
-        return self._data.items()
+        return self.sparse_items()
 
     def extract_values(self):
         """
@@ -466,24 +519,29 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         the contents of a parameter.
         """
         if self._mutable:
-            #
-            # The parameter is mutable, parameter data are ParamData types.
-            # Thus, we need to create a temporary dictionary that contains the
-            # values from the ParamData objects.
-            #
-            return {key: param_value() for key, param_value in self.items()}
+            # The parameter is mutable so parameter data are ParamData
+            # types.  We need to evaluate the ParamData back to POD
+            # (numeric) data when creating the result.
+            ans = {key: param_data() for key, param_data in self.items()}
         elif not self.is_indexed():
-            #
-            # The parameter is a scalar, so we need to create a temporary
-            # dictionary using the value for this parameter.
-            #
-            return {None: self()}
+            # The scalar could be defined (in which case items() will
+            # return the ScalarParam), OR it could be defined by a
+            # default value (in which case items() will return the
+            # actual numeric value).  To cover both cases we will use
+            # value():
+            ans = {key: expr_value(param_data) for key, param_data in self.items()}
         else:
-            #
-            # The parameter is not mutable, so iteritems() can be
+            # The parameter is not mutable, so items() can be
             # converted into a dictionary containing parameter values.
-            #
-            return dict(self.items())
+            ans = dict(self.items())
+
+        # We need to fill-in the "missing" values with the declared
+        # default (or constant initializer)
+        if self._rule is not None and not self._rule.contains_indices():
+            return _SparseParamValues(ans, self, self._rule)
+        if self._default is not None:
+            return _SparseParamValues(ans, self, self._default)
+        return ans
 
     def extract_values_sparse(self):
         """
@@ -494,28 +552,30 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         repeated __getitem__ calls are too expensive to extract
         the contents of a parameter.
         """
-        if self._mutable:
+        if self._mutable or not self.is_indexed():
+            # The parameter is mutable so parameter data are ParamData
+            # types.  We need to evaluate the ParamData back to POD
+            # (numeric) data when creating the result.
             #
-            # The parameter is mutable, parameter data are ParamData types.
-            # Thus, we need to create a temporary dictionary that contains the
-            # values from the ParamData objects.
-            #
-            ans = {}
-            for key, param_value in self.sparse_iteritems():
-                ans[key] = param_value()
-            return ans
-        elif not self.is_indexed():
-            #
-            # The parameter is a scalar, so we need to create a temporary
-            # dictionary using the value for this parameter.
-            #
-            return {None: self()}
+            # Note that if this is a scalar, sparse_items will return
+            # the ScalarParam only if it is explicitly defined (in which
+            # case it will still be evaluatable by calling it).
+            # ScalarParams whose value comes from the default are not
+            # returned by sparse_items()
+            ans = {key: param_data() for key, param_data in self.sparse_items()}
         else:
-            #
-            # The parameter is not mutable, so sparse_iteritems() can be
+            # The parameter is not mutable, so sparse_items() can be
             # converted into a dictionary containing parameter values.
             #
-            return dict(self.sparse_iteritems())
+            ans = dict(self.sparse_items())
+
+        # We need to fill-in the "missing" values with the declared
+        # default (or constant initializer)
+        if self._rule is not None and not self._rule.contains_indices():
+            return _SparseParamValues(ans, self, self._rule)
+        if self._default is not None:
+            return _SparseParamValues(ans, self, self._default)
+        return ans
 
     def store_values(self, new_values, check=True):
         """
@@ -601,7 +661,7 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
                 "Default value (%s) is not valid for Param %s domain %s"
                 % (str(val), self.name, self.domain.name)
             )
-        self._default_val = val
+        self._default = Initializer(val)
 
     def default(self):
         """
@@ -617,16 +677,30 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
                 f(model, i) returns the value for the default value for
                 parameter i
         """
-        return self._default_val
+        if self._default is None:
+            return Param.NoValue
+        if self._default.constant():
+            return self._default(self, None)
+        return self._default
 
     def _getitem_when_not_present(self, index):
         """
         Returns the default component data value
         """
-        #
-        # Local values
-        #
-        val = self._default_val
+        # If the _rule contained indices, then we populated everything
+        # in construct().  But if it was a function / constant, then we
+        # should use it to initialize this value.
+        if self._rule is not None and not self._rule.contains_indices():
+            val = self._rule(self.parent_block(), index)
+            _check_value_domain = True
+            _store_value = True
+        elif self._default is not None:
+            val = self._default(self.parent_block(), index)
+            _check_value_domain = not self._default.constant()
+            _store_value = self._mutable
+        else:
+            val = Param.NoValue
+
         if val is Param.NoValue:
             # We should allow the creation of mutable params without
             # a default value, as long as *solving* a model without
@@ -647,26 +721,6 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
                 "Error retrieving immutable Param value (%s):\n\tThe Param "
                 "value is undefined and no default value is specified." % (idx_str,)
             )
-
-        _default_type = type(val)
-        _check_value_domain = True
-        if _default_type in native_types:
-            #
-            # The set_default() method validates the domain of native types, so
-            # we can skip the check on the value domain.
-            #
-            _check_value_domain = False
-        elif _default_type is types.FunctionType:
-            val = apply_indexed_rule(self, val, self.parent_block(), index)
-        elif hasattr(val, '__getitem__') and (
-            not isinstance(val, NumericValue) or val.is_indexed()
-        ):
-            # Things that look like Dictionaries should be allowable.  This
-            # includes other IndexedComponent objects.
-            val = val[index]
-        else:
-            # this is something simple like a non-indexed component
-            pass
 
         #
         # If the user wants to validate values, we need to validate the
@@ -692,7 +746,8 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
                 self._data[index] = val
                 self._validate_value(index, val, _check_value_domain)
             finally:
-                del self._data[index]
+                if not _store_value:
+                    del self._data[index]
 
         return val
 
@@ -844,21 +899,32 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
             for _set in self._anonymous_sets:
                 _set.construct()
 
+        if (
+            self._default is not None
+            and self._rule is not None
+            and not self._rule.contains_indices()
+        ):
+            logger.warning(
+                f"Declaring Param '{self.name}' with a universal initializer "
+                "(constant or callback function) completely masks the default value"
+            )
+
         try:
             #
             # If the default value is a simple type, we check it versus
             # the domain.
             #
-            val = self._default_val
-            if (
-                val is not Param.NoValue
-                and type(val) in native_types
-                and val not in self.domain
-            ):
-                raise ValueError(
-                    "Default value (%s) is not valid for Param %s domain %s"
-                    % (str(val), self.name, self.domain.name)
-                )
+            if self._default is not None and self._default.constant():
+                val = self._default(self, None)
+                if (
+                    val is not Param.NoValue
+                    and type(val) in native_types
+                    and val not in self.domain
+                ):
+                    raise ValueError(
+                        "Default value (%s) is not valid for Param %s domain %s"
+                        % (str(val), self.name, self.domain.name)
+                    )
             #
             # Flag that we are in the "during construction" phase
             #
@@ -880,19 +946,16 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
                         "\tData type is not a mapping type, and a Mapping is "
                         "expected." % (self.name, str(data))
                     )
-            else:
-                data_items = iter(())
-
-            try:
-                for key, val in data_items:
-                    self._setitem_when_not_present(self._validate_index(key), val)
-            except:
-                msg = sys.exc_info()[1]
-                raise RuntimeError(
-                    "Failed to set value for param=%s, index=%s, value=%s.\n"
-                    "\tsource error message=%s"
-                    % (self.name, str(key), str(val), str(msg))
-                )
+                try:
+                    for key, val in data_items:
+                        self._setitem_when_not_present(self._validate_index(key), val)
+                except:
+                    msg = sys.exc_info()[1]
+                    raise RuntimeError(
+                        "Failed to set value for param=%s, index=%s, value=%s.\n"
+                        "\tsource error message=%s"
+                        % (self.name, str(key), str(val), str(msg))
+                    )
             #
             # Flag that things are fully constructed now (and changing an
             # immutable Param is now an exception).
@@ -910,17 +973,17 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         """
         Return data that will be printed for this component.
         """
-        if self._default_val is Param.NoValue:
+        if self._default is None:
             default = "None"  # for backwards compatibility in reporting
-        elif type(self._default_val) is types.FunctionType:
-            default = "(function)"
+        elif self._default.constant():
+            default = str(self._default(self, None))
         else:
-            default = str(self._default_val)
+            default = "(function)"
         if self._mutable or not self.is_indexed():
             dataGen = lambda k, v: [v._value]
         else:
             dataGen = lambda k, v: [v]
-        if self.index_set().isfinite() or self._default_val is Param.NoValue:
+        if self.index_set().isfinite() or self._default is None:
             _len = len(self)
         else:
             _len = 'inf'
@@ -933,7 +996,7 @@ class Param(IndexedComponent, IndexedComponent_NDArrayMixin):
         ]
         if self._units is not None:
             headers.append(('Units', str(self._units)))
-        return (headers, self.sparse_iteritems(), ("Value",), dataGen)
+        return (headers, self.sparse_items, ("Value",), dataGen)
 
 
 class ScalarParam(ParamData, Param):

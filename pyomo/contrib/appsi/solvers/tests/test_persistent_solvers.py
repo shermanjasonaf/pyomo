@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import pyomo.environ as pyo
 from pyomo.common.dependencies import attempt_import
@@ -25,7 +23,6 @@ import os
 numpy, numpy_available = attempt_import('numpy')
 import random
 from pyomo import gdp
-
 
 if not param_available:
     raise unittest.SkipTest('Parameterized is not available.')
@@ -1413,16 +1410,22 @@ class TestLegacySolverInterface(unittest.TestCase):
             raise unittest.SkipTest
         m = pyo.ConcreteModel()
         m.x = pyo.Var()
-        m.obj = pyo.Objective(expr=m.x)
+        m.y = pyo.Var(bounds=(0, None))
+        m.obj = pyo.Objective(expr=m.x + m.y)
         m.c = pyo.Constraint(expr=(-1, m.x, 1))
         if opt_class != MAiNGO:
             m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+            m.rc = pyo.Suffix(direction=pyo.Suffix.IMPORT)
         res = opt.solve(m, load_solutions=False)
         pyo.assert_optimal_termination(res)
         self.assertIsNone(m.x.value)
+        self.assertIsNone(m.y.value)
         if opt_class != MAiNGO:
             self.assertNotIn(m.c, m.dual)
+            self.assertNotIn(m.y, m.rc)
         m.solutions.load_from(res)
         self.assertAlmostEqual(m.x.value, -1)
+        self.assertAlmostEqual(m.y.value, 0)
         if opt_class != MAiNGO:
             self.assertAlmostEqual(m.dual[m.c], 1)
+            self.assertAlmostEqual(m.rc[m.y], 1)

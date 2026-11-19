@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import ctypes
 import math
@@ -54,7 +52,6 @@ from pyomo.repn.util import (
     sum_like_expression_types,
     check_constant,
 )
-
 
 _CONSTANT = ExprType.CONSTANT
 _MONOMIAL = ExprType.MONOMIAL
@@ -967,13 +964,14 @@ class AMPLBeforeChildDispatcher(BeforeChildDispatcher):
         # The following are performance optimizations for common
         # situations (Monomial terms and Linear expressions)
         #
-        arg1, arg2 = child._args_
+        arg1 = child._l_arg
         if arg1.__class__ not in native_types:
             try:
                 arg1 = check_constant(visitor.evaluate(arg1), arg1, visitor)
             except (ValueError, ArithmeticError):
                 return True, None
 
+        arg2 = child._r_arg
         # Trap multiplication by 0 and nan.
         if not arg1:
             if arg2.fixed:
@@ -1010,13 +1008,14 @@ class AMPLBeforeChildDispatcher(BeforeChildDispatcher):
         linear = {}
         for arg in child.args:
             if arg.__class__ is MonomialTermExpression:
-                arg1, arg2 = arg._args_
+                arg1 = arg._l_arg
                 if arg1.__class__ not in native_types:
                     try:
                         arg1 = check_constant(visitor.evaluate(arg1), arg1, visitor)
                     except (ValueError, ArithmeticError):
                         return True, None
 
+                arg2 = arg._r_arg
                 # Trap multiplication by 0 and nan.
                 if not arg1:
                     if arg2.fixed:

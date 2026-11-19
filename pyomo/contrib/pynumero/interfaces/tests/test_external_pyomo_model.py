@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import itertools
 import pyomo.common.unittest as unittest
@@ -904,7 +902,7 @@ class TestUpdatedHessianCalculationMethods(unittest.TestCase):
             # multipliers won't necessarily correspond).
             external_model.set_external_constraint_multipliers(lam)
             hlxx, hlxy, hlyy = external_model.get_full_space_lagrangian_hessians()
-            (pred_hlxx, pred_hlxy, pred_hlyy) = (
+            pred_hlxx, pred_hlxy, pred_hlyy = (
                 model.calculate_full_space_lagrangian_hessians(lam, x)
             )
 

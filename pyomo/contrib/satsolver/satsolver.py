@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import math
 
@@ -99,7 +97,11 @@ class SMTSatSolver:
     # Set up functions to be added to beginning of string
     def _get_default_functions(self):
         default = list()
-        default.append("(define-fun exp ((x Real)) Real (^ %0.15f x))" % (math.exp(1),))
+        # z3 >= 5.3 has a builtin `exp`; redefining it causes an error
+        if z3.get_version() < (5, 3):
+            default.append(
+                "(define-fun exp ((x Real)) Real (^ %0.15f x))" % (math.exp(1),)
+            )
         return default
 
     # processes pyomo model into SMT model

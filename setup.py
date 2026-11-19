@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """
 Script to generate the installer for pyomo.
@@ -25,19 +23,6 @@ try:
 except ImportError:
     # Needed for setuptools prior to 40.7.0
     from distutils.errors import DistutilsOptionError
-
-
-def read(*rnames):
-    with open(os.path.join(os.path.dirname(__file__), *rnames)) as README:
-        # Strip all leading badges up to, but not including the COIN-OR
-        # badge so that they do not appear in the PyPI description
-        while True:
-            line = README.readline()
-            if 'COIN-OR' in line:
-                break
-            if line.strip() and '[![' not in line:
-                break
-        return line + README.read()
 
 
 def import_pyomo_module(*path):
@@ -110,12 +95,10 @@ if using_cython:
         ext_modules = cythonize(files, compiler_directives={"language_level": 3})
     except:
         if using_cython == CYTHON_REQUIRED:
-            print(
-                """
+            print("""
 ERROR: Cython was explicitly requested with --with-cython, but cythonization
        of core Pyomo modules failed.
-"""
-            )
+""")
             raise
         using_cython = False
 
@@ -207,7 +190,7 @@ class DependenciesCommand(Command):
 setup_kwargs = dict(
     cmdclass={'dependencies': DependenciesCommand},
     version=get_version(),
-    install_requires=['ply'],
+    install_requires=[],
     extras_require={
         # There are certain tests that also require pytest-qt, but because those
         # tests are so environment/machine specific, we are leaving these out of
@@ -222,7 +205,9 @@ setup_kwargs = dict(
             'pytest-parallel',
         ],
         'docs': [
-            'Sphinx>4,!=8.2.0',
+            # Sphinx 9.x fails to correctly generate type references.
+            # (see https://github.com/sphinx-doc/sphinx/issues/14223)
+            'Sphinx>4,!=8.2.0,!=9.0.*,!=9.1.*,!=9.2.0',
             'sphinx-copybutton',
             'sphinx_rtd_theme>0.5',
             'sphinxcontrib-jsmath',
@@ -231,7 +216,6 @@ setup_kwargs = dict(
             'scipy',  # Needed by autodoc for pynumero
         ],
         'optional': [
-            'dill',  # No direct use, but improves lambda pickle
             'ipython',  # contrib.viewer
             'linear-tree; python_version<"3.14"',  # contrib.piecewise
             # FIXME: This is a temporary pin that should be removed
@@ -269,6 +253,9 @@ setup_kwargs = dict(
             # install on PyPy (binary wheels are not available), so we
             # will only "require" them on other (CPython) platforms:
             'casadi; implementation_name!="pypy"',  # dae
+            # Dill: No direct use, but improves lambda pickle
+            # [Oct 26] dill does not yet support Python 3.15
+            'dill; implementation_name!="pypy" and python_version<"3.15"',
             'numdifftools; implementation_name!="pypy"',  # pynumero
             'pandas; implementation_name!="pypy"',
             'seaborn; implementation_name!="pypy"',  # parmest.graphics
@@ -311,31 +298,23 @@ except SystemExit as e_info:
     if 'Microsoft Visual C++' not in str(e_info):
         raise
     elif using_cython == CYTHON_REQUIRED:
-        print(
-            """
+        print("""
 ERROR: Cython was explicitly requested with --with-cython, but cythonization
        of core Pyomo modules failed.
-"""
-        )
+""")
         raise
     else:
-        print(
-            """
+        print("""
 ERROR: setup() failed:
     %s
 Re-running setup() without the Cython modules
-"""
-            % (str(e_info),)
-        )
+""" % (str(e_info),))
         setup_kwargs['ext_modules'] = []
         setup(**setup_kwargs)
-        print(
-            """
+        print("""
 WARNING: Installation completed successfully, but the attempt to cythonize
          core Pyomo modules failed.  Cython provides performance
          optimizations and is not required for any Pyomo functionality.
          Cython returned the following error:
    "%s"
-"""
-            % (str(e_info),)
-        )
+""" % (str(e_info),))

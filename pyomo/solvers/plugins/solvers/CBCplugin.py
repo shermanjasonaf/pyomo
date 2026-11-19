@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import os
 import re
@@ -450,7 +448,7 @@ class CBCSHELL(SystemCallSolver):
         upper_bound = None
         gap = None
         nodes = None
-        # See https://www.coin-or.org/Cbc/cbcuserguide.html#messages
+        # See https://www.coin-or.org/Cbc/messages
         for line in output.split("\n"):
             tokens = tuple(re.split('[ \t]+', line.strip()))
             n_tokens = len(tokens)

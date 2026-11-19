@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from . import (
     numvalue,
@@ -46,9 +44,7 @@ from .logical_expr import (
     BooleanExpression,
     BooleanExpressionBase,
     #
-    UnaryBooleanExpression,
     NotExpression,
-    BinaryBooleanExpression,
     EquivalenceExpression,
     XorExpression,
     ImplicationExpression,
@@ -201,7 +197,7 @@ from .taylor_series import taylor_series_expansion
 #
 # declare deprecation paths for removed modules and attributes
 #
-from pyomo.common.deprecation import moved_module
+from pyomo.common.deprecation import moved_module, relocated_module_attribute
 
 moved_module(
     "pyomo.core.expr.current",
@@ -210,4 +206,15 @@ moved_module(
     "Please import expression symbols from pyomo.core.expr",
     version='6.6.2',
 )
-del moved_module
+relocated_module_attribute(
+    'UnaryBooleanExpression',
+    'pyomo.core.expr.logical_expr.UnaryBooleanExpression',
+    version='6.10.2.dev0',
+)
+relocated_module_attribute(
+    'BinaryBooleanExpression',
+    'pyomo.core.expr.logical_expr.BinaryBooleanExpression',
+    version='6.10.2.dev0',
+)
+
+del moved_module, relocated_module_attribute

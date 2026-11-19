@@ -2,6 +2,126 @@ Pyomo CHANGELOG
 ===============
 
 -------------------------------------------------------------------------------
+Pyomo 6.10.1   (04 Jun 2026)
+-------------------------------------------------------------------------------
+
+- General
+  - Resolve `capture_output` deadlock in multiprocessing environments (#3957)
+  - Add SetOf domain; improve config's mock yaml dumper (#3872)
+  - Bugfixes and testing of linear templates (#3781)
+- Core
+  - Remove `pyomo.duality` and `pyomo.core.plugins.transform.model` (#3876)
+  - Improved `ConstraintData.equality` relational expression generation (#3893)
+  - Add new KKT Transformation for generating KKT reformulations (#3881)
+  - New options/mappings in the core.add_slack_variables Transformation (#3869)
+  - Centralize processing of monomial terms in LinearRepn compiler (#3956)
+- Documentation
+  - Remove "deep" references to `scipopt.org`; update DOI for DoE paper (#3968)
+  - Add AI policy to contribution guide (#3959)
+  - Add a new template for tracking tasks (#3935)
+  - Document use of 'Draft' status when reviewing PRs (#3918)
+  - Improve documentation for mutable vs immutable Params (#3890)
+  - Update README processing, version management (#3873)
+  - Update URL for cyipopt documentation (#3909)
+- GDP
+  - Modify hull transform to allow a nonzero base point (#3880)
+  - Add exact hull reformulation for quadratic constraints (#3874)
+- Solver Interfaces
+  - Fix memory leak in LegacySolverInterface wrapper (#3915)
+  - Add direct and persistent interfaces to SCIP (#3744)
+  - KNITRO: Add warm start support (#3833)
+  - Handle cuOpt UnboundedOrInfeasible termination status (11) (#3916)
+  - Fix bug in IPOPT version checking (#3862)
+  - Add tests for trivial constraints (#3703)
+  - Rework `SolutionLoader` (#3701)
+- Testing
+  - Add missing Ipopt guards (parmest); add GHA nosolvers test (#3962)
+  - Unpin GAMS release; rebuild GHA package cache (#3950)
+  - Update GHA TPL cache; resolve new test failures (#3865)
+  - Temporarily pin to PyPy 7.3.20 (#3899)
+  - Update actions; exclude mathworks from URL checks (#3900, #3929)
+  - Bugfix for non-standard sed on OSX (#3901)
+  - Update osx installers and urlchecker environment (#3914)
+  - GHA: run tests on draft PRs (#3926)
+  - Add NEOS solvers (#3919, #3924)
+  - Disallow cplex 22.1.2.1 from conda (#3910)
+- Contributed Packages
+  - DoE: Fix trace/Cholesky initialization consistency (#3867)
+  - DoE: Update documentation (#3812)
+  - iis: Fix interface for current CPLEX releases (#3965)
+  - initialization: New tools for initializing nonconvex NLPs (#3912)
+  - mpc: Skip Expressions when loading MPC data (#3868)
+  - MindtPy: Internal short circuit base (#3907)
+  - MindtPy: Fix results returned when no discrete variables present (#3861)
+  - parmest/DoE: Reorganizing Documentation Pages (#3904)
+  - parmest: Simplify _Q_opt with block scenario structure (#3789)
+  - parmest: Add regularization objective option (#3550)
+  - piecewise: Factorable Programming for PWL Approximations (#3821)
+  - piecewise: Separate linear terms in ``nonlinear_to_pwl`` transform. (#3814)
+  - PyNumero: Efficiency change to sensitivity toolbox calculations (#3905)
+  - PyNumero: Use Hessian approximation for grey-boxes sent to CyIpopt (#3892)
+  - PyROS: Fix typos in PyROS `CardinalitySet` documentation (#3972)
+  - PyROS: Extend the `CardinalitySet` to allow negative deviations (#3969)
+  - PyROS: Add `CartesianProductSet` (#3927, #3951)
+  - PyROS: Add caching for computed uncertain parameter bounds (#3877)
+  - PyROS: Amend documentation of `BudgetSet.budget_membership_mat` (#3954)
+  - TrustRegion: Remove direct manipulation of `stdout` (#3902)
+  - TrustRegion: Add funnel globalization mechanism (#3832)
+
+-------------------------------------------------------------------------------
+Pyomo 6.10.0   (20 Feb 2026)
+-------------------------------------------------------------------------------
+
+- General
+  - Remove support for Python 3.9 (#3760)
+  - Typo corrections (#3779, #3831)
+  - Remove external `ply` dependency (#3840)
+  - Apply 2026 `black` formatting updates (#3820)
+  - Update copyright to 2026 (#3846)
+  - Improvements to `Config` classes, tests, and docs (#3790)
+  - Improve efficiency of nested `StreamIndenter` objects (#3813)
+- Core
+  - Remove sorting from `tabular_writer` (#3804)
+  - Enhance static typing (#3803)
+  - Update `SuffixFinder` to look in context for external data objects (#3844)
+- Documentation
+  - Add support for Sphinx 9.1 (#3815, #3818)
+  - Add formal documentation for future `pyomo.contrib` changes (#3768)
+  - Fix docstrings in `core.lp_dual` transformation (#3842)
+  - Update related packages page (#3849, #3853)
+- GDP
+  - Fix bug transforming Blocks in `gdp.mbigm` transformation (#3811)
+- Solver Interfaces
+  - Update `ipopt_v2` interface (#3792)
+  - Add cuOpt direct solver (#3620)
+  - Improvements for KNITRO interface (#3762, #3765, #3766, #3802, #3824,
+    #3826, #3827, #3837, #3794)
+  - Remove `iteration_count` as a default Results object value (#3767)
+  - Compute `wall_time` using `time.perf_counter` (#3825)
+  - Incorporate Model observer into `gurobi_v2` interface (#3698)
+  - Add new GAMS interface, writer, and solution loader (#3683)
+- Testing
+  - Testing infrastructure cleanup/rework (#3764, #3770, #3773, #3810)
+  - Correct broken URLs (#3761, #3796, #3845, #3847, #3848)
+  - Pytest version workarounds (#3780, #3784)
+  - Specify `openmpi` build type in testing environment (#3797)
+  - Add flexibility to error checking for `gurobi_minlp` (#3822)
+  - Update solver tests for gurobiasl 13.0.0 (#3850)
+  - Rework `conftest.py` to support solver/writer marker expressions (#3854)
+  - Relax mumps reallocation test (#3857)
+- Contributed Packages
+  - DoE: Disable unreliable test (#3776)
+  - DoE: Correct A optimality (#3803)
+  - DoE: Replace computationally expensive example with Rooney Biegler (#3828)
+  - GDPopt: Improvements to LDSDA (#3830)
+  - observer: Add in Model observer package (#3695, #3829)
+  - Parmest: Consolidate Rooney Biegler (#3793)
+  - Parmest: Update documentation (#3791)
+  - PyROS: Update tests for Python 3.14 (#3782)
+  - PyROS: Fix `IntersectionSet` implementation (#3786)
+  - PyROS: Fix scaling typo in separation objectives (#3817)
+
+-------------------------------------------------------------------------------
 Pyomo 6.9.5   (17 Oct 2025)
 -------------------------------------------------------------------------------
 

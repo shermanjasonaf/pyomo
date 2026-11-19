@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 #
 # Batch reactor example from Biegler book on Nonlinear Programming Chapter 9
@@ -40,7 +38,7 @@ def create_model():
             return 1.0
         return 4.0
 
-    m.p1 = pyo.Param(m.t, initialize=4.0, default=_p1_init)
+    m.p1 = pyo.Param(m.t, initialize=_p1_init)
     m.p2 = pyo.Param(initialize=2.0)
     m.p3 = pyo.Param(initialize=40.0)
     m.p4 = pyo.Param(initialize=20.0)

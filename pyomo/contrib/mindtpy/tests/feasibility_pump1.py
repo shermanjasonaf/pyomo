@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # -*- coding: utf-8 -*-
 """Example 1 in paper 'A Feasibility Pump for mixed integer nonlinear programs'
@@ -34,13 +32,21 @@ from pyomo.environ import (
 from pyomo.common.collections import ComponentMap
 
 
-class FeasPump1(ConcreteModel):
+class FeasibilityPump1(ConcreteModel):
     """Feasibility Pump example 1"""
 
     def __init__(self, *args, **kwargs):
-        """Create the problem."""
+        """Create the problem.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to ``ConcreteModel``.
+        **kwargs
+            Keyword arguments forwarded to ``ConcreteModel``.
+        """
         kwargs.setdefault('name', 'Feasibility Pump 1')
-        super(FeasPump1, self).__init__(*args, **kwargs)
+        super(FeasibilityPump1, self).__init__(*args, **kwargs)
         m = self
 
         m.x = Var(within=Binary)

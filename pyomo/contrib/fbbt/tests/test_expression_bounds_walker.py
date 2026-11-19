@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import math
 import pyomo.common.unittest as unittest
@@ -380,19 +378,37 @@ class TestExpressionBoundsWalker(unittest.TestCase):
 
     def test_unknown_classes(self):
         class UnknownNumeric(NumericExpression):
-            pass
+            def __init__(self, args=()):
+                assert len(args) == 0
 
-        class UnknownLogic(BooleanExpression):
             def nargs(self):
                 return 0
 
-        class UnknownOther(ExpressionBase):
             @property
             def args(self):
                 return ()
 
+        class UnknownLogic(BooleanExpression):
+            def __init__(self, args=()):
+                assert len(args) == 0
+
             def nargs(self):
                 return 0
+
+            @property
+            def args(self):
+                return ()
+
+        class UnknownOther(ExpressionBase):
+            def __init__(self, args=()):
+                assert len(args) == 0
+
+            def nargs(self):
+                return 0
+
+            @property
+            def args(self):
+                return ()
 
         visitor = ExpressionBoundsVisitor()
         with LoggingIntercept() as LOG:

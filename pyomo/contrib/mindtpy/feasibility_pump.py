@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
+
+"""Feasibility Pump initialization strategy implementation for MindtPy."""
 
 import logging
 from pyomo.contrib.mindtpy.config_options import _get_MindtPy_FP_config
@@ -38,6 +38,7 @@ class MindtPy_FP_Solver(_MindtPyAlgorithm):
     CONFIG = _get_MindtPy_FP_config()
 
     def check_config(self):
+        """Validate and enforce Feasibility Pump specific configuration."""
         # feasibility pump alone will lead to iteration_limit = 0, important!
         self.config.iteration_limit = 0
         self.config.move_objective = True
@@ -54,6 +55,19 @@ class MindtPy_FP_Solver(_MindtPyAlgorithm):
             doc='Outer approximation cuts'
         )
 
+    def MindtPy_initialization(self):
+        """Initialize Feasibility Pump state without executing FP iterations.
+
+        Notes
+        -----
+        The base implementation for ``init_strategy == 'FP'`` calls
+        ``fp_loop()`` during initialization. For ``mindtpy.fp``,
+        ``feasibility_pump_iteration_loop()`` already dispatches to
+        ``fp_loop()`` in the main-loop phase. This override performs only the
+        relaxed-NLP setup so the FP loop executes exactly once.
+        """
+        self.init_rNLP()
+
     def add_cuts(
         self,
         dual_values,
@@ -62,6 +76,21 @@ class MindtPy_FP_Solver(_MindtPyAlgorithm):
         cb_opt=None,
         nlp=None,
     ):
+        """Add cuts for the current feasibility pump iterate.
+
+        Parameters
+        ----------
+        dual_values : list
+            Dual multipliers from the NLP subproblem.
+        linearize_active : bool, optional
+            Whether to linearize active nonlinear constraints.
+        linearize_violated : bool, optional
+            Whether to linearize violated nonlinear constraints.
+        cb_opt : SolverFactory, optional
+            Callback-capable persistent MIP optimizer.
+        nlp : Block, optional
+            NLP model used by strategies requiring model-specific cut data.
+        """
         add_oa_cuts(
             self.mip,
             dual_values,
@@ -76,5 +105,6 @@ class MindtPy_FP_Solver(_MindtPyAlgorithm):
             linearize_violated,
         )
 
-    def MindtPy_iteration_loop(self):
-        pass
+    def feasibility_pump_iteration_loop(self):
+        """Run the Feasibility Pump-specific outer iteration loop."""
+        self.fp_loop()

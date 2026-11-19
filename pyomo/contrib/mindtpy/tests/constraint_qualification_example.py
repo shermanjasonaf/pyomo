@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # -*- coding: utf-8 -*-
 """Example of constraint qualification.
@@ -34,8 +32,18 @@ from pyomo.common.collections import ComponentMap
 
 
 class ConstraintQualificationExample(ConcreteModel):
+    """Test model designed to exercise constraint qualification edge cases."""
+
     def __init__(self, *args, **kwargs):
-        """Create the problem."""
+        """Create the problem.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to ``ConcreteModel``.
+        **kwargs
+            Keyword arguments forwarded to ``ConcreteModel``.
+        """
         kwargs.setdefault('name', 'ConstraintQualificationExample')
         super(ConstraintQualificationExample, self).__init__(*args, **kwargs)
         m = self

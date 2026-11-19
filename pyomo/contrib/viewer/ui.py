@@ -1,28 +1,28 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
-#  This module was originally developed as part of the IDAES PSE Framework
+# This module was originally developed as part of the IDAES PSE Framework
 #
-#  Institute for the Design of Advanced Energy Systems Process Systems
-#  Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
-#  software owners: The Regents of the University of California, through
-#  Lawrence Berkeley National Laboratory,  National Technology & Engineering
-#  Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
-#  University Research Corporation, et al. All rights reserved.
+# Institute for the Design of Advanced Energy Systems Process Systems
+# Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
+# software owners: The Regents of the University of California, through
+# Lawrence Berkeley National Laboratory,  National Technology & Engineering
+# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
+# University Research Corporation, et al. All rights reserved.
 #
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """
 A simple GUI viewer/editor for Pyomo models.
 """
+
 __author__ = "John Eslick"
 
 import os
@@ -166,6 +166,47 @@ class MainWindow(_MainWindow, _MainWindowUI):
         self._dialog_test_button = None  # button clicked on dialog in test mode
         self.mdiArea.setViewMode(myqt.QMdiArea.ViewMode.TabbedView)
 
+        view_menu = self.menuBar().actions()[0].menu()
+        view_menu.addSeparator()
+        font_menu = myqt.QMenu("Font", self)
+        menu_font_action = myqt.QAction("Menu", self)
+        tree_font_action = myqt.QAction("Tree View", self)
+        font_menu.addAction(menu_font_action)
+        font_menu.addAction(tree_font_action)
+        menu_font_action.triggered.connect(self.cb_set_menu_font)
+        tree_font_action.triggered.connect(self.cb_set_tree_font)
+        view_menu.addMenu(font_menu)
+
+    def cb_set_menu_font(self):
+        def _recursive_action_font(w, fnt):
+            w.setFont(fnt)
+            if (
+                hasattr(w, "actions")
+                and w.actions() is not None
+                and len(w.actions()) > 0
+            ):
+                for w2 in w.actions():
+                    _recursive_action_font(w2, fnt)
+            if (
+                hasattr(w, "menu")
+                and w.menu() is not None
+                and len(w.menu().actions()) > 0
+            ):
+                for w2 in w.menu().actions():
+                    _recursive_action_font(w2, fnt)
+
+        ok, fnt = myqt.QFontDialog().getFont()
+        if ok:
+            _recursive_action_font(self.menuBar(), fnt)
+
+    def cb_set_tree_font(self):
+        ok, fnt = myqt.QFontDialog().getFont()
+        if ok:
+            self.variables.setFont(fnt)
+            self.expressions.setFont(fnt)
+            self.parameters.setFont(fnt)
+            self.constraints.setFont(fnt)
+
     def toggle_tabs(self):
         if self.mdiArea.viewMode() == myqt.QMdiArea.ViewMode.SubWindowView:
             self.mdiArea.setViewMode(myqt.QMdiArea.ViewMode.TabbedView)
@@ -269,14 +310,10 @@ class MainWindow(_MainWindow, _MainWindowUI):
         msg.setStyleSheet("QLabel{min-width: 600px;}")
         self._dialog = msg
         msg.setWindowTitle("Model Information")
-        msg.setText(
-            """{} -- Active Constraints
+        msg.setText("""{} -- Active Constraints
 {} -- Active Equalities
 {} -- Free Variables
-{} -- {} of Freedom""".format(
-                cons, active_eq, free_vars, dof, doftext
-            )
-        )
+{} -- {} of Freedom""".format(cons, active_eq, free_vars, dof, doftext))
         msg.setStandardButtons(myqt.QMessageBox.StandardButton.Ok)
         msg.setModal(False)
         msg.show()

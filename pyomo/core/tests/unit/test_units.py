@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 #
 import math
+import packaging.version as ver
 import pickle
 
 from pyomo.common.errors import PyomoException
@@ -1111,8 +1110,12 @@ class TestPyomoUnit(unittest.TestCase):
         self.assertEqual(q, None)
 
         q = as_quantity(str('aaa'))
-        self.assertIs(q.__class__, Quantity)
-        self.assertEqual(q, 'aaa' * _pint.dimensionless)
+        if ver.parse(pint_module.__version__) < ver.parse('0.26.2'):
+            self.assertIs(q.__class__, Quantity)
+            self.assertEqual(q, 'aaa' * _pint.dimensionless)
+        else:
+            self.assertIs(q.__class__, str)
+            self.assertEqual(q, 'aaa')
 
         q = as_quantity(True)
         self.assertIs(q.__class__, bool)

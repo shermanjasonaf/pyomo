@@ -1,24 +1,23 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
-#  This module was originally developed as part of the IDAES PSE Framework
+# This module was originally developed as part of the IDAES PSE Framework
 #
-#  Institute for the Design of Advanced Energy Systems Process Systems
-#  Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
-#  software owners: The Regents of the University of California, through
-#  Lawrence Berkeley National Laboratory,  National Technology & Engineering
-#  Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
-#  University Research Corporation, et al. All rights reserved.
+# Institute for the Design of Advanced Energy Systems Process Systems
+# Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
+# software owners: The Regents of the University of California, through
+# Lawrence Berkeley National Laboratory,  National Technology & Engineering
+# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
+# University Research Corporation, et al. All rights reserved.
 #
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """
 Test data model items for QTreeView. These tests should work even without PyQt.
@@ -49,6 +48,14 @@ from pyomo.common.dependencies import DeferredImportError
 from pyomo.core.base.units_container import pint_available
 
 
+class Fake_numpy:
+    class float64(float):
+        pass
+
+    class int64(int):
+        pass
+
+
 @unittest.skipIf(not pint_available, "Pyomo units are not available")
 class TestDataModelItem(unittest.TestCase):
     def setUp(self):
@@ -67,6 +74,8 @@ class TestDataModelItem(unittest.TestCase):
         m.b1.e3 = Expression(expr=m.x[3] * m.x[1])
         m.b1.e4 = Expression(expr=log(m.x[2]))
         m.b1.e5 = Expression(expr=log(m.x[2] - 2))
+        m.b1.e6 = Expression(expr=Fake_numpy.float64(3.2))
+        m.b1.e7 = Expression(expr=Fake_numpy.int64(3))
 
         def blackbox(a, b):
             return sin(a - b)
@@ -125,6 +134,24 @@ class TestDataModelItem(unittest.TestCase):
         )
         cdi.ui_data.calculate_expressions()
         self.assertIsNone(cdi.get("value"))
+
+    def test_expr_calc_numpy_float(self):
+        cdi = ComponentDataItem(
+            parent=None, ui_data=UIData(model=self.m), o=self.m.b1.e6
+        )
+        cdi.ui_data.calculate_expressions()
+        self.assertIsInstance(pyo.value(self.m.b1.e6), Fake_numpy.float64)
+        self.assertAlmostEqual(cdi.get("value"), 3.2)
+        self.assertNotIsInstance(cdi.get("value"), Fake_numpy.float64)
+
+    def test_expr_calc_numpy_int(self):
+        cdi = ComponentDataItem(
+            parent=None, ui_data=UIData(model=self.m), o=self.m.b1.e7
+        )
+        cdi.ui_data.calculate_expressions()
+        self.assertIsInstance(pyo.value(self.m.b1.e7), Fake_numpy.int64)
+        self.assertEqual(cdi.get("value"), 3)
+        self.assertNotIsInstance(cdi.get("value"), Fake_numpy.int64)
 
     def test_expr_calc_value_None(self):
         cdi = ComponentDataItem(

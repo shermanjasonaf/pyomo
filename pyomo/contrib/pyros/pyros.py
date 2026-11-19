@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # pyros.py: Generalized Robust Cutting-Set Algorithm for Pyomo
 from datetime import datetime, timezone
@@ -33,8 +31,7 @@ from pyomo.contrib.pyros.util import (
     ModelData,
 )
 
-
-__version__ = "1.3.13"
+__version__ = "1.3.16"
 
 
 default_pyros_solver_logger = setup_pyros_logger()
@@ -197,15 +194,19 @@ class PyROS(object):
         logger.log(
             msg=(
                 "of Energy's "
-                "Institute for the Design of Advanced Energy Systems (IDAES)."
+                "Institute for the Design of Advanced Energy Systems (IDAES)"
             ),
+            **log_kwargs,
+        )
+        logger.log(
+            msg="and Carbon Capture Simulation for Industry Impact (CCSI2) projects.",
             **log_kwargs,
         )
         logger.log(msg="=" * self._LOG_LINE_LENGTH, **log_kwargs)
 
-    def _log_disclaimer(self, logger, **log_kwargs):
+    def _log_feedback_guidance(self, logger, **log_kwargs):
         """
-        Log PyROS solver disclaimer messages.
+        Log PyROS solver guidance on providing user feedback.
 
         Parameters
         ----------
@@ -215,10 +216,6 @@ class PyROS(object):
             Keyword arguments to ``logger.log()`` callable.
             Should not include `msg`.
         """
-        disclaimer_header = " DISCLAIMER ".center(self._LOG_LINE_LENGTH, "=")
-
-        logger.log(msg=disclaimer_header, **log_kwargs)
-        logger.log(msg="PyROS is currently under active development. ", **log_kwargs)
         logger.log(
             msg=(
                 "Please provide feedback and/or report any issues by creating "
@@ -389,10 +386,13 @@ class PyROS(object):
         )
 
         model_data = ModelData(original_model=model, timing=TimingData(), config=None)
-        with time_code(
-            timing_data_obj=model_data.timing,
-            code_block_name="main",
-            is_main_timer=True,
+        with (
+            uncertainty_set._cache_manager(),
+            time_code(
+                timing_data_obj=model_data.timing,
+                code_block_name="main",
+                is_main_timer=True,
+            ),
         ):
             kwds.update(
                 dict(
@@ -419,7 +419,7 @@ class PyROS(object):
                 )
             )
             self._log_intro(logger=progress_logger, level=logging.INFO)
-            self._log_disclaimer(logger=progress_logger, level=logging.INFO)
+            self._log_feedback_guidance(logger=progress_logger, level=logging.INFO)
 
             config, user_var_partitioning = self._resolve_and_validate_pyros_args(
                 model, **kwds

@@ -1,26 +1,32 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from pyomo.core.expr.logical_expr import BooleanExpression
 
 
 class PrecedenceExpression(BooleanExpression):
+    __slots__ = ('_args',)
     PRECEDENCE = None
+
+    def __init__(self, args: tuple["IntervalVarData", "IntervalVarData", int]):
+        self._first, self._second, self._delay = args
 
     def nargs(self):
         return 3
 
     @property
+    def args(self):
+        return self._first, self._second, self._delay
+
+    @property
     def delay(self):
-        return self._args_[2]
+        return self._delay
 
     def _to_string_impl(self, values, relation):
         delay = values[2]

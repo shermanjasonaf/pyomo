@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 # Unit Tests for expression generation
 #
@@ -63,6 +61,7 @@ from pyomo.core.expr.visitor import (
     SimpleExpressionVisitor,
     StreamBasedExpressionVisitor,
     ExpressionReplacementVisitor,
+    IdentifyVariableVisitor,
     evaluate_expression,
     expression_to_string,
     replace_expressions,
@@ -253,6 +252,26 @@ class TestExpressionUtilities(unittest.TestCase):
         m.x = Var()
         expr = quicksum([m.x, m.x], linear=True)
         self.assertEqual(list(identify_variables(expr, include_fixed=False)), [m.x])
+
+    def test_identify_vars_var_cache(self):
+        m = ConcreteModel()
+        m.x = Var()
+        m.y = Var()
+        m.z = Var()
+
+        e1 = m.x + m.y
+        e2 = m.y + m.z
+
+        v = IdentifyVariableVisitor()
+        self.assertEqual(list(v.walk_expression(e1)), [m.x, m.y])
+        self.assertEqual(list(v.walk_expression(e2)), [m.y, m.z])
+
+        seen = {}
+        v = IdentifyVariableVisitor(var_cache=seen)
+        self.assertEqual(list(v.walk_expression(e2)), [m.y, m.z])
+        self.assertEqual(list(seen.values()), [m.y, m.z])
+        self.assertEqual(list(v.walk_expression(e1)), [m.x])
+        self.assertEqual(list(seen.values()), [m.y, m.z, m.x])
 
 
 class TestIdentifyParams(unittest.TestCase):

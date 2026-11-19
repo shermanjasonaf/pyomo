@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # -*- coding: utf-8 -*-
 """Re-implementation of eight-process problem.
@@ -15,10 +13,13 @@
 Re-implementation of Duran example 3 superstructure synthesis problem in Pyomo
 Author: Qi Chen <https://github.com/qtothec>.
 
-Ref:
-    SELECT OPTIMAL PROCESS FROM WITHIN GIVEN SUPERSTRUCTURE.
-    MARCO DURAN , PH.D. THESIS (EX3) , 1984.
-    CARNEGIE-MELLON UNIVERSITY , PITTSBURGH , PA.
+References
+----------
+Duran, M. P. (1984). Select optimal process from within given superstructure.
+PhD thesis, Carnegie-Mellon University, Pittsburgh, PA.
+
+Turkay, M., and Grossmann, I. E. (1996). Pictorial representation of the
+superstructure synthesis problem. DOI: http://dx.doi.org/10.1016/0098-1354(95)00219-7
 
 The expected optimal solution value is 68.0.
 
@@ -53,7 +54,18 @@ class EightProcessFlowsheet(ConcreteModel):
     """Flowsheet for the 8 process problem."""
 
     def __init__(self, convex=True, *args, **kwargs):
-        """Create the flowsheet."""
+        """Create the flowsheet.
+
+        Parameters
+        ----------
+        convex : bool, optional
+            Whether to use the convex variant of the benchmark model.
+            The convex variant replaces the exponential process equalities with <= inequalities.
+        *args
+            Positional arguments forwarded to ``ConcreteModel``.
+        **kwargs
+            Keyword arguments forwarded to ``ConcreteModel``.
+        """
         kwargs.setdefault('name', 'DuranEx3')
         super(EightProcessFlowsheet, self).__init__(*args, **kwargs)
         m = self

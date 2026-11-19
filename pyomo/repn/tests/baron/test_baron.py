@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 # Test the canonical expressions
 #
@@ -250,7 +248,7 @@ class TestToBaronVisitor(unittest.TestCase):
 
         e = m.x**m.y
         test = expression_to_string(e, variables, smap)
-        self.assertEqual(test, "exp((x) * log(y))")
+        self.assertEqual(test, "exp((y) * log(x))")
 
         e = m.x ** (3 + EXPR.ProductExpression((m.p, m.y)))
         test = expression_to_string(e, variables, smap)

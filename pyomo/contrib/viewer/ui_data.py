@@ -1,28 +1,28 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
-#  This module was originally developed as part of the IDAES PSE Framework
+# This module was originally developed as part of the IDAES PSE Framework
 #
-#  Institute for the Design of Advanced Energy Systems Process Systems
-#  Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
-#  software owners: The Regents of the University of California, through
-#  Lawrence Berkeley National Laboratory,  National Technology & Engineering
-#  Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
-#  University Research Corporation, et al. All rights reserved.
+# Institute for the Design of Advanced Energy Systems Process Systems
+# Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
+# software owners: The Regents of the University of California, through
+# Lawrence Berkeley National Laboratory,  National Technology & Engineering
+# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
+# University Research Corporation, et al. All rights reserved.
 #
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """
 UI data objects for sharing data and settings between different parts of the UI.
 """
+
 __author__ = "John Eslick"
 
 import logging
@@ -118,6 +118,10 @@ class UIDataNoUi:
         for o in self.model.component_data_objects(pyo.Expression, active=True):
             try:
                 self.value_cache[o] = pyo.value(o, exception=False)
+                if "numpy.float" in str(type(self.value_cache[o])):
+                    self.value_cache[o] = float(self.value_cache[o])
+                elif "numpy.int" in str(type(self.value_cache[o])):
+                    self.value_cache[o] = int(self.value_cache[o])
             except ZeroDivisionError:
                 self.value_cache[o] = "Divide_by_0"
             try:

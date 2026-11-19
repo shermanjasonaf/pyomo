@@ -1,20 +1,19 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """Tests for the MindtPy solver."""
+
 import sys
 import pyomo.common.unittest as unittest
 from pyomo.contrib.mindtpy.tests.eight_process_problem import EightProcessFlowsheet
-from pyomo.contrib.mindtpy.tests.MINLP_simple import SimpleMINLP as SimpleMINLP
-from pyomo.contrib.mindtpy.tests.MINLP3_simple import SimpleMINLP as SimpleMINLP3
+from pyomo.contrib.mindtpy.tests.minlp_simple import MinlpSimple
+from pyomo.contrib.mindtpy.tests.minlp3_simple import Minlp3Simple
 from pyomo.contrib.mindtpy.tests.constraint_qualification_example import (
     ConstraintQualificationExample,
 )
@@ -39,15 +38,29 @@ else:
 model_list = [
     EightProcessFlowsheet(convex=True),
     ConstraintQualificationExample(),
-    SimpleMINLP(),
-    SimpleMINLP3(),
+    MinlpSimple(),
+    Minlp3Simple(),
 ]
 
 
 def known_solver_failure(mip_solver, model):
+    """Return True when a platform/solver/model combination is known to fail.
+
+    Parameters
+    ----------
+    mip_solver : str
+        Name of the MIP solver under test.
+    model : Block
+        Model currently being tested.
+
+    Returns
+    -------
+    bool
+        ``True`` if the combination matches a known failing case.
+    """
     if (
         mip_solver == 'gurobi_persistent'
-        and model.name in {'DuranEx3', 'SimpleMINLP'}
+        and model.name in {'DuranEx3', 'SimpleMINLP', 'MinlpSimple'}
         and sys.platform.startswith('win')
         and SolverFactory(mip_solver).version()[:3] == (9, 5, 0)
     ):
@@ -64,10 +77,19 @@ def known_solver_failure(mip_solver, model):
     'Required subsolvers %s are not available'
     % ([required_nlp_solvers] + required_mip_solvers),
 )
-class TestMindtPy(unittest.TestCase):
-    """Tests for the MindtPy solver plugin."""
+class TestMindtPyLpNlp(unittest.TestCase):
+    """LP/NLP decomposition tests for the MindtPy solver."""
 
     def check_optimal_solution(self, model, places=1):
+        """Assert that variable values match the model's known optimum.
+
+        Parameters
+        ----------
+        model : Block
+            Model containing ``optimal_solution`` values for comparison.
+        places : int, optional
+            Decimal places used by ``assertAlmostEqual``.
+        """
         for var in model.optimal_solution:
             self.assertAlmostEqual(
                 var.value, model.optimal_solution[var], places=places

@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import logging
 from typing import List, Dict, Optional
@@ -227,7 +225,11 @@ class Highs(PersistentBase, PersistentSolver):
 
     def _warm_start(self):
         # Collect all variable values
-        col_value = np.zeros(len(self._pyomo_var_to_solver_var_map))
+        col_value = np.full(
+            len(self._pyomo_var_to_solver_var_map),
+            getattr(highspy, "kHighsUndefined", 0.0),
+            dtype=float,
+        )
         has_values = False
 
         for var_id, col_ndx in self._pyomo_var_to_solver_var_map.items():

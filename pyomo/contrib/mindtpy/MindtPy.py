@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """Implementation of the MindtPy solver.
 
@@ -91,10 +89,22 @@ class MindtPySolver:
     CONFIG = _get_MindtPy_config()
 
     def available(self, exception_flag=True):
-        """Check if solver is available."""
+        """Check whether the solver interface is available.
+
+        Parameters
+        ----------
+        exception_flag : bool, optional
+            Included for API compatibility and ignored by this implementation.
+
+        Returns
+        -------
+        bool
+            Always ``True`` for the MindtPy interface.
+        """
         return True
 
     def license_is_valid(self):
+        """Report whether the MindtPy solver interface is licensed."""
         return True
 
     def version(self):
@@ -103,11 +113,19 @@ class MindtPySolver:
 
     @document_kwargs_from_configdict(CONFIG)
     def solve(self, model, **kwds):
-        """Solve the model.
+        """Solve a model with the configured MindtPy strategy.
 
-        Args:
-            model (Block): a Pyomo model or block to be solved
+        Parameters
+        ----------
+        model : Block
+            Pyomo model or block to solve.
+        **kwds
+            Additional keyword arguments forwarded to the selected algorithm.
 
+        Returns
+        -------
+        SolverResults
+            Results object returned by the selected MindtPy algorithm.
         """
         # The algorithm should have been specified as an argument to the solve
         # method. We will instantiate an ephemeral instance of the correct
@@ -126,7 +144,19 @@ class MindtPySolver:
     # Support 'with' statements.
     #
     def __enter__(self):
+        """Return this solver instance for context-manager support."""
         return self
 
     def __exit__(self, t, v, traceback):
+        """Exit the context manager without additional teardown actions.
+
+        Parameters
+        ----------
+        t : type or None
+            Exception type if an exception was raised in the context block.
+        v : BaseException or None
+            Exception value if an exception was raised in the context block.
+        traceback : traceback or None
+            Traceback object if an exception was raised in the context block.
+        """
         pass

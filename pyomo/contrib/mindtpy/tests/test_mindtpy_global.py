@@ -1,16 +1,15 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # -*- coding: utf-8 -*-
 """Tests for the MindtPy solver."""
+
 import pyomo.common.unittest as unittest
 from pyomo.contrib.mindtpy.tests.eight_process_problem import EightProcessFlowsheet
 from pyomo.contrib.mindtpy.tests.nonconvex1 import Nonconvex1
@@ -46,9 +45,18 @@ model_list = [
     not pyomo.contrib.mcpp.pyomo_mcpp.mcpp_available(), 'MC++ is not available'
 )
 class TestMindtPy(unittest.TestCase):
-    """Tests for the MindtPy solver plugin."""
+    """Tests for the MindtPy solver."""
 
     def check_optimal_solution(self, model, places=1):
+        """Assert that variable values match the model's known optimum.
+
+        Parameters
+        ----------
+        model : Block
+            Model containing ``optimal_solution`` values for comparison.
+        places : int, optional
+            Decimal places used by ``assertAlmostEqual``.
+        """
         for var in model.optimal_solution:
             self.assertAlmostEqual(
                 var.value, model.optimal_solution[var], places=places

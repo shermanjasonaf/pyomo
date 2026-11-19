@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 # Unit Tests for Param() Objects
 #
@@ -65,6 +63,7 @@ from pyomo.environ import (
 from pyomo.common.errors import PyomoException
 from pyomo.common.log import LoggingIntercept
 from pyomo.common.tempfiles import TempfileManager
+from pyomo.core.base.initializer import InitializerBase
 from pyomo.core.base.param import ParamData
 from pyomo.core.base.set import SetData
 from pyomo.core.base.units_container import units, pint_available, UnitsError
@@ -107,7 +106,7 @@ class ParamTester:
             self.assertRaises(TypeError, float, self.instance.A)
             self.assertRaises(TypeError, int, self.instance.A)
 
-        if self.instance.A._default_val is NoValue:
+        if self.instance.A._default is None:
             val_list = self.sparse_data.items()
         else:
             val_list = self.data.items()
@@ -174,7 +173,7 @@ class ParamTester:
                 raise
 
     def test_setitem_preexisting(self):
-        keys = self.instance.A.sparse_keys()
+        keys = list(self.instance.A.sparse_keys())
         if not keys or None in keys:
             return
 
@@ -238,7 +237,7 @@ class ParamTester:
         if len(keys) == len(sparse_keys):
             # No default value possible
             return
-        if self.instance.A._default_val is NoValue:
+        if self.instance.A._default is None:
             # No default value defined
             return
 
@@ -247,12 +246,15 @@ class ParamTester:
             if not idx in sparse_keys:
                 break
 
-        self.assertEqual(value(self.instance.A[idx]), self.instance.A._default_val)
+        self.assertEqual(
+            value(self.instance.A[idx]), self.instance.A._default(self.instance.A, idx)
+        )
         if self.instance.A.mutable:
             self.assertIsInstance(self.instance.A[idx], ParamData)
         else:
             self.assertEqual(
-                type(self.instance.A[idx]), type(value(self.instance.A._default_val))
+                type(self.instance.A[idx]),
+                type(value(self.instance.A._default(self.instance.A, idx))),
             )
 
         try:
@@ -316,7 +318,7 @@ class ParamTester:
     def test_keys(self):
         test = self.instance.A.keys()
         # self.assertEqual( type(test), list )
-        if self.instance.A._default_val is NoValue:
+        if self.instance.A._default is None:
             self.assertEqual(sorted(test), sorted(self.sparse_data.keys()))
         else:
             self.assertEqual(sorted(test), sorted(self.data.keys()))
@@ -329,7 +331,7 @@ class ParamTester:
             test = self.instance.A.values()
             # self.assertEqual( type(test), list )
             test = zip(self.instance.A.keys(), test)
-            if self.instance.A._default_val is NoValue:
+            if self.instance.A._default is None:
                 self.validateDict(self.sparse_data.items(), test)
             else:
                 self.validateDict(self.data.items(), test)
@@ -341,12 +343,12 @@ class ParamTester:
     def test_items(self):
         expectException = False
         #                  len(self.sparse_data) < len(self.data) and \
-        #                  not self.instance.A._default_val is NoValue and \
+        #                  not self.instance.A._default is None and \
         #                  not self.instance.A.mutable
         try:
             test = self.instance.A.items()
             # self.assertEqual( type(test), list )
-            if self.instance.A._default_val is NoValue:
+            if self.instance.A._default is None:
                 self.validateDict(self.sparse_data.items(), test)
             else:
                 self.validateDict(self.data.items(), test)
@@ -356,77 +358,85 @@ class ParamTester:
                 raise
 
     def test_iterkeys(self):
-        test = self.instance.A.iterkeys()
+        with LoggingIntercept() as LOG:
+            test = self.instance.A.iterkeys()
+        self.assertIn("The iterkeys method is deprecated.", LOG.getvalue())
         self.assertEqual(sorted(test), sorted(self.instance.A.keys()))
 
     def test_itervalues(self):
-        expectException = False
-        #                  len(self.sparse_data) < len(self.data) and \
-        #                  not self.instance.A._default_val is None and \
-        #                  not self.instance.A.mutable
-        try:
-            test = self.instance.A.values()
-            test = zip(self.instance.A.keys(), test)
-            if self.instance.A._default_val is NoValue:
-                self.validateDict(self.sparse_data.items(), test)
-            else:
-                self.validateDict(self.data.items(), test)
-            self.assertFalse(expectException)
-        except ValueError:
-            if not expectException:
-                raise
+        with LoggingIntercept() as LOG:
+            test = self.instance.A.itervalues()
+        self.assertIn("The itervalues method is deprecated.", LOG.getvalue())
+        self.assertEqual(list(self.instance.A.values()), list(test))
 
     def test_iteritems(self):
-        expectException = False
-        #                  len(self.sparse_data) < len(self.data) and \
-        #                  not self.instance.A._default_val is None and \
-        #                  not self.instance.A.mutable
-        try:
-            test = self.instance.A.items()
-            if self.instance.A._default_val is NoValue:
-                self.validateDict(self.sparse_data.items(), test)
-            else:
-                self.validateDict(self.data.items(), test)
-            self.assertFalse(expectException)
-        except ValueError:
-            if not expectException:
-                raise
+        with LoggingIntercept() as LOG:
+            test = self.instance.A.iteritems()
+        self.assertIn("The iteritems method is deprecated.", LOG.getvalue())
+        self.assertEqual(list(self.instance.A.items()), list(test))
 
     def test_sparse_keys(self):
         test = self.instance.A.sparse_keys()
-        self.assertEqual(type(test), list)
         self.assertEqual(sorted(test), sorted(self.sparse_data.keys()))
 
     def test_sparse_values(self):
-        # self.instance.pprint()
         test = self.instance.A.sparse_values()
-        self.assertEqual(type(test), list)
-        # print test
-        # print self.sparse_data.items()
         test = zip(self.instance.A.keys(), test)
         self.validateDict(self.sparse_data.items(), test)
 
     def test_sparse_items(self):
         test = self.instance.A.sparse_items()
-        self.assertEqual(type(test), list)
         self.validateDict(self.sparse_data.items(), test)
 
     def test_sparse_iterkeys(self):
-        test = self.instance.A.sparse_iterkeys()
-        self.assertEqual(sorted(test), sorted(self.sparse_data.keys()))
+        with LoggingIntercept() as LOG:
+            test = self.instance.A.sparse_iterkeys()
+        self.assertIn("The sparse_iterkeys method is deprecated.", LOG.getvalue())
+        self.assertEqual(list(test), list(self.instance.A.sparse_keys()))
 
     def test_sparse_itervalues(self):
-        test = self.instance.A.sparse_itervalues()
-        test = zip(self.instance.A.keys(), test)
-        self.validateDict(self.sparse_data.items(), test)
+        with LoggingIntercept() as LOG:
+            test = self.instance.A.sparse_itervalues()
+        self.assertIn("The sparse_itervalues method is deprecated.", LOG.getvalue())
+        self.assertEqual(list(test), list(self.instance.A.sparse_values()))
 
     def test_sparse_iteritems(self):
-        test = self.instance.A.sparse_iteritems()
-        self.validateDict(self.sparse_data.items(), test)
+        with LoggingIntercept() as LOG:
+            test = self.instance.A.sparse_iteritems()
+        self.assertIn("The sparse_iteritems method is deprecated.", LOG.getvalue())
+        self.assertEqual(list(test), list(self.instance.A.sparse_items()))
+
+    def test_extract_values(self):
+        if self.instance.A._default is None:
+            ref = self.sparse_data
+        else:
+            ref = self.data
+        vals = self.instance.A.extract_values()
+        self.assertEqual(ref, vals)
+        for k, v in vals.items():
+            self.assertIsInstance(v, (float, int))
+        with self.assertRaisesRegex(KeyError, '12345.6'):
+            vals[12345.6]
+
+    def test_extract_values_sparse(self):
+        vals = self.instance.A.extract_values_sparse()
+        self.assertEqual(self.sparse_data, vals)
+        for k, v in vals.items():
+            self.assertIsInstance(v, (float, int))
+        with self.assertRaisesRegex(KeyError, '12345.6'):
+            vals[12345.6]
+        if self.data != self.sparse_data:
+            keys = set(self.data) - set(self.sparse_data)
+            for key in keys:
+                if self.data[key] is NoValue:
+                    with self.assertRaisesRegex(KeyError, str(key)):
+                        vals[key]
+                else:
+                    self.assertEqual(self.data[key], vals[key])
 
     def test_len(self):
         # """Check the use of len"""
-        if self.instance.A._default_val is NoValue:
+        if self.instance.A._default is None:
             self.assertEqual(len(self.instance.A), len(self.sparse_data))
             self.assertEqual(len(list(self.instance.A.keys())), len(self.sparse_data))
         else:
@@ -446,17 +456,19 @@ class ParamTester:
             return
         idx = list(set(self.data) - set(self.sparse_data))[0]
         expectException = (
-            self.instance.A._default_val is NoValue and not self.instance.A.mutable
+            self.instance.A._default is None and not self.instance.A.mutable
         )
         try:
             test = self.instance.A[idx]
             if expectException:
                 self.fail("Expected the test to raise an exception")
             self.assertFalse(expectException)
-            expectException = self.instance.A._default_val is NoValue
+            expectException = self.instance.A._default is None
             try:
                 ans = value(test)
-                self.assertEqual(ans, value(self.instance.A._default_val))
+                self.assertEqual(
+                    ans, value(self.instance.A._default(self.instance.A, None))
+                )
                 self.assertFalse(expectException)
             except:
                 if not expectException:
@@ -849,17 +861,42 @@ class ScalarTester(ParamTester):
     def test_value_scalar(self):
         # """Check the value of the parameter"""
         if self.data.get(None, NoValue) is NoValue:
-            self.assertRaises(ValueError, value, self.instance.A)
-            self.assertRaises(TypeError, float, self.instance.A)
-            self.assertRaises(TypeError, int, self.instance.A)
+            if self.instance.A.mutable:
+                msg = "The Param value is currently set to an invalid value."
+                with self.assertRaisesRegex(ValueError, msg):
+                    value(self.instance.A)
+            else:
+                msg = "The Param value is undefined and no default value is specified"
+                with self.assertRaisesRegex(ValueError, msg):
+                    value(self.instance.A)
         else:
             val = self.data[None]
             tmp = value(self.instance.A)
             self.assertEqual(type(tmp), type(val))
             self.assertEqual(tmp, val)
+            self.assertIsInstance(val, (int, float))
 
-            self.assertRaises(TypeError, float, self.instance.A)
-            self.assertRaises(TypeError, int, self.instance.A)
+    def test_cast_to_number(self):
+        if self.instance.A.mutable:
+            msg = r"Implicit conversion of Pyomo numeric value \(A\) to "
+            with self.assertRaisesRegex(TypeError, msg + 'float'):
+                float(self.instance.A)
+            with self.assertRaisesRegex(TypeError, msg + 'int'):
+                int(self.instance.A)
+        elif self.data.get(None, NoValue) is NoValue:
+            msg = "The Param value is undefined and no default value is specified"
+            with self.assertRaisesRegex(ValueError, msg):
+                float(self.instance.A)
+            with self.assertRaisesRegex(ValueError, msg):
+                int(self.instance.A)
+        else:
+            val = self.data[None]
+            tmp = float(self.instance.A)
+            self.assertEqual(tmp, val)
+            self.assertIs(type(tmp), float)
+            tmp = int(self.instance.A)
+            self.assertEqual(tmp, int(val))
+            self.assertIs(type(tmp), int)
 
     def test_call(self):
         # """Check the use of the __call__ method"""
@@ -867,47 +904,48 @@ class ScalarTester(ParamTester):
             self.sparse_data.get(None, 0) is NoValue
             or self.data.get(None, NoValue) is NoValue
         ):  # not self.sparse_data:
-            self.assertRaisesRegex(
-                ValueError,
-                ".*currently set to an invalid value",
-                self.instance.A.__call__,
-            )
+            if self.instance.A.mutable:
+                msg = "The Param value is currently set to an invalid value."
+            else:
+                msg = "The Param value is undefined and no default value is specified"
+            with self.assertRaisesRegex(ValueError, msg):
+                self.instance.A(),
         else:
             self.assertEqual(self.instance.A(), self.data[None])
 
     def test_get_valueattr(self):
         self.assertEqual(self.instance.A._value, self.sparse_data.get(None, NoValue))
         if self.data.get(None, 0) is NoValue:  # not self.sparse_data:
-            try:
-                value(self.instance.A)
-                self.fail("Expected value error")
-            except ValueError:
-                pass
+            if self.instance.A.mutable:
+                msg = "The Param value is currently set to an invalid value."
+            else:
+                msg = "The Param value is undefined and no default value is specified"
+            with self.assertRaisesRegex(ValueError, msg):
+                self.instance.A.value
         else:
             self.assertEqual(self.instance.A.value, self.data[None])
 
     def test_set_valueattr(self):
-        self.instance.A.value = 4.3
-        self.assertEqual(self.instance.A.value, 4.3)
-        self.assertEqual(self.instance.A(), 4.3)
-
-    def test_get_value(self):
-        if (
-            self.sparse_data.get(None, 0) is NoValue
-            or self.data.get(None, NoValue) is NoValue
-        ):  # not self.sparse_data:
-            try:
-                value(self.instance.A)
-                self.fail("Expected value error")
-            except ValueError:
-                pass
+        if self.instance.A.mutable:
+            self.instance.A.value = 4.3
+            self.assertEqual(self.instance.A.value, 4.3)
+            self.assertEqual(self.instance.A(), 4.3)
         else:
-            self.assertEqual(self.instance.A.value, self.data[None])
+            with self.assertRaisesRegex(
+                TypeError, "Attempting to set the value of the immutable parameter A"
+            ):
+                self.instance.A.value = 4.3
 
     def test_set_value(self):
-        self.instance.A = 4.3
-        self.assertEqual(self.instance.A.value, 4.3)
-        self.assertEqual(self.instance.A(), 4.3)
+        if self.instance.A.mutable:
+            self.instance.A = 4.3
+            self.assertEqual(self.instance.A.value, 4.3)
+            self.assertEqual(self.instance.A(), 4.3)
+        else:
+            with self.assertRaisesRegex(
+                TypeError, "Attempting to set the value of the immutable parameter A"
+            ):
+                self.instance.A = 4.3
 
     def test_is_indexed(self):
         self.assertFalse(self.instance.A.is_indexed())
@@ -915,6 +953,58 @@ class ScalarTester(ParamTester):
     def test_dim(self):
         # """Check the use of dim"""
         self.assertEqual(self.instance.A.dim(), 0)
+
+    def test_extract_values(self):
+        if self.instance.A._default is None:
+            ref = self.sparse_data
+        else:
+            ref = self.data
+        vals = self.instance.A.extract_values()
+        self.assertEqual(ref, vals)
+        for k, v in vals.items():
+            self.assertIsInstance(v, (float, int))
+
+    def test_extract_values_sparse(self):
+        vals = self.instance.A.extract_values_sparse()
+        self.assertEqual(self.sparse_data, vals)
+        for k, v in vals.items():
+            self.assertIsInstance(v, (float, int))
+
+
+class ScalarParam_immutable_noDefault(ScalarTester, unittest.TestCase):
+    def setUp(self, **kwds):
+        #
+        # Sparse single-index Param, no default
+        #
+        self.model = AbstractModel()
+        ScalarTester.setUp(self, mutable=False, **kwds)
+
+        self.sparse_data = {}
+        self.data = {None: NoValue}
+
+
+class ScalarParam_immutable_init(ScalarTester, unittest.TestCase):
+    def setUp(self, **kwds):
+        #
+        # Sparse single-index Param, no default
+        #
+        self.model = AbstractModel()
+        ScalarTester.setUp(self, mutable=False, initialize=1.3, **kwds)
+
+        self.sparse_data = {None: 1.3}
+        self.data = {None: 1.3}
+
+
+class ScalarParam_immutable_floatDefault(ScalarTester, unittest.TestCase):
+    def setUp(self, **kwds):
+        #
+        # Sparse single-index Param, no default
+        #
+        self.model = AbstractModel()
+        ScalarTester.setUp(self, mutable=False, default=1.3, **kwds)
+
+        self.sparse_data = {}
+        self.data = {None: 1.3}
 
 
 class ScalarParam_mutable_noDefault(ScalarTester, unittest.TestCase):
@@ -1251,6 +1341,32 @@ class MiscParamTests(unittest.TestCase):
             r'Param p domain NonNegativeIntegers',
         ):
             model.p = Param(default=-1, within=NonNegativeIntegers)
+
+    def test_default_getter(self):
+        # Verify that we can initialize a parameter with an empty set.
+        m = ConcreteModel()
+        m.p = Param(mutable=True)
+        # No default returns NoValue
+        self.assertIs(m.p.default(), NoValue)
+        # Constant default returns the constant (either numeric
+        # constant, or a constant function)
+        m.p.set_default(1)
+        self.assertEqual(m.p.default(), 1)
+
+        def foo(m):
+            return 10
+
+        m.p.set_default(foo)
+        self.assertEqual(m.p.default(), 10)
+
+        # Other functions / values return an initializer
+        def foo(m, i):
+            return 20
+
+        m.p.set_default(foo)
+        self.assertIsInstance(m.p.default(), InitializerBase)
+        m.p.set_default({1: 2, 3: 4})
+        self.assertIsInstance(m.p.default(), InitializerBase)
 
     def test_invalid_data(self):
         # Verify that we can initialize a parameter with an empty set.
@@ -1634,6 +1750,17 @@ q : Size=0, Index=None, Domain=Any, Default=None, Mutable=False
             "      1 :     2\n"
             "      a :     3\n"
             "     bb :     4\n",
+        )
+
+        # Test a default callback function
+        m.s = Param(Any, mutable=True, initialize={1: 2}, default=lambda m, i: i)
+        OUT = StringIO()
+        m.s.pprint(OUT)
+        self.assertEqual(
+            OUT.getvalue(),
+            "s : Size=inf, Index=Any, Domain=Any, Default=(function), Mutable=True\n"
+            "    Key : Value\n"
+            "      1 :     2\n",
         )
 
     def test_invalid_exception_argument(self):
@@ -2294,6 +2421,347 @@ class MiscIndexedParamBehaviorTests(unittest.TestCase):
         self.assertIs(m.p[1], None)
         self.assertEqual(len(m.p), 2)
         self.assertEqual(len(m.p._data), 0)
+
+    def test_immutable_nonfinite_indexing_sets(self):
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, initialize={0: 1, 2: 3})
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 1)
+        with self.assertRaisesRegex(
+            ValueError, 'The Param value is undefined and no default value '
+        ):
+            m.p[1]
+        self.assertEqual(m.p[2], 3)
+        self.assertEqual(len(m.p._data), 2)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, initialize={0: 1, 2: 3}, default=4)
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 1)
+        self.assertEqual(m.p[1], 4)
+        self.assertEqual(m.p[2], 3)
+        self.assertEqual(len(m.p._data), 2)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, initialize={0: 1, 2: 3}, default=lambda m, i: i * 10)
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 1)
+        self.assertEqual(m.p[1], 10)
+        self.assertEqual(m.p[2], 3)
+        self.assertEqual(len(m.p._data), 2)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, initialize=lambda m, i: i * 10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0], 0)
+        self.assertEqual(m.p[1], 10)
+        self.assertEqual(m.p[2], 20)
+        self.assertEqual(len(m.p._data), 3)  # initialize inserts values into the _data
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, initialize=10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0], 10)
+        self.assertEqual(m.p[1], 10)
+        self.assertEqual(m.p[2], 10)
+        self.assertEqual(len(m.p._data), 3)  # initialize inserts values into the _data
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, default=100)
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0], 100)
+        self.assertEqual(m.p[1], 100)
+        self.assertEqual(m.p[2], 100)
+        self.assertEqual(len(m.p._data), 0)
+
+    def test_mutable_nonfinite_indexing_sets(self):
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, mutable=True, initialize={0: 1, 2: 3})
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 1)
+        with self.assertRaisesRegex(
+            ValueError, 'The Param value is currently set to an invalid value'
+        ):
+            m.p[1].value
+        self.assertEqual(m.p[2].value, 3)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, mutable=True, initialize={0: 1, 2: 3}, default=4)
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 1)
+        self.assertEqual(m.p[1].value, 4)
+        self.assertEqual(m.p[2].value, 3)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(
+                Integers,
+                mutable=True,
+                initialize={0: 1, 2: 3},
+                default=lambda m, i: i * 10,
+            )
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 1)
+        self.assertEqual(m.p[1].value, 10)
+        self.assertEqual(m.p[2].value, 3)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(
+                Integers, mutable=True, initialize=lambda m, i: i * 10, default=100
+            )
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0].value, 0)
+        self.assertEqual(m.p[1].value, 10)
+        self.assertEqual(m.p[2].value, 20)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, mutable=True, initialize=10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0].value, 10)
+        self.assertEqual(m.p[1].value, 10)
+        self.assertEqual(m.p[2].value, 10)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        with LoggingIntercept() as LOG:
+            m.p = Param(Integers, mutable=True, default=100)
+        self.assertEqual(LOG.getvalue(), "")
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0].value, 100)
+        self.assertEqual(m.p[1].value, 100)
+        self.assertEqual(m.p[2].value, 100)
+        self.assertEqual(len(m.p._data), 3)
+
+    def test_dynamic_rules_receive_owning_block(self):
+        # Callbacks evaluated on demand (a default= callback, or an
+        # initialize= rule over a non-finite index) must receive the
+        # owning block (not the Param) so they can reference sibling
+        # components. Use a sub-block to distinguish the owning block
+        # from the top-level model
+        m = ConcreteModel()
+        m.b = Block()
+        m.b.offset = Param(initialize=100)
+
+        m.b.p = Param(Integers, initialize={0: 1}, default=lambda b, i: b.offset + i)
+        self.assertEqual(m.b.p[0], 1)
+        self.assertEqual(m.b.p[5], 105)
+
+        m.b.q = Param(Integers, mutable=True, default=lambda b, i: b.offset + i)
+        self.assertEqual(value(m.b.q[5]), 105)
+
+        m.b.r = Param(Integers, initialize=lambda b, i: b.offset * i)
+        self.assertEqual(m.b.r[5], 500)
+
+    def test_immutable_dynamic_indexing_sets(self):
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, initialize={0: 1, 2: 3})
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 1)
+        with self.assertRaisesRegex(
+            ValueError, 'The Param value is undefined and no default value '
+        ):
+            m.p[1]
+        self.assertEqual(m.p[2], 3)
+        self.assertEqual(len(m.p._data), 2)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, initialize={0: 1, 2: 3}, default=4)
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 1)
+        self.assertEqual(m.p[1], 4)
+        self.assertEqual(m.p[2], 3)
+        self.assertEqual(len(m.p._data), 2)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, initialize={0: 1, 2: 3}, default=lambda m, i: i * 10)
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 1)
+        self.assertEqual(m.p[1], 10)
+        self.assertEqual(m.p[2], 3)
+        self.assertEqual(len(m.p._data), 2)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, initialize=lambda m, i: i * 10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 0)
+        self.assertEqual(m.p[1], 10)
+        self.assertEqual(m.p[2], 20)
+        self.assertEqual(len(m.p._data), 3)  # initialize inserts values into the _data
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, initialize=10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0], 10)
+        self.assertEqual(m.p[1], 10)
+        self.assertEqual(m.p[2], 10)
+        self.assertEqual(len(m.p._data), 3)  # initialize inserts values into the _data
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, default=100)
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0], 100)
+        self.assertEqual(m.p[1], 100)
+        self.assertEqual(m.p[2], 100)
+        self.assertEqual(len(m.p._data), 0)
+
+    def test_mutable_dynamic_indexing_sets(self):
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, mutable=True, initialize={0: 1, 2: 3})
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 1)
+        with self.assertRaisesRegex(
+            ValueError, 'The Param value is currently set to an invalid value'
+        ):
+            m.p[1].value
+        self.assertEqual(m.p[2].value, 3)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, mutable=True, initialize={0: 1, 2: 3}, default=4)
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 1)
+        self.assertEqual(m.p[1].value, 4)
+        self.assertEqual(m.p[2].value, 3)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(
+                m.I, mutable=True, initialize={0: 1, 2: 3}, default=lambda m, i: i * 10
+            )
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 1)
+        self.assertEqual(m.p[1].value, 10)
+        self.assertEqual(m.p[2].value, 3)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, mutable=True, initialize=lambda m, i: i * 10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 0)
+        self.assertEqual(m.p[1].value, 10)
+        self.assertEqual(m.p[2].value, 20)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, mutable=True, initialize=10, default=100)
+        self.assertEqual(
+            LOG.getvalue(),
+            "Declaring Param 'p' with a universal initializer "
+            "(constant or callback function) completely masks the default value\n",
+        )
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 2)
+        self.assertEqual(m.p[0].value, 10)
+        self.assertEqual(m.p[1].value, 10)
+        self.assertEqual(m.p[2].value, 10)
+        self.assertEqual(len(m.p._data), 3)
+
+        m = ConcreteModel()
+        m.I = Set(initialize=[0, 2])
+        with LoggingIntercept() as LOG:
+            m.p = Param(m.I, mutable=True, default=100)
+        self.assertEqual(LOG.getvalue(), "")
+        m.I.add(1)
+        self.assertEqual(len(m.p._data), 0)
+        self.assertEqual(m.p[0].value, 100)
+        self.assertEqual(m.p[1].value, 100)
+        self.assertEqual(m.p[2].value, 100)
+        self.assertEqual(len(m.p._data), 3)
 
 
 # Add test methods for all intrinsic functions

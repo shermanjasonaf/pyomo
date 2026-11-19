@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from io import StringIO
 import logging
@@ -19,6 +17,7 @@ from pyomo.common.dependencies import dill_available
 from pyomo.common.fileutils import import_file, PYOMO_ROOT_DIR
 from pyomo.common.log import LoggingIntercept
 import pyomo.common.unittest as unittest
+from pyomo.common.envvar import is_pypy
 from pyomo.core.expr.compare import (
     assertExpressionsEqual,
     assertExpressionsStructurallyEqual,
@@ -35,6 +34,7 @@ from pyomo.environ import (
     TransformationFactory,
     value,
     Var,
+    Block,
 )
 from pyomo.gdp import Disjunct, Disjunction, GDP_Error
 from pyomo.gdp.tests.common_tests import (
@@ -45,7 +45,6 @@ from pyomo.gdp.tests.common_tests import (
 )
 from pyomo.gdp.tests.models import make_indexed_equality_model
 from pyomo.repn import generate_standard_repn
-
 
 gurobi_available = (
     SolverFactory('gurobi').available(exception_flag=False)
@@ -339,6 +338,7 @@ class LinearModelDecisionTreeExample(CommonTests):
         )
 
     @unittest.skipUnless(gurobi_available, "Gurobi is not available")
+    @unittest.skipUnless(dill_available, "Dill is not available")
     def test_calculated_Ms_correct(self):
         # Calculating all the Ms is expensive, so we just do it in this one test
         # and then specify them for most of the others
@@ -605,6 +605,7 @@ class LinearModelDecisionTreeExample(CommonTests):
         self.check_all_untightened_bounds_constraints(m, mbm)
 
     @unittest.skipUnless(gurobi_available, "Gurobi is not available")
+    @unittest.skipUnless(dill_available, "Dill is not available")
     def test_var_bounds_substituted_for_missing_bound_constraints(self):
         m = self.make_model()
         # Add a new thing with constraints that don't give both bounds on x1 and
@@ -683,6 +684,7 @@ class LinearModelDecisionTreeExample(CommonTests):
             TransformationFactory('gdp.mbigm').apply_to(m)
 
     @unittest.skipUnless(gurobi_available, "Gurobi is not available")
+    @unittest.skipUnless(dill_available, "Dill is not available")
     def test_logical_constraints_on_disjuncts(self):
         m = self.make_model()
         m.d1.Y = BooleanVar()
@@ -1077,6 +1079,7 @@ class IndexedDisjunction(unittest.TestCase):
         self.assertIs(cons_again[1], cons[1])
 
 
+@unittest.skipUnless(dill_available, "Dill is not available")
 class EdgeCases(unittest.TestCase):
     def make_infeasible_disjunct_model(self):
         m = ConcreteModel()
@@ -1138,6 +1141,11 @@ class EdgeCases(unittest.TestCase):
     @unittest.skipUnless(
         SolverFactory('ipopt').available(exception_flag=False), "Ipopt is not available"
     )
+    @unittest.skipUnless(dill_available, "dill is not available")
+    @unittest.skipIf(
+        is_pypy,
+        "tests using multiprocessing stall on pypy; this will no longer be tested.",
+    )
     def test_calculate_Ms_infeasible_Disjunct_local_solver(self):
         m = self.make_infeasible_disjunct_model()
         # When multiple exceptions are raised during a
@@ -1191,3 +1199,35 @@ class EdgeCases(unittest.TestCase):
             TransformationFactory('gdp.mbigm').apply_to(
                 m, reduce_bound_constraints=False
             )
+
+    @unittest.skipUnless(gurobi_available, "Gurobi is not available")
+    def test_transform_on_block(self):
+        # In multiple_bigm.py, if constraint.getname and disjunct.getname do not
+        # set relative_to=instance, the transformation fails because of mismatched
+        # names in _calc_M.
+        # This test ensures that the transformation works on blocks as well as
+        # ConcreteModels.
+        m = ConcreteModel()
+        m.b = Block()
+        m.b.x = Var(bounds=(0, 5))
+        m.b.y = Var()
+        m.b.dis1 = Disjunct()
+        m.b.dis2 = Disjunct()
+
+        m.b.dis1.linear = Constraint(expr=m.b.x * 0.5 + 3 == m.b.y)
+        m.b.dis2.linear = Constraint(expr=m.b.x * 0.2 + 1 == m.b.y)
+        m.b.d = Disjunction(expr=[m.b.dis1, m.b.dis2])
+
+        mbm = TransformationFactory('gdp.mbigm')
+        mbm.apply_to(m.b, threads=1)
+        dis1_cons = mbm.get_transformed_constraints(m.b.dis1.linear)
+        assertExpressionsEqual(
+            self,
+            dis1_cons[0].expr,
+            2.0 * m.b.dis2.binary_indicator_var <= 0.5 * m.b.x + 3 - m.b.y,
+        )
+        assertExpressionsEqual(
+            self,
+            dis1_cons[1].expr,
+            0.5 * m.b.x + 3 - m.b.y <= 3.5 * m.b.dis2.binary_indicator_var,
+        )

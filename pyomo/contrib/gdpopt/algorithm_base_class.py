@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from io import StringIO
 
@@ -16,6 +14,7 @@ from pyomo.common.config import ConfigBlock
 from pyomo.common.errors import DeveloperError
 from pyomo.common.modeling import unique_component_name
 from pyomo.contrib.gdpopt.config_options import _add_common_configs
+from pyomo.contrib.gdpopt.convexity import model_is_not_certified_convex
 from pyomo.contrib.gdpopt.create_oa_subproblems import (
     add_util_block,
     add_disjunct_list,
@@ -39,6 +38,7 @@ from pyomo.util.model_size import build_model_size_report
 class _GDPoptAlgorithm:
     CONFIG = ConfigBlock("GDPopt")
     _add_common_configs(CONFIG)
+    _requires_model_convexity = False
 
     def __init__(self, **kwds):
         """
@@ -59,6 +59,8 @@ class _GDPoptAlgorithm:
 
         self.incumbent_boolean_soln = None
         self.incumbent_continuous_soln = None
+        self._bounds_crossed_without_certified_convexity = False
+        self._model_is_not_certified_convex = False
 
         self.original_obj = None
         self._dummy_obj = None
@@ -115,6 +117,8 @@ class _GDPoptAlgorithm:
 
         config = self.config(kwds.pop('options', {}), preserve_implicit=True)
         config.set_value(kwds)
+        self._bounds_crossed_without_certified_convexity = False
+        self._model_is_not_certified_convex = False
 
         with lower_logger_level_to(config.logger, tee=config.tee):
             self._log_solver_intro_message(config)
@@ -164,8 +168,7 @@ class _GDPoptAlgorithm:
         config.display(ostream=os)
         config.logger.info(os.getvalue())
 
-        config.logger.info(
-            """
+        config.logger.info("""
             If you use this software, you may cite the following:
             - Implementation:
             Chen, Q; Johnson, ES; Bernal, DE; Valentin, R; Kale, S;
@@ -173,8 +176,7 @@ class _GDPoptAlgorithm:
             Pyomo.GDP: an ecosystem for logic based modeling and optimization
             development.
             Optimization and Engineering, 2021.
-            """.strip()
-        )
+            """.strip())
         self._log_citation(config)
 
     def _log_header(self, logger):
@@ -211,6 +213,10 @@ class _GDPoptAlgorithm:
         logger = config.logger
 
         self._create_pyomo_results_object_with_problem_info(model, config)
+        self._model_is_not_certified_convex = (
+            self._requires_model_convexity
+            and model_is_not_certified_convex(model, config.eigenvalue_tolerance)
+        )
         # Check if this problem actually has any discrete decisions. If not,
         # just solve it.
         problem = self.pyomo_results.problem
@@ -285,7 +291,7 @@ class _GDPoptAlgorithm:
         some point the primal bound changes signs.
         """
         absolute_gap = abs(self.UB - self.LB)
-        return absolute_gap / (abs(self.primal_bound() + 1e-10))
+        return absolute_gap / (abs(self.primal_bound()) + 1e-10)
 
     def _log_current_state(self, logger, subproblem_type, primal_improved=False):
         star = "*" if primal_improved else ""
@@ -376,6 +382,17 @@ class _GDPoptAlgorithm:
                 self._load_infeasible_termination_status(config)
             elif self.LB == float('-inf') and self.UB == float('-inf'):
                 self._load_infeasible_termination_status(config)
+            elif (
+                self.LB > self.UB
+                and self._requires_model_convexity
+                and self._model_is_not_certified_convex
+            ):
+                self._bounds_crossed_without_certified_convexity = True
+                self._log_current_state(config.logger, '')
+                config.logger.info(
+                    'GDPopt exiting--bounds crossed without certified model convexity.'
+                )
+                self.pyomo_results.solver.termination_condition = tc.feasible
             else:
                 # if they've crossed, then the gap is actually 0: Update the
                 # dual (discrete problem) bound to be equal to the primal
@@ -401,7 +418,7 @@ class _GDPoptAlgorithm:
 
     def reached_time_limit(self, config):
         elapsed = get_main_elapsed_time(self.timing)
-        if config.time_limit is not None and elapsed >= config.time_limit:
+        if config.time_limit and elapsed >= config.time_limit:
             config.logger.info(
                 'GDPopt exiting--Did not converge bounds '
                 'before time limit of {} seconds. '.format(config.time_limit)
@@ -522,8 +539,16 @@ class _GDPoptAlgorithm:
         """
         results = self.pyomo_results
         # Finalize results object
-        results.problem.lower_bound = self.LB
-        results.problem.upper_bound = self.UB
+        if self._bounds_crossed_without_certified_convexity:
+            if self.objective_sense is minimize:
+                results.problem.lower_bound = float('-inf')
+                results.problem.upper_bound = self.UB
+            else:
+                results.problem.lower_bound = self.LB
+                results.problem.upper_bound = float('inf')
+        else:
+            results.problem.lower_bound = self.LB
+            results.problem.upper_bound = self.UB
         results.solver.iterations = self.iteration
         results.solver.timing = self.timing
         results.solver.user_time = self.timing.total

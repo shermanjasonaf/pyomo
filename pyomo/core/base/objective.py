@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import sys
 import logging
@@ -117,11 +115,11 @@ class ObjectiveData(NamedExpressionData, ActiveComponentData):
 
     """
 
-    __slots__ = ("_args_", "_sense")
+    __slots__ = ("_arg", "_sense")
 
     def __init__(self, expr=None, sense=minimize, component=None):
         # Inlining NamedExpressionData.__init__
-        self._args_ = (expr,)
+        self._arg = expr
         # Inlining ActiveComponentData.__init__
         self._component = weakref_ref(component) if (component is not None) else None
         self._index = NOTSET
@@ -174,10 +172,10 @@ class TemplateDataMixin:
         # Note that it is faster to just generate the expression from
         # scratch than it is to clone it and replace the IndexTemplate objects
         self.set_value(self.parent_component().rule(self.parent_block(), self.index()))
-        return self._args_
+        return (self._arg,)
 
     def template_expr(self):
-        return self._args_
+        return self._arg
 
     def set_value(self, expr):
         # Setting a value will convert this instance from a templatized
@@ -206,7 +204,7 @@ class TemplateObjectiveData(TemplateDataMixin, ObjectiveData):
         self._component = component
         self._active = True
         self._index = index
-        self._args_ = template_info
+        self._arg = template_info
         self._sense = sense
 
 
@@ -348,7 +346,7 @@ class Objective(ActiveIndexedComponent):
                         else:
                             assert self.__class__ is ScalarObjective
                             self.__class__ = TemplateScalarObjective
-                            self._args_ = template_info
+                            self._arg = template_info
                             self._data = {None: self}
                             self.set_sense(self._init_sense(self, self.index()))
                         return
@@ -393,7 +391,7 @@ class Objective(ActiveIndexedComponent):
                 ("Index", self._index_set if self.is_indexed() else None),
                 ("Active", self.active),
             ],
-            self._data.items(),
+            self.items,
             ("Active", "Sense", "Expression"),
             lambda k, v: [v.active, v.sense, v.expr],
         )

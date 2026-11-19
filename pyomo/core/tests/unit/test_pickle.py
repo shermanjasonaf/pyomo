@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 # Unit Tests for Utility Functions
 #
@@ -33,9 +31,8 @@ from pyomo.environ import (
     NonNegativeReals,
     sum_product,
 )
-
-
-is_pypy = platform.python_implementation().lower().startswith("pypy")
+from pyomo.common.dependencies import dill_available
+from pyomo.common.envvar import is_pypy
 
 
 def obj_rule(model):
@@ -322,7 +319,7 @@ class Test(unittest.TestCase):
         model.con = Constraint(rule=rule1)
         model.con2 = Constraint(model.a, rule=rule2)
         instance = model.create_instance()
-        if is_pypy:
+        if is_pypy and dill_available:
             str_ = pickle.dumps(instance)
             tmp_ = pickle.loads(str_)
         else:

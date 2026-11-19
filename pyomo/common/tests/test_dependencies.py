@@ -1,19 +1,18 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2025
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import inspect
 import sys
 from importlib.machinery import PathFinder
 from io import StringIO
 
+import pyomo.common.dependencies as dependencies
 import pyomo.common.unittest as unittest
 
 from pyomo.common.log import LoggingIntercept
@@ -90,12 +89,12 @@ class TestDependencies(unittest.TestCase):
 
     def test_import_success(self):
         module_obj, module_available = attempt_import(
-            'ply', 'Testing import of ply', defer_import=False
+            'pyomo.tpl.ply', 'Testing import of ply', defer_import=False
         )
         self.assertTrue(module_available)
-        import ply
+        import pyomo.tpl.ply
 
-        self.assertTrue(module_obj is ply)
+        self.assertTrue(module_obj is pyomo.tpl.ply)
 
     def test_local_deferred_import(self):
         self.assertIs(type(deps.bogus_available), DeferredImportIndicator)
@@ -185,7 +184,7 @@ class TestDependencies(unittest.TestCase):
         packaging_available, "min_version tests require packaging module"
     )
     def test_and_or(self):
-        mod0, avail0 = attempt_import('ply', defer_import=True)
+        mod0, avail0 = attempt_import('pyomo.tpl.ply', defer_import=True)
         mod1, avail1 = attempt_import('pyomo.common.tests.dep_mod', defer_import=True)
         mod2, avail2 = attempt_import(
             'pyomo.common.tests.dep_mod', minimum_version='2.0', defer_import=True
@@ -247,7 +246,9 @@ class TestDependencies(unittest.TestCase):
         def _record_avail(module, avail):
             ans.append(avail)
 
-        mod0, avail0 = attempt_import('ply', defer_import=True, callback=_record_avail)
+        mod0, avail0 = attempt_import(
+            'pyomo.tpl.ply', defer_import=True, callback=_record_avail
+        )
         mod1, avail1 = attempt_import(
             'pyomo.common.tests.dep_mod',
             minimum_version='2.0',
@@ -527,6 +528,22 @@ class TestDependencies(unittest.TestCase):
             r"'__there_is_no_module_named_this__'\)",
         ):
             A_Class.method()
+
+    def test_finalize_multiprocessing_lock_unavailable(self):
+        # AWS Lambda has no usable /dev/shm, so multiprocessing.Lock()
+        # raises PermissionError; importing multiprocessing must not
+        # fail, and we keep the threading.Lock
+        class _NoSharedMemory:
+            @staticmethod
+            def Lock():
+                raise PermissionError(13, 'Permission denied')
+
+        original = dependencies.capture_output_lock
+        try:
+            dependencies._finalize_multiprocessing(_NoSharedMemory, True)
+            self.assertIs(dependencies.capture_output_lock, original)
+        finally:
+            dependencies.capture_output_lock = original
 
     @unittest.pytest.mark.mpi
     def test_mpi4py_available(self):
